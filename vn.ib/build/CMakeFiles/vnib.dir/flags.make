@@ -4,7 +4,7 @@
 # compile CXX with /usr/bin/c++
 CXX_FLAGS =  -fPIC -std=c++11 -O3 -DNDEBUG -fPIC  
 
-CXX_DEFINES = -DBUILD_IB -DUSE_64BITS -Dtwsapi_EXPORTS
+CXX_DEFINES = -DBUILD_IB -DUSE_64BITS -Dvnib_EXPORTS
 
-CXX_INCLUDES = -I/home/vnpy/桌面/new/vn.ib/ibapi/linux/IB_PATH 
+CXX_INCLUDES = -I/home/vnpy/桌面/new/vn.ib/./ibapi/linux/client -I/home/vnpy/桌面/new/vn.ib/IB_PATH -I/usr/include/python2.7 
 
