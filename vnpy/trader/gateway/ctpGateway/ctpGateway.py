@@ -13,10 +13,10 @@ import json
 from copy import copy
 from datetime import datetime
 
-from vnctpmd import MdApi
-from vnctptd import TdApi
-from ctpDataType import *
-from vtGateway import *
+from vnpy.api.ctp.vnctpmd import MdApi
+from vnpy.api.ctp.vnctptd import TdApi
+from .ctpDataType import defineDict
+from vnpy.trader.vtGateway import *
 from language import text
 
 
