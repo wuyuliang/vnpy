@@ -5,6 +5,7 @@
 分钟数据字段: ts_code, trade_time, open, close, high, low, vol, amount, oi, ...
     -> 统一映射为: datetime, open, high, low, close, volume, open_interest, turnover, symbol, exchange
 """
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -39,30 +40,43 @@ def load_day_data(symbol: str) -> pd.DataFrame:
     return df
 
 
+def _get_alpha_prefix(name: str) -> str:
+    """提取名称开头的字母部分: 'CU0' -> 'CU', 'CU_small' -> 'CU', 'C0.DCE' -> 'C'"""
+    m = re.match(r'^([A-Za-z]+)', name)
+    return m.group(1).upper() if m else ''
+
+
 def load_minute_data(symbol: str, exchange: str) -> pd.DataFrame:
     """
     加载单品种分钟线数据（parquet 按日期存储）
     目录结构: data/minute/{symbol}.{exchange}/YYYY-MM-DD.parquet
     列名自动映射为统一字段
+
+    目录匹配: 按品种字母前缀扫描所有匹配目录
+    例如 symbol='CU0' 会匹配 CU0.SHFE, CU.SHF, CU_small 等
     """
-    # 尝试多种目录命名: CU0.SHF, CU0.SHFE
-    candidates = [
-        DATA_DIR / "minute" / f"{symbol}.{exchange}",
-        DATA_DIR / "minute" / f"{symbol}.{exchange[:3]}",
-    ]
-    folder = None
-    for c in candidates:
-        if c.exists():
-            folder = c
-            break
-    if folder is None:
+    minute_dir = DATA_DIR / "minute"
+    prefix = _get_alpha_prefix(symbol)
+
+    # 扫描所有以该品种字母前缀开头的目录
+    folders = []
+    if minute_dir.exists():
+        for d in sorted(minute_dir.iterdir()):
+            if d.is_dir() and _get_alpha_prefix(d.name) == prefix:
+                folders.append(d)
+
+    if not folders:
         raise FileNotFoundError(
-            f"分钟数据目录不存在，已尝试: {[str(c) for c in candidates]}"
+            f"分钟数据目录不存在，品种前缀: {prefix}，搜索路径: {minute_dir}"
         )
 
-    files = sorted(folder.glob("*.parquet"))
+    # 从所有匹配目录加载 parquet
+    files = []
+    for folder in folders:
+        files.extend(sorted(folder.glob("*.parquet")))
+
     if not files:
-        raise FileNotFoundError(f"分钟数据目录为空: {folder}")
+        raise FileNotFoundError(f"分钟数据目录为空: {folders}")
     dfs = [pd.read_parquet(f) for f in files]
     df = pd.concat(dfs, ignore_index=True)
 
@@ -91,22 +105,49 @@ def load_minute_data(symbol: str, exchange: str) -> pd.DataFrame:
 def list_minute_symbols() -> list[dict]:
     """
     扫描 data/minute/ 目录，返回可用品种列表
-    返回: [{"symbol": "CU0", "exchange": "SHF", "folder": Path}, ...]
+    按字母前缀分组去重，同一品种多个目录只返回一条记录
+    返回: [{"symbol": "CU0", "exchange": "SHFE", "folder": Path}, ...]
     """
     minute_dir = DATA_DIR / "minute"
     if not minute_dir.exists():
         return []
-    result = []
+
+    # 按字母前缀分组
+    groups: dict[str, list[Path]] = {}
     for folder in sorted(minute_dir.iterdir()):
-        if folder.is_dir() and "." in folder.name:
-            parts = folder.name.split(".", 1)
-            parquet_files = list(folder.glob("*.parquet"))
-            if parquet_files:
-                result.append({
-                    "symbol": parts[0],
-                    "exchange": parts[1],
-                    "folder": folder,
-                })
+        if not folder.is_dir():
+            continue
+        prefix = _get_alpha_prefix(folder.name)
+        if not prefix:
+            continue
+        if prefix not in groups:
+            groups[prefix] = []
+        groups[prefix].append(folder)
+
+    # 从 symbols_list.csv 查找交易所
+    try:
+        symbols_df = load_symbols()
+        sym_exchange = dict(zip(symbols_df["symbol"], symbols_df["exchange"]))
+    except Exception:
+        sym_exchange = {}
+
+    result = []
+    for prefix, folders in sorted(groups.items()):
+        has_data = any(list(f.glob("*.parquet")) for f in folders)
+        if not has_data:
+            continue
+        symbol = prefix + "0"
+        exchange = sym_exchange.get(symbol, "")
+        if not exchange:
+            for f in folders:
+                if "." in f.name:
+                    exchange = f.name.split(".", 1)[1]
+                    break
+        result.append({
+            "symbol": symbol,
+            "exchange": exchange,
+            "folder": folders[0],
+        })
     return result
 
 
