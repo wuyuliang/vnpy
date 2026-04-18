@@ -109,17 +109,21 @@ def compute_all_features(
     all_dfs = []
     total = len(symbols_df)
 
+    from cta.feature.loader import normalize_interval, load_intraday_data
+    canon = normalize_interval(interval)
+    # compute 仅区分 1min vs 其它；minute5/15/30/60 走与 day 相同的特征集
+    compute_interval = "minute" if canon == "minute" else "day"
+
     for idx, (_, row) in enumerate(symbols_df.iterrows(), 1):
         symbol = row["symbol"]
         logger.info(f"[{idx}/{total}] 计算 {symbol} 的时序特征...")
         try:
-            if interval == "day":
+            if canon == "day":
                 df = load_day_data(symbol)
             else:
-                from cta.feature.loader import load_minute_data
-                df = load_minute_data(symbol, row["exchange"])
+                df = load_intraday_data(symbol, row["exchange"], interval=canon)
 
-            df_with_feat = compute_single_symbol_features(df, interval=interval)
+            df_with_feat = compute_single_symbol_features(df, interval=compute_interval)
             all_dfs.append(df_with_feat)
 
             # 按品种保存
@@ -157,8 +161,12 @@ def compute_all_features(
 
 def main():
     parser = argparse.ArgumentParser(description="CTA 特征批量计算")
-    parser.add_argument("--interval", default="day", choices=["day", "minute"],
-                        help="数据频率")
+    parser.add_argument(
+        "--interval", default="day",
+        choices=["day", "minute", "minute5", "minute15", "minute30", "minute60",
+                 "5min", "15min", "30min", "60min"],
+        help="数据频率（接受规范名 minute5/... 与旧名 5min/...）",
+    )
     parser.add_argument("--symbol", nargs="*", default=None,
                         help="指定品种（可多个），不指定则全部")
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT),

@@ -23,15 +23,67 @@ MINUTE_COL_MAP = {
     "amount": "turnover",
 }
 
+# 规范化的盘中频率名（对外主推）
+CANON_INTRADAY_INTERVALS: list[str] = [
+    "minute", "minute5", "minute15", "minute30", "minute60",
+]
+
+# 旧 -> 新 的别名映射（对外接口同时接受旧名，内部统一到 canonical）
+INTERVAL_ALIASES: dict[str, str] = {
+    "1min":  "minute",
+    "5min":  "minute5",
+    "15min": "minute15",
+    "30min": "minute30",
+    "60min": "minute60",
+    # canonical names map to themselves (identity)
+    "day": "day", "minute": "minute",
+    "minute5": "minute5", "minute15": "minute15",
+    "minute30": "minute30", "minute60": "minute60",
+}
+
+# 规范 -> 旧名反向，用于目录回退扫描
+CANON_TO_LEGACY: dict[str, str] = {
+    "minute5":  "5min",
+    "minute15": "15min",
+    "minute30": "30min",
+    "minute60": "60min",
+}
+
 # 已知的盘中频率（与 data/{interval}/ 目录名一一对应）
 # 兼容两套命名：
 #   新（download_all.py 约定）: minute / minute5 / minute15 / minute30 / minute60
 #   旧                        : minute / 5min   / 15min   / 30min   / 60min
-INTRADAY_INTERVALS = [
-    "minute",
-    "minute5", "minute15", "minute30", "minute60",
-    "5min", "15min", "30min", "60min",
+INTRADAY_INTERVALS = CANON_INTRADAY_INTERVALS + [
+    v for v in CANON_TO_LEGACY.values()
 ]
+
+
+def normalize_interval(interval: str) -> str:
+    """把 '5min'/'15min'/... 规范成 'minute5'/'minute15'/...；未知名原样返回"""
+    if interval is None:
+        return interval
+    return INTERVAL_ALIASES.get(str(interval).strip().lower(), str(interval).strip())
+
+
+def resolve_interval_dir(interval: str) -> Path:
+    """
+    返回某 interval 的有效数据目录。
+    优先级:
+      1. 规范名目录（minute5/minute15/...）若存在且非空
+      2. 旧名目录（5min/15min/...）若存在且非空
+      3. 否则返回规范名目录（即使不存在，让调用方报错）
+    """
+    canon = normalize_interval(interval)
+    canon_dir = DATA_DIR / canon
+    if canon_dir.exists() and any(canon_dir.iterdir()):
+        return canon_dir
+
+    legacy = CANON_TO_LEGACY.get(canon)
+    if legacy:
+        legacy_dir = DATA_DIR / legacy
+        if legacy_dir.exists() and any(legacy_dir.iterdir()):
+            return legacy_dir
+    return canon_dir
 
 
 def load_symbols() -> pd.DataFrame:
@@ -62,11 +114,12 @@ def load_intraday_data(symbol: str, exchange: str, interval: str = "minute") -> 
     目录结构: data/{interval}/{symbol}.{exchange}/YYYY-MM-DD.parquet
     列名自动映射为统一字段
 
-    interval 取值: minute / 5min / 15min / 30min / 60min 或其它已建好的目录
+    interval 取值: minute / minute5 / minute15 / minute30 / minute60
+                  也接受老别名 5min / 15min / 30min / 60min
     目录匹配: 按品种字母前缀扫描所有匹配目录
     例如 symbol='CU0' 会匹配 CU0.SHFE, CU.SHF, CU_small 等
     """
-    base_dir = DATA_DIR / interval
+    base_dir = resolve_interval_dir(interval)
     prefix = _get_alpha_prefix(symbol)
 
     # 扫描所有以该品种字母前缀开头的目录
@@ -124,7 +177,7 @@ def list_intraday_symbols(interval: str = "minute") -> list[dict]:
     按字母前缀分组去重，同一品种多个目录只返回一条记录
     返回: [{"symbol": "CU0", "exchange": "SHFE", "folder": Path}, ...]
     """
-    base_dir = DATA_DIR / interval
+    base_dir = resolve_interval_dir(interval)
     if not base_dir.exists():
         return []
 
@@ -173,14 +226,20 @@ def list_minute_symbols() -> list[dict]:
 
 
 def list_available_intervals() -> list[str]:
-    """扫描 data/ 下所有已建好的频率目录（不含 day）"""
-    available = []
+    """
+    扫描 data/ 下所有已建好的频率目录（不含 day），返回规范名（minute/minute5/...）。
+    同时识别旧名 5min/15min/... 会被归并到对应规范名。
+    """
     if not DATA_DIR.exists():
-        return available
+        return []
+    found: set[str] = set()
     for d in sorted(DATA_DIR.iterdir()):
-        if d.is_dir() and d.name in INTRADAY_INTERVALS:
-            available.append(d.name)
-    return available
+        if not d.is_dir() or not any(d.iterdir()):
+            continue
+        if d.name in INTRADAY_INTERVALS:
+            found.add(normalize_interval(d.name))
+    # 按规范顺序输出
+    return [i for i in CANON_INTRADAY_INTERVALS if i in found]
 
 
 def load_all_day_data() -> pd.DataFrame:
