@@ -1,8 +1,8 @@
 """
-按研究排名顺序批量生成特征，支持断点续跑
+按研究排名顺序批量生成特征，支持断点续跑、多频率并存
 
 用法:
-    # 按排名顺序跑所有未完成品种（天级 + 分钟级，不含截面）
+    # 跑所有频率（自动发现 data/ 下所有可用频率）
     python3 -m cta.feature.run_all_features
 
     # 只跑天级
@@ -11,12 +11,21 @@
     # 只跑分钟级
     python3 -m cta.feature.run_all_features --interval minute
 
-    # 最后单独跑截面特征（所有品种跑完后执行）
+    # 多个频率
+    python3 -m cta.feature.run_all_features --interval minute 5min 15min
+
+    # 只跑盘中所有频率（minute + 5min/15min/30min/60min 中已有的）
+    python3 -m cta.feature.run_all_features --interval intraday
+
+    # 所有品种跑完后单独跑截面特征
     python3 -m cta.feature.run_all_features --cross-section
+
+支持的频率: day, minute, 5min, 15min, 30min, 60min
+对应数据目录: cta/data/{interval}/{symbol}.{exchange}/YYYY-MM-DD.parquet
 
 流程:
     1. 读取 symbols_research_ranking.csv 获取品种排名
-    2. 读取 symbols_feature_finished.csv 跳过已完成品种
+    2. 读取 symbols_feature_finished.csv 跳过已完成 (symbol, interval) 组合
     3. 按 research_rank 从小到大依次生成特征
     4. 每个品种完成后立即写入 finished csv（支持断点续跑）
     5. 截面特征需等所有品种跑完后单独执行 --cross-section
@@ -28,7 +37,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from cta.feature.loader import load_day_data, load_minute_data, load_symbols
+from cta.feature.loader import (
+    INTRADAY_INTERVALS,
+    load_day_data,
+    load_intraday_data,
+    list_available_intervals,
+)
 from cta.feature.compute import compute_single_symbol_features
 from cta.feature.cross_section import compute_cross_section_features
 
@@ -43,72 +57,92 @@ FEATURE_DIR = CTA_ROOT / "data" / "feature"
 RANKING_CSV = Path(__file__).resolve().parent / "symbols_research_ranking.csv"
 FINISHED_CSV = Path(__file__).resolve().parent / "symbols_feature_finished.csv"
 
-SIZE_THRESHOLD = 100 * 1024 * 1024  # 100 MB
+# 不同频率的"成功"文件大小阈值 (字节)
+# 大于阈值视为 success，否则 empty（用于区分有数据 vs 无数据/空数据）
+SIZE_THRESHOLDS = {
+    "day": 1 * 1024 * 1024,         # 1 MB
+    "minute": 100 * 1024 * 1024,    # 100 MB
+    "5min": 20 * 1024 * 1024,       # 20 MB
+    "15min": 10 * 1024 * 1024,      # 10 MB
+    "30min": 5 * 1024 * 1024,       # 5 MB
+    "60min": 3 * 1024 * 1024,       # 3 MB
+}
+DEFAULT_THRESHOLD = 1 * 1024 * 1024
 
+
+# ---------------- finished csv 读写 ----------------
 
 def load_finished() -> pd.DataFrame:
-    if FINISHED_CSV.exists():
-        return pd.read_csv(FINISHED_CSV)
-    return pd.DataFrame(columns=["symbol", "exchange", "status"])
+    """读取 finished csv，自动兼容旧格式（无 interval 列时默认为 minute）"""
+    if not FINISHED_CSV.exists():
+        return pd.DataFrame(columns=["symbol", "exchange", "interval", "status"])
+    df = pd.read_csv(FINISHED_CSV)
+    if "interval" not in df.columns:
+        df["interval"] = "minute"
+        df = df[["symbol", "exchange", "interval", "status"]]
+    return df
 
 
 def save_finished(df: pd.DataFrame) -> None:
     df.to_csv(FINISHED_CSV, index=False)
 
 
-def get_minute_status(symbol: str) -> str:
-    """检查分钟级 parquet 文件状态: success (>100M) 或 empty"""
-    path = FEATURE_DIR / "minute" / f"{symbol}.parquet"
-    if path.exists() and path.stat().st_size > SIZE_THRESHOLD:
+def get_status(symbol: str, interval: str) -> str:
+    """检查输出 parquet 文件状态: success (>阈值) 或 empty"""
+    path = FEATURE_DIR / interval / f"{symbol}.parquet"
+    threshold = SIZE_THRESHOLDS.get(interval, DEFAULT_THRESHOLD)
+    if path.exists() and path.stat().st_size > threshold:
         return "success"
     return "empty"
 
 
-def run_single_symbol(symbol: str, exchange: str, interval: str) -> None:
-    """生成单品种的天级和/或分钟级特征"""
+# ---------------- 单品种单频率处理 ----------------
 
-    if interval in ("day", "all"):
-        day_dir = FEATURE_DIR / "day"
-        day_dir.mkdir(parents=True, exist_ok=True)
-        out_path = day_dir / f"{symbol}.parquet"
+def process_symbol_interval(symbol: str, exchange: str, interval: str) -> None:
+    """生成单品种单频率特征"""
+    out_dir = FEATURE_DIR / interval
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{symbol}.parquet"
+
+    if interval == "day":
         if out_path.exists():
-            logger.info(f"  [Day] {symbol} 已存在，跳过")
-        else:
-            try:
-                df = load_day_data(symbol)
-                df_feat = compute_single_symbol_features(df, interval="day")
-                df_feat.to_parquet(out_path, index=False)
-                logger.info(
-                    f"  [Day] {out_path.name}: "
-                    f"{len(df_feat)} rows, {len(df_feat.columns)} cols"
-                )
-            except FileNotFoundError as e:
-                logger.warning(f"  [Day] 跳过 {symbol}: {e}")
-            except Exception as e:
-                logger.error(f"  [Day] {symbol} 出错: {e}", exc_info=True)
-
-    if interval in ("minute", "all"):
-        min_dir = FEATURE_DIR / "minute"
-        min_dir.mkdir(parents=True, exist_ok=True)
-        out_path = min_dir / f"{symbol}.parquet"
+            logger.info(f"  [{interval}] {symbol} 已存在，跳过")
+            return
         try:
-            df = load_minute_data(symbol, exchange)
-            df_feat = compute_single_symbol_features(df, interval="minute")
+            df = load_day_data(symbol)
+            df_feat = compute_single_symbol_features(df, interval="day")
             df_feat.to_parquet(out_path, index=False)
             logger.info(
-                f"  [Minute] {out_path.name}: "
+                f"  [{interval}] {out_path.name}: "
                 f"{len(df_feat)} rows, {len(df_feat.columns)} cols"
             )
         except FileNotFoundError as e:
-            logger.warning(f"  [Minute] 跳过 {symbol}: {e}")
+            logger.warning(f"  [{interval}] 跳过 {symbol}: {e}")
         except Exception as e:
-            logger.error(f"  [Minute] {symbol} 出错: {e}", exc_info=True)
+            logger.error(f"  [{interval}] {symbol} 出错: {e}", exc_info=True)
+    else:
+        # 任意盘中频率
+        try:
+            df = load_intraday_data(symbol, exchange, interval=interval)
+            # compute 函数对 minute 启用同比特征，其它盘中频率走通用流程
+            compute_interval = "minute" if interval == "minute" else "day"
+            df_feat = compute_single_symbol_features(df, interval=compute_interval)
+            df_feat.to_parquet(out_path, index=False)
+            logger.info(
+                f"  [{interval}] {out_path.name}: "
+                f"{len(df_feat)} rows, {len(df_feat.columns)} cols"
+            )
+        except FileNotFoundError as e:
+            logger.warning(f"  [{interval}] 跳过 {symbol}: {e}")
+        except Exception as e:
+            logger.error(f"  [{interval}] {symbol} 出错: {e}", exc_info=True)
 
 
-def run_cross_section() -> None:
+# ---------------- 截面特征 ----------------
+
+def run_cross_section(intervals: list[str]) -> None:
     """所有品种跑完后，统一计算截面特征并合并"""
-
-    for sub in ("day", "minute"):
+    for sub in intervals:
         sub_dir = FEATURE_DIR / sub
         if not sub_dir.exists():
             continue
@@ -136,15 +170,46 @@ def run_cross_section() -> None:
         logger.info(f"  合并文件: {merged_path}")
 
 
+# ---------------- 频率参数解析 ----------------
+
+def resolve_intervals(arg_intervals: list[str]) -> list[str]:
+    """
+    解析 --interval 参数:
+      "all"      -> ["day"] + 所有可用盘中频率
+      "intraday" -> 所有可用盘中频率（不含 day）
+      其它       -> 直接使用，按已知顺序排序
+    """
+    if not arg_intervals or "all" in arg_intervals:
+        return ["day"] + list_available_intervals()
+    if "intraday" in arg_intervals:
+        return list_available_intervals()
+    # 按 [day, minute, 5min, 15min, 30min, 60min] 顺序去重
+    order = ["day"] + INTRADAY_INTERVALS
+    seen = set()
+    result = []
+    for it in order:
+        if it in arg_intervals and it not in seen:
+            seen.add(it)
+            result.append(it)
+    # 用户指定但不在 known 列表里的也保留
+    for it in arg_intervals:
+        if it not in seen:
+            seen.add(it)
+            result.append(it)
+    return result
+
+
+# ---------------- 主流程 ----------------
+
 def main():
     parser = argparse.ArgumentParser(
-        description="按研究排名顺序批量生成特征（支持断点续跑）"
+        description="按研究排名顺序批量生成多频率特征（支持断点续跑）"
     )
     parser.add_argument(
         "--interval",
-        choices=["day", "minute", "all"],
-        default="all",
-        help="生成哪个频率的特征 (默认 all)",
+        nargs="+",
+        default=["all"],
+        help="频率列表: day / minute / 5min / 15min / 30min / 60min / intraday / all (默认 all)",
     )
     parser.add_argument(
         "--cross-section",
@@ -153,14 +218,17 @@ def main():
     )
     args = parser.parse_args()
 
+    intervals = resolve_intervals(args.interval)
+
     logger.info("=" * 60)
     logger.info("CTA 特征批量生成（按研究排名）")
     logger.info(f"输出目录: {FEATURE_DIR}")
+    logger.info(f"处理频率: {intervals}")
     logger.info("=" * 60)
 
     # 只跑截面
     if args.cross_section:
-        run_cross_section()
+        run_cross_section(intervals)
         logger.info("截面特征计算完成!")
         return
 
@@ -168,58 +236,59 @@ def main():
     ranking = pd.read_csv(RANKING_CSV)
     ranking = ranking.sort_values("research_rank").reset_index(drop=True)
 
-    # finished csv 只跟踪分钟级完成状态
-    # --interval day 时不看 finished csv（通过文件是否存在判断跳过）
-    # --interval minute / all 时才看 finished csv 跳过已完成品种
+    # 读取已完成列表（按 (symbol, interval) 跟踪）
     finished = load_finished()
-    finished_symbols = set(finished["symbol"].tolist())
+    finished_set = set(zip(finished["symbol"], finished["interval"]))
 
-    if args.interval in ("minute", "all"):
-        todo = ranking[~ranking["symbol"].isin(finished_symbols)].reset_index(drop=True)
-        logger.info(
-            f"排名品种: {len(ranking)}, "
-            f"分钟已完成: {len(finished_symbols)}, "
-            f"待处理: {len(todo)}"
-        )
-    else:
-        # day only: 处理所有品种，通过文件存在跳过
-        todo = ranking.copy()
-        logger.info(f"排名品种: {len(ranking)}, 模式: day only")
-
-    if todo.empty:
-        logger.info("所有品种已完成! 如需计算截面特征请加 --cross-section")
-        return
-
+    # 各频率独立统计/处理
     t_total = time.time()
-    for idx, row in todo.iterrows():
-        symbol = row["symbol"]
-        exchange = row["exchange"]
-        rank = row["research_rank"]
-
-        logger.info(f"[Rank {rank}] {symbol} ({exchange}) ...")
-        t0 = time.time()
-
-        run_single_symbol(symbol, exchange, args.interval)
-
-        # 只有跑了分钟级才记录到 finished csv
-        if args.interval in ("minute", "all"):
-            status = get_minute_status(symbol)
-            new_row = pd.DataFrame([{
-                "symbol": symbol,
-                "exchange": exchange,
-                "status": status,
-            }])
-            finished = pd.concat([finished, new_row], ignore_index=True)
-            save_finished(finished)
-            logger.info(f"  {symbol} 完成, minute状态: {status}, 耗时 {time.time()-t0:.1f}s")
+    for interval in intervals:
+        if interval == "day":
+            # day 不依赖 finished csv，通过文件存在跳过
+            todo = ranking.copy()
+            logger.info(f"[{interval}] 模式: day only（按文件存在跳过）")
         else:
-            logger.info(f"  {symbol} 完成, 耗时 {time.time()-t0:.1f}s")
+            todo = ranking[
+                ~ranking["symbol"].apply(lambda s: (s, interval) in finished_set)
+            ].reset_index(drop=True)
+            logger.info(
+                f"[{interval}] 排名: {len(ranking)}, "
+                f"已完成: {len(ranking) - len(todo)}, 待处理: {len(todo)}"
+            )
+
+        if todo.empty:
+            logger.info(f"[{interval}] 全部品种已完成")
+            continue
+
+        for _, row in todo.iterrows():
+            symbol = row["symbol"]
+            exchange = row["exchange"]
+            rank = row["research_rank"]
+
+            logger.info(f"[{interval}][Rank {rank}] {symbol} ({exchange}) ...")
+            t0 = time.time()
+            process_symbol_interval(symbol, exchange, interval)
+
+            if interval != "day":
+                status = get_status(symbol, interval)
+                new_row = pd.DataFrame([{
+                    "symbol": symbol,
+                    "exchange": exchange,
+                    "interval": interval,
+                    "status": status,
+                }])
+                finished = pd.concat([finished, new_row], ignore_index=True)
+                save_finished(finished)
+                finished_set.add((symbol, interval))
+                logger.info(
+                    f"  {symbol} 完成, 状态: {status}, 耗时 {time.time()-t0:.1f}s"
+                )
+            else:
+                logger.info(f"  {symbol} 完成, 耗时 {time.time()-t0:.1f}s")
 
     total_elapsed = time.time() - t_total
     logger.info("=" * 60)
-    logger.info(
-        f"全部品种处理完成! 共 {len(todo)} 个, 耗时 {total_elapsed:.1f}s"
-    )
+    logger.info(f"全部处理完成! 耗时 {total_elapsed:.1f}s")
     logger.info("如需计算截面特征请执行: python3 -m cta.feature.run_all_features --cross-section")
 
 

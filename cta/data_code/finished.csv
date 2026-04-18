@@ -1,0 +1,7 @@
+﻿symbol,exchange,interval,status,rows,date_start,date_end,completed_at,detail
+RB0,SHFE,day,skip,4127,2009-03-27 00:00:00,2026-03-27 00:00:00,2026-04-18 16:58:12,file exists
+RB0,SHFE,minute,success,0,2010-01-04,2026-04-17,2026-04-18 16:58:15,"success_day=0, empty_day=191, skip_day=0, error_day=0"
+RB0,SHFE,minute5,success,0,2010-01-04,2026-04-17,2026-04-18 16:58:15,"success_day=0, empty_day=191, skip_day=0, error_day=0"
+RB0,SHFE,minute15,success,0,2010-01-04,2026-04-17,2026-04-18 16:58:15,"success_day=0, empty_day=191, skip_day=0, error_day=0"
+RB0,SHFE,minute30,success,0,2010-01-04,2026-04-17,2026-04-18 16:58:15,"success_day=0, empty_day=191, skip_day=0, error_day=0"
+RB0,SHFE,minute60,success,0,2010-01-04,2026-04-17,2026-04-18 16:58:15,"success_day=0, empty_day=191, skip_day=0, error_day=0"

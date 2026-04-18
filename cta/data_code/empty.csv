@@ -1,0 +1,6 @@
+﻿symbol,exchange,interval,date_start,date_end,count,reason,recorded_at
+RB0,SHFE,minute,2009-03-27,2009-12-31,190,tushare ft_mins 空,2026-04-18 16:58:15
+RB0,SHFE,minute5,2009-03-27,2009-12-31,190,tushare ft_mins 空,2026-04-18 16:58:15
+RB0,SHFE,minute15,2009-03-27,2009-12-31,190,tushare ft_mins 空,2026-04-18 16:58:15
+RB0,SHFE,minute30,2009-03-27,2009-12-31,190,tushare ft_mins 空,2026-04-18 16:58:15
+RB0,SHFE,minute60,2009-03-27,2009-12-31,190,tushare ft_mins 空,2026-04-18 16:58:15

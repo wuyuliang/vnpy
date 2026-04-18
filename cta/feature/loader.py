@@ -23,6 +23,16 @@ MINUTE_COL_MAP = {
     "amount": "turnover",
 }
 
+# 已知的盘中频率（与 data/{interval}/ 目录名一一对应）
+# 兼容两套命名：
+#   新（download_all.py 约定）: minute / minute5 / minute15 / minute30 / minute60
+#   旧                        : minute / 5min   / 15min   / 30min   / 60min
+INTRADAY_INTERVALS = [
+    "minute",
+    "minute5", "minute15", "minute30", "minute60",
+    "5min", "15min", "30min", "60min",
+]
+
 
 def load_symbols() -> pd.DataFrame:
     """加载品种列表，返回 DataFrame(symbol, exchange, name)"""
@@ -46,28 +56,29 @@ def _get_alpha_prefix(name: str) -> str:
     return m.group(1).upper() if m else ''
 
 
-def load_minute_data(symbol: str, exchange: str) -> pd.DataFrame:
+def load_intraday_data(symbol: str, exchange: str, interval: str = "minute") -> pd.DataFrame:
     """
-    加载单品种分钟线数据（parquet 按日期存储）
-    目录结构: data/minute/{symbol}.{exchange}/YYYY-MM-DD.parquet
+    加载单品种盘中数据（parquet 按日期存储），支持任意频率
+    目录结构: data/{interval}/{symbol}.{exchange}/YYYY-MM-DD.parquet
     列名自动映射为统一字段
 
+    interval 取值: minute / 5min / 15min / 30min / 60min 或其它已建好的目录
     目录匹配: 按品种字母前缀扫描所有匹配目录
     例如 symbol='CU0' 会匹配 CU0.SHFE, CU.SHF, CU_small 等
     """
-    minute_dir = DATA_DIR / "minute"
+    base_dir = DATA_DIR / interval
     prefix = _get_alpha_prefix(symbol)
 
     # 扫描所有以该品种字母前缀开头的目录
     folders = []
-    if minute_dir.exists():
-        for d in sorted(minute_dir.iterdir()):
+    if base_dir.exists():
+        for d in sorted(base_dir.iterdir()):
             if d.is_dir() and _get_alpha_prefix(d.name) == prefix:
                 folders.append(d)
 
     if not folders:
         raise FileNotFoundError(
-            f"分钟数据目录不存在，品种前缀: {prefix}，搜索路径: {minute_dir}"
+            f"{interval} 数据目录不存在，品种前缀: {prefix}，搜索路径: {base_dir}"
         )
 
     # 从所有匹配目录加载 parquet
@@ -76,7 +87,7 @@ def load_minute_data(symbol: str, exchange: str) -> pd.DataFrame:
         files.extend(sorted(folder.glob("*.parquet")))
 
     if not files:
-        raise FileNotFoundError(f"分钟数据目录为空: {folders}")
+        raise FileNotFoundError(f"{interval} 数据目录为空: {folders}")
     dfs = [pd.read_parquet(f) for f in files]
     df = pd.concat(dfs, ignore_index=True)
 
@@ -102,19 +113,24 @@ def load_minute_data(symbol: str, exchange: str) -> pd.DataFrame:
     return df
 
 
-def list_minute_symbols() -> list[dict]:
+def load_minute_data(symbol: str, exchange: str) -> pd.DataFrame:
+    """加载分钟线数据（向后兼容，等价于 load_intraday_data(..., interval='minute')）"""
+    return load_intraday_data(symbol, exchange, interval="minute")
+
+
+def list_intraday_symbols(interval: str = "minute") -> list[dict]:
     """
-    扫描 data/minute/ 目录，返回可用品种列表
+    扫描 data/{interval}/ 目录，返回可用品种列表
     按字母前缀分组去重，同一品种多个目录只返回一条记录
     返回: [{"symbol": "CU0", "exchange": "SHFE", "folder": Path}, ...]
     """
-    minute_dir = DATA_DIR / "minute"
-    if not minute_dir.exists():
+    base_dir = DATA_DIR / interval
+    if not base_dir.exists():
         return []
 
     # 按字母前缀分组
     groups: dict[str, list[Path]] = {}
-    for folder in sorted(minute_dir.iterdir()):
+    for folder in sorted(base_dir.iterdir()):
         if not folder.is_dir():
             continue
         prefix = _get_alpha_prefix(folder.name)
@@ -149,6 +165,22 @@ def list_minute_symbols() -> list[dict]:
             "folder": folders[0],
         })
     return result
+
+
+def list_minute_symbols() -> list[dict]:
+    """扫描 data/minute/ 目录（向后兼容包装）"""
+    return list_intraday_symbols(interval="minute")
+
+
+def list_available_intervals() -> list[str]:
+    """扫描 data/ 下所有已建好的频率目录（不含 day）"""
+    available = []
+    if not DATA_DIR.exists():
+        return available
+    for d in sorted(DATA_DIR.iterdir()):
+        if d.is_dir() and d.name in INTRADAY_INTERVALS:
+            available.append(d.name)
+    return available
 
 
 def load_all_day_data() -> pd.DataFrame:
