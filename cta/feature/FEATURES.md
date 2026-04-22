@@ -1,11 +1,16 @@
 # CTA 特征说明文档
 
-> 共 **12 大类、351 个天级特征 + 75 个分钟级同比特征 + 截面特征**，全部基于 OHLCV + 持仓量原始字段计算。
-> 所有特征以 parquet 格式输出，生成脚本: `python3 cta/feature/run_generate.py`
+> 共 **18 大类、已落地 12 类 + 新增 6 类（§13-§18） + 截面特征**，全部基于 OHLCV + 持仓量原始字段计算。
+> §11 的 75 个同比特征**仅在 1 分钟 bar 上生成**；minute5/15/30/60 的 bar 时间跨度本身已超过同比所定义的 1/3/5/10/20 分钟粒度，显式不生成以避免假精度。
+> 所有特征以 parquet 格式输出，按日分片落盘：`cta/data/feature/{interval}/{SYMBOL}/{YYYY-MM-DD}.parquet`。
+> **生成入口**：`python3 -m cta.feature.run_all_features`（支持全频率覆盖 day/minute/minute5/minute15/minute30/minute60 + 多进程 + 断点续跑）。
+> `cta/feature/run_generate.py` 为旧入口，仅限单机 day+minute 联调使用，产物为平铺布局，**不推荐**，已通过 FEATURES.md 头部提示迁移。
 
 ---
 
 ## 目录
+
+**已落地（基于 day/minute/minute30 原始 bar 计算，已有/待算均属 bar-derivable 范畴）：**
 
 1. [趋势类 (trend.py)](#1-趋势类-trendpy)
 2. [动量类 (momentum.py)](#2-动量类-momentumpy)
@@ -19,6 +24,19 @@
 10. [高级 Al Brooks 特征 (price_action_advanced.py)](#10-高级-al-brooks-特征-price_action_advancedpy)
 11. [分钟级同比特征 (minute_tod.py)](#11-分钟级同比特征-minute_todpy)
 12. [统计/分形类特征 (stats_feat.py)](#12-统计分形类特征-stats_featpy)
+
+**新增规划（源自 `cta/cta_skills/`，bar-derivable，待实现）：**
+
+13. [波动率体制补充](#13-波动率体制补充--volatility-regime-supplement)
+14. [Al Brooks 形态补充](#14-al-brooks-形态补充--price-action-supplement)
+15. [多周期对齐](#15-多周期对齐--multi-timeframe-alignment)
+16. [市场状态机](#16-市场状态机--regime-labels)
+17. [综合评分](#17-综合评分--composite-scores)
+18. [入场/止损建议价](#18-入场止损建议价--entry--stop-hints)
+
+**未来特征（非 bar 原始数据派生，依赖交易 / 组合 / 元数据 / ML 模型，后续接入）：**
+
+19. [未来特征](#19-未来特征--future-features)
 
 ---
 
@@ -539,6 +557,223 @@ Brooks 核心原则：
 > **周期参数**: {20, 60}
 
 > **N=3 短周期已全面覆盖**: 所有模块的周期参数均已增加 N=3，包括 SMA/EMA/BIAS/Slope、RSI/ROC/CCI/Momentum/Returns、ATR/HistVol/Donchian、新高新低/价格位置、PA特征、截面特征等。
+
+---
+
+## 13. 波动率体制补充 / Volatility Regime Supplement
+
+在 §3 已有 `atr_N / natr_14 / bb_width / hist_vol_N / gk_vol_20` 的基础上补充**分位 / 分类 / 二阶**视角，用于 `05_regime_switch_strategies/` 的压缩-扩张识别。**全部 bar-derivable。**
+
+| 特征名 | 含义 | 计算方式 | 来源章节 |
+|--------|------|----------|----------|
+| `atr_pct_zscore_252` | natr_14 的 252 日分位 zscore | `(natr_14 - mean_252) / std_252` | `01/04`, `05/01` |
+| `bb_width_zscore_252` | bb_width 的 252 日 zscore | 同上思路 | `01/02`, `05/01` |
+| `vol_regime_3` | 波动率体制分类 | 按 natr_14 分位 {<30: low, 30-70: normal, >70: high} | `01/04` |
+| `vol_of_vol_20` | 波动率的波动率 | `rolling(20).std(natr_14)` | `01/04` |
+| `range_ratio_N` | 窗口内振幅占比 | `(rolling_high_N - rolling_low_N) / close` | `01/02`, `04/01` |
+| `range_height_atr_N` | 窗口振幅 / ATR | `(rolling_high_N - rolling_low_N) / atr_14` | `02/01`, `05/01` |
+| `consecutive_hh_N` | N 日内 HH 连续计数 | 连续 `pa_higher_high=1` 的 bar 数 | `01/01` |
+| `consecutive_ll_N` | N 日内 LL 连续计数 | 连续 `pa_lower_low=1` 的 bar 数 | `01/01` |
+| `zscore_close_N` | 收盘价 zscore | `(close - SMA_N) / STD_N` | `04/02` |
+| `breakout_dist_atr_N` | 偏离区间上/下沿 ATR 数 | `(close - dc_upper_N) / atr_14` (向下类似) | `01/03`, `05/02` |
+
+> **周期参数**: zscore = {60, 252}; range_ratio = {10, 20, 60}; range_height_atr = {5, 10, 20}; consecutive = {5, 10, 20}
+
+---
+
+## 14. Al Brooks 形态补充 / Price Action Supplement
+
+§6 已覆盖 180+ 原语，本节追加 `cta_skills/02_price_action/` 中强调但未直接实现的形态。**全部 bar-derivable。**
+
+| 特征名 | 含义 | 计算方式 | 来源章节 |
+|--------|------|----------|----------|
+| `pa_tight_range_flag_K` | 近 K bar 是否 tight range | K bar 内 `range_height_atr` < 1.5 且 `close_position_bias < 0.2` | `02/01` |
+| `pa_bull_flag_flag` | 多头旗形识别 | 前导 spike (N 根趋势 K) + 紧缩回调 (≥3 bar 重叠 + 斜率弱) | `02/02` |
+| `pa_bear_flag_flag` | 空头旗形识别 | 空头版同上 | `02/02` |
+| `pa_bpb_flag` | breakout-pullback-continuation | 突破 + 回测不破 + 第二腿同向 | `02/03` |
+| `pa_swing_high_idx` | 最近 swing high 索引 | swing 窗口 N=3, 返回相对 bar 索引 | `02/06` |
+| `pa_swing_low_idx` | 最近 swing low 索引 | 同上 | `02/06` |
+| `pa_trend_channel_top` | 由近 3 swing high 拟合的上沿 | 线性回归 | `02/06` |
+| `pa_trend_channel_bot` | 由近 3 swing low 拟合的下沿 | 同上 | `02/06` |
+| `pa_trend_channel_slope` | 通道斜率 | 上/下沿平均斜率 | `02/06` |
+| `pa_channel_width_atr` | 通道宽度 / ATR | `(top - bot) / atr_14` | `02/06` |
+
+> **参数建议**: tight_range K = {5, 8, 10}; bull/bear_flag legs ≥ 5 + pullback ≥ 3。
+
+---
+
+## 15. 多周期对齐 / Multi-Timeframe Alignment
+
+§9/§10 的 `pa_htf_trend_alignment / pa_timeframe_conflict / pa_ltf_setup_quality` 给了粗粒度视角；本节补充**数值化的 HTF / MTF / LTF 分数**，供 Brooks v3 风格的三级共振使用。**bar-derivable，需要多频率对齐。**
+
+| 特征名 | 含义 | 计算方式 | 来源章节 |
+|--------|------|----------|----------|
+| `htf_trend_score_day` | 日线视角趋势得分 | day bar 上的 `pa_trend_strength_20` / 100 | `01/05` |
+| `htf_bias` | 日线方向偏置 | sign(htf_trend_score) with dead zone \|x\| < 0.2 → 0 | `01/05`, `03/*` |
+| `mtf_trend_score_60m` | 60m 视角趋势得分 | 60m bar 上的 `pa_trend_strength_20` / 100 | `01/05` |
+| `mtf_trend_score_30m` | 30m 视角 | 同上 | `01/05` |
+| `mtf_align_flag` | HTF / MTF 方向一致 | `sign(htf) == sign(mtf) and abs(both) >= 0.3` | `01/05` |
+| `ltf_signal_ready_5m` | 5m 出现信号 bar | 5m bar 的 `pa_bull_reversal / pa_bear_reversal` | `01/05` |
+| `mtf_conflict_score` | 多周期分歧度 | std(htf, mtf_60, mtf_30) | `01/05` |
+
+> **实现提示**: 用 `cta/strategy/brooks/core/features/adapter.py` 的 offline-as-of 接口做时间戳对齐（以 LTF 为时钟 left-merge）。
+
+---
+
+## 16. 市场状态机 / Regime Labels
+
+把 §3 / §6 / §13 的分数聚合为**离散 regime 标签**，供 `05_regime_switch_strategies/` 和门控规则使用。**bar-derivable。**
+
+| 特征名 | 含义 | 计算方式 | 来源章节 |
+|--------|------|----------|----------|
+| `regime_label` | 分类：trend_up / trend_down / range / compression / expansion / transition | 阈值组合：`pa_trend_strength` & `vol_regime` & `pa_trading_range_20` | `05/03` |
+| `regime_conf` | 首位 - 次位得分差 | softmax 后最大 - 次大 | `05/03` |
+| `regime_age` | 自上次切换以来的 bar 数 | cumcount 到本 regime | `05/03`, `05/04` |
+| `transition_flag` | 当前处于过渡 | `regime_label == 'transition' or regime_age < 5` | `05/04` |
+| `transition_risk` | 过渡风险分 | `(1 - regime_conf) * 0.5 + vol_of_vol_zscore * 0.5` | `05/03`, `05/04` |
+
+> **阈值建议**: trend_up 条件 `pa_trend_strength_20 > 30 且 pa_higher_high 最近 5 根 ≥ 3`；range 条件 `pa_trading_range_20 > 0.6 且 pa_doji_density_10 > 0.3`；compression 条件 `bb_width_zscore_252 < -0.8`；expansion 条件 `atr_pct_zscore_252 > 0.8`。
+
+---
+
+## 17. 综合评分 / Composite Scores
+
+从原始/中间特征聚合到 0-1 / -1-1 的评分，用作策略门控或加权。**bar-derivable。**
+
+| 特征名 | 含义 | 计算方式 | 来源章节 |
+|--------|------|----------|----------|
+| `trend_score` | 综合趋势得分 [-1, 1] | `tanh((slope_20_norm + adx_scaled + ma_alignment + hh_hl_bias) / 4)` | `01/01`, `05/03` |
+| `compression_score` | 压缩体制分 [0, 1] | `pa_tight_range_flag_8 × 0.5 + (bb_width < 30%分位) × 0.3 + pa_inside_bar_ratio_10 × 0.2` | `05/01` |
+| `expansion_score` | 扩张体制分 [0, 1] | `(atr_pct_zscore_252 > 1) × 0.5 + (range_height_atr > 2.5) × 0.5` | `05/01` |
+| `breakout_mode_score` | 突破模式整体分 [0, 1] | compression 后出现突破的打分合成 | `05/02` |
+| `setup_quality_score` | 形态质量分 [0, 1] | signal bar 质量 + 回调深度 + 与 EMA 距离 | `06/01` |
+| `breakout_quality_score` | 突破质量分 [0, 1] | `pa_bo_body_ratio_20 × 0.4 + pa_bo_close_pos_20 × 0.3 + pa_bo_vol_ratio_20_norm × 0.3` | `06/02` |
+| `context_score` | 大环境配合分 [0, 1] | 多周期一致性 + regime 匹配 + 空间充足 | `06/03` |
+| `rr_score` | 潜在盈亏比分 | 与 `pa_expected_rr` 同族，标准化到 [0, 1] | `06/04` |
+
+> **使用建议**: 规则层先用单变量阈值筛，门控层再用 score ≥ 0.6。
+
+---
+
+## 18. 入场/止损建议价 / Entry & Stop Hints
+
+对每根 bar 给出"**假设此刻入场**"的建议止损 / 止盈价位，不依赖真实持仓。**bar-derivable。**
+
+| 特征名 | 含义 | 计算方式 | 来源章节 |
+|--------|------|----------|----------|
+| `atr_based_stop_long` | 做多止损建议价 | `close - k × atr_14` (k=1..1.5) | `03/*`, `06/04`, `07/01` |
+| `atr_based_stop_short` | 做空止损建议价 | `close + k × atr_14` | 同上 |
+| `atr_based_target_long` | 做多止盈建议价 | `close + k × atr_14` (k=2..3) | `06/04` |
+| `atr_based_target_short` | 做空止盈建议价 | `close - k × atr_14` | 同上 |
+| `chandelier_stop_long` | 吊灯止损（多） | `rolling_high_22 - 3 × atr_14` | `03/05` |
+| `chandelier_stop_short` | 吊灯止损（空） | `rolling_low_22 + 3 × atr_14` | `03/05` |
+| `micro_channel_stop_long` | 微通道下沿止损 | 最近 N 根低点最低 | `03/05` |
+| `micro_channel_stop_short` | 微通道上沿止损 | 最近 N 根高点最高 | `03/05` |
+| `liquidity_filter_pass` | 流动性过滤通过 | `vol_ma_20 × close × multiplier ≥ adv_threshold` (bool) | `03/04` |
+
+> **注意**：这些特征是"**候选止损/止盈价**"，非实际持仓状态；真正持仓的 `holding_bars / mfe_live / mae_live / break_even_trigger / trailing_stop_price` 见 §19。
+
+---
+
+## 19. 未来特征 / Future Features
+
+**下列特征依赖 bar 之外的数据**（成交日志 / 组合状态 / 合约元数据 / 成本表 / ML 模型 / 实盘系统），不属于当前 `run_generate.py` 的 bar-derivable 范畴，**将来按需接入**。分组整理：
+
+### 19.1 合约与数据工程元数据（来自 `cta/config/futures_meta.py` + rollover 逻辑）
+
+| 特征名 | 含义 | 来源章节 |
+|--------|------|----------|
+| `active_contract` | 当前主力合约代码 | `08/01` |
+| `active_by_oi` / `active_by_vol` | OI / 成交量主力判定 | `08/02` |
+| `days_to_expiry` | 距到期日天数 | `08/02` |
+| `roll_window` | 展期时间窗标志 | `08/02` |
+| `gap_size` | 换月跳空 | `08/01` |
+| `adj_factor` | 连续合约复权因子 | `08/01` |
+| `continuity_score` | 拼接无断点检查 | `08/01` |
+
+### 19.2 成本与撮合模型（来自 `cta/config/futures_meta.py` + 成本模型）
+
+| 特征名 | 含义 | 来源章节 |
+|--------|------|----------|
+| `commission_rate` | 手续费率 | `08/03` |
+| `tick_size` | 最小跳动 | `08/03` |
+| `slippage_ticks` | 回测滑点 ticks | `08/03` |
+| `impact_bps` | 冲击成本 bps | `08/03` |
+| `roll_cost` | 展期总成本 | `08/02`, `08/03` |
+| `fill_rule` | 成交价规则 | `08/04` |
+
+### 19.3 仓位与风控运行时（来自持仓 + equity 曲线）
+
+| 特征名 | 含义 | 来源章节 |
+|--------|------|----------|
+| `risk_pct` | 单笔风险 / 权益 | `07/01` |
+| `lots_atr` | 按 ATR 反推手数 | `07/01` |
+| `vol_target_ann` / `realized_vol_ann` / `vol_scaling` | 波动率目标 | `07/02` |
+| `sector_exposure` | 板块净敞口 | `07/03` |
+| `correlation_cluster` | 相关簇标签 | `07/03` |
+| `current_drawdown` / `peak_equity` | 回撤状态 | `07/04` |
+| `consecutive_losing_days` | 连亏天数 | `07/04` |
+| `trailing_sharpe_30d` | 滚动 Sharpe | `07/04` |
+| `max_allowed_risk_pct` | DD 档位风险上限 | `07/04` |
+
+### 19.4 组合层（来自多策略 panel）
+
+| 特征名 | 含义 | 来源章节 |
+|--------|------|----------|
+| `strategy_weight` | 策略组合权重 | `07/05` |
+| `portfolio_risk_pct` | 组合总风险 | `07/05` |
+| `rebalance_frequency` | 再平衡频率 | `07/05` |
+| `strategy_correlation_60d` | 策略间 PnL 相关 | `07/05` |
+
+### 19.5 持仓运行时（依赖真实 entry）
+
+| 特征名 | 含义 | 来源章节 |
+|--------|------|----------|
+| `holding_bars` | 已持仓 bar 数 | `03/05` |
+| `mfe_live` / `mae_live` | 实时浮盈 / 浮亏最大 | `03/05`, `09/03` |
+| `break_even_trigger` | 盈亏平衡移动触发 | `03/05` |
+| `trailing_stop_price` | 实时移动止盈 | `03/05`, `10/01` |
+| `take_profit_price` | 静态止盈目标 | `03/*`, `04/*` |
+
+### 19.6 交易日志与标签（来自 trade_log）
+
+| 特征名 | 含义 | 来源章节 |
+|--------|------|----------|
+| `mfe` / `mae` | 交易结束 MFE / MAE | `08/05`, `09/03` |
+| `net_pnl` | 扣成本 PnL | `08/05` |
+| `label_trade_pos` | ML 二分类标签 | `09/01` |
+| `mfe_target_atr` / `mae_target_atr` | ML 回归标签 | `09/03` |
+
+### 19.7 ML 模型产出
+
+| 特征名 | 含义 | 来源章节 |
+|--------|------|----------|
+| `ml_opportunity_prob` | 机会评分模型输出 | `06/05`, `09/01` |
+| `ml_gate_prob` | filter 门控输出 | `09/01` |
+| `regime_prob_*` | 状态分类器概率 | `09/02`, `05/03` |
+| `stability_score` | regime 稳定度 | `09/02` |
+
+### 19.8 特征基础设施（feature store）
+
+| 特征名 | 含义 | 来源章节 |
+|--------|------|----------|
+| `feature_version` | git + cfg hash | `09/04` |
+| `schema_hash` | 列集合 md5 | `09/04` |
+| `freshness_lag` | 最新特征落后实盘 | `09/04` |
+
+### 19.9 实盘运维监控
+
+| 特征名 | 含义 | 来源章节 |
+|--------|------|----------|
+| `fill_rate` / `reject_rate` | 订单成交 / 被拒比例 | `10/02` |
+| `avg_latency_ms` | 下单到成交延迟 | `10/02` |
+| `position_delta` | 本地 vs 券商差异 | `10/02`, `10/03` |
+| `data_freshness_sec` | 最新 bar 延迟 | `10/03` |
+| `daily_pnl` / `live_vs_bt_diff` / `slippage_realized` | 复盘对照 | `10/04` |
+| `strategy_heartbeat` | 进程活性 | `10/03` |
+| `strategy_version` | 策略 SemVer | `10/05` |
+
+> **规划**：§13-§18 按 `cta/cta_skills/` skill 顺序在 `run_generate.py` 中增量接入；§19 按模块独立接入（`cta/strategy/common/cost/`、`.../risk/`、`.../ml/`、`.../live/` 等）。
 
 ---
 

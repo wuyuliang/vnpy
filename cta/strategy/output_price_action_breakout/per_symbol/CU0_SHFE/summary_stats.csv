@@ -1,0 +1,4 @@
+﻿group_name,total_return,total_return_pct,gross_profit,gross_loss,net_profit,trade_count,win_count,win_rate,win_rate_pct,profit_factor
+ALL,0.004649859999999986,0.46%,33350.0,-28700.14,4649.86,25,12,0.48,48.00%,1.162
+GOOD_SETUP,0.004649859999999986,0.46%,23910.0,-17359.64,6550.36,9,4,0.4444444444444444,44.44%,1.3773
+NORMAL_SETUP,0.004649859999999986,0.46%,9440.0,-11340.5,-1900.5,16,8,0.5,50.00%,0.8324

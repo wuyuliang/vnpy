@@ -77,8 +77,8 @@ logger = logging.getLogger("download_all")
 CTA_ROOT = Path(__file__).resolve().parent.parent
 CODE_DIR = Path(__file__).resolve().parent               # cta/data_code/
 RANKING_CSV = CTA_ROOT / "feature" / "symbols_research_ranking.csv"
-FINISHED_CSV = CODE_DIR / "finished.csv"
-EMPTY_CSV = CODE_DIR / "empty.csv"
+FINISHED_CSV = DATA_DIR / "data_finished.csv"
+EMPTY_CSV = DATA_DIR / "data_empty.csv"
 
 FINISHED_COLS = [
     "symbol", "exchange", "interval",

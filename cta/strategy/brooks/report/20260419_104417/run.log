@@ -1,0 +1,56 @@
+2026-04-19 10:44:17,662 [INFO] ============================================================
+2026-04-19 10:44:17,662 [INFO] Brooks 阶段1 回测
+2026-04-19 10:44:17,662 [INFO] 输出目录: /Users/wuyuliang/code/vnpy/cta/strategy/brooks/report/20260419_104417
+2026-04-19 10:44:17,662 [INFO] 策略: ['tight_range_breakout', 'breakout_pullback', 'high2_bull']
+2026-04-19 10:44:17,662 [INFO] 品种: ['RB0.SHFE', 'I0.DCE', 'CU0.SHFE', 'AL0.SHFE', 'M0.DCE', 'P0.DCE', 'TA0.CZCE', 'MA0.CZCE']
+2026-04-19 10:44:17,662 [INFO] 区间: 2018-01-01 ~ 2024-12-31  初始资金: 1,000,000
+2026-04-19 10:44:17,662 [INFO] ============================================================
+2026-04-19 10:44:17,662 [INFO] [RUN] tight_range_breakout__RB0_SHFE
+2026-04-19 10:44:17,824 [INFO] [DONE] tight_range_breakout__RB0_SHFE | total_return=-0.08000690000000699 max_dd%=-0.2076131215720192 sharpe=-0.17356225542036885 trades=8
+2026-04-19 10:44:17,824 [INFO] [RUN] tight_range_breakout__I0_DCE
+2026-04-19 10:44:17,933 [INFO] [DONE] tight_range_breakout__I0_DCE | total_return=1.7089915000000122 max_dd%=-0.6229505906207242 sharpe=0.647362140561234 trades=8
+2026-04-19 10:44:17,933 [INFO] [RUN] tight_range_breakout__CU0_SHFE
+2026-04-19 10:44:18,042 [INFO] [DONE] tight_range_breakout__CU0_SHFE | total_return=0.008022500000004484 max_dd%=-5.400131821908884 sharpe=0.0009282937460504174 trades=18
+2026-04-19 10:44:18,042 [INFO] [RUN] tight_range_breakout__AL0_SHFE
+2026-04-19 10:44:18,155 [INFO] [DONE] tight_range_breakout__AL0_SHFE | total_return=0.05146824999999744 max_dd%=-1.0826215927712117 sharpe=0.022291182345732623 trades=22
+2026-04-19 10:44:18,155 [INFO] [RUN] tight_range_breakout__M0_DCE
+2026-04-19 10:44:18,266 [INFO] [DONE] tight_range_breakout__M0_DCE | total_return=-0.5021520000000002 max_dd%=-0.5742092999999994 sharpe=-0.6172805222693596 trades=24
+2026-04-19 10:44:18,266 [INFO] [RUN] tight_range_breakout__P0_DCE
+2026-04-19 10:44:18,371 [INFO] [DONE] tight_range_breakout__P0_DCE | total_return=1.4324355999999927 max_dd%=-0.7050021611332851 sharpe=0.5214542395277738 trades=18
+2026-04-19 10:44:18,371 [INFO] [RUN] tight_range_breakout__TA0_CZCE
+2026-04-19 10:44:18,479 [INFO] [DONE] tight_range_breakout__TA0_CZCE | total_return=-0.4902336000000007 max_dd%=-0.4909326000000001 sharpe=-0.7751704609816572 trades=22
+2026-04-19 10:44:18,479 [INFO] [RUN] tight_range_breakout__MA0_CZCE
+2026-04-19 10:44:18,588 [INFO] [DONE] tight_range_breakout__MA0_CZCE | total_return=0.37293440000001343 max_dd%=-0.32767398120976016 sharpe=0.26336259720834476 trades=20
+2026-04-19 10:44:18,588 [INFO] [RUN] breakout_pullback__RB0_SHFE
+2026-04-19 10:44:18,656 [INFO] [DONE] breakout_pullback__RB0_SHFE | total_return=-0.36177010000000287 max_dd%=-0.3972217168743181 sharpe=-0.6260492955719612 trades=12
+2026-04-19 10:44:18,657 [INFO] [RUN] breakout_pullback__I0_DCE
+2026-04-19 10:44:18,724 [INFO] [DONE] breakout_pullback__I0_DCE | total_return=0.8857345000000016 max_dd%=-0.8242476749510693 sharpe=0.3560244226926763 trades=12
+2026-04-19 10:44:18,724 [INFO] [RUN] breakout_pullback__CU0_SHFE
+2026-04-19 10:44:18,792 [INFO] [DONE] breakout_pullback__CU0_SHFE | total_return=1.9874745000000082 max_dd%=-2.049480358435389 sharpe=0.2575756960057159 trades=12
+2026-04-19 10:44:18,792 [INFO] [RUN] breakout_pullback__AL0_SHFE
+2026-04-19 10:44:18,861 [INFO] [DONE] breakout_pullback__AL0_SHFE | total_return=-1.0931647499999975 max_dd%=-2.436110351105949 sharpe=-0.2902491807618669 trades=14
+2026-04-19 10:44:18,861 [INFO] [RUN] breakout_pullback__M0_DCE
+2026-04-19 10:44:18,928 [INFO] [DONE] breakout_pullback__M0_DCE | total_return=-0.09870820000000835 max_dd%=-0.2591671006072092 sharpe=-0.1458882171475975 trades=14
+2026-04-19 10:44:18,928 [INFO] [RUN] breakout_pullback__P0_DCE
+2026-04-19 10:44:18,995 [INFO] [DONE] breakout_pullback__P0_DCE | total_return=0.966487199999988 max_dd%=-0.6250302948062767 sharpe=0.3198035288780344 trades=18
+2026-04-19 10:44:18,995 [INFO] [RUN] breakout_pullback__TA0_CZCE
+2026-04-19 10:44:19,061 [INFO] [DONE] breakout_pullback__TA0_CZCE | total_return=-0.10001520000000319 max_dd%=-0.14007026309472237 sharpe=-0.33733872419674094 trades=8
+2026-04-19 10:44:19,061 [INFO] [RUN] breakout_pullback__MA0_CZCE
+2026-04-19 10:44:19,142 [INFO] [DONE] breakout_pullback__MA0_CZCE | total_return=0.325764499999992 max_dd%=-0.3085243642660865 sharpe=0.24611280062503105 trades=11
+2026-04-19 10:44:19,142 [INFO] [RUN] high2_bull__RB0_SHFE
+2026-04-19 10:44:19,209 [INFO] [DONE] high2_bull__RB0_SHFE | total_return=-1.0582189999999936 max_dd%=-1.382884984033069 sharpe=-0.4973261539102272 trades=56
+2026-04-19 10:44:19,209 [INFO] [RUN] high2_bull__I0_DCE
+2026-04-19 10:44:19,278 [INFO] [DONE] high2_bull__I0_DCE | total_return=-0.7409334999999961 max_dd%=-3.288551212571933 sharpe=-0.0811020916469605 trades=66
+2026-04-19 10:44:19,278 [INFO] [RUN] high2_bull__CU0_SHFE
+2026-04-19 10:44:19,348 [INFO] [DONE] high2_bull__CU0_SHFE | total_return=-2.1944960000000013 max_dd%=-7.050260254936383 sharpe=-0.1799862075022051 trades=66
+2026-04-19 10:44:19,348 [INFO] [RUN] high2_bull__AL0_SHFE
+2026-04-19 10:44:19,418 [INFO] [DONE] high2_bull__AL0_SHFE | total_return=3.2388212500000124 max_dd%=-0.8188896288954851 sharpe=0.6786035692620711 trades=56
+2026-04-19 10:44:19,418 [INFO] [RUN] high2_bull__M0_DCE
+2026-04-19 10:44:19,488 [INFO] [DONE] high2_bull__M0_DCE | total_return=0.5392811999999969 max_dd%=-0.46931474202833634 sharpe=0.37866230492283615 trades=36
+2026-04-19 10:44:19,488 [INFO] [RUN] high2_bull__P0_DCE
+2026-04-19 10:44:19,559 [INFO] [DONE] high2_bull__P0_DCE | total_return=0.02092120000001252 max_dd%=-2.3877222933115374 sharpe=0.0038815934058205226 trades=62
+2026-04-19 10:44:19,559 [INFO] [RUN] high2_bull__TA0_CZCE
+2026-04-19 10:44:19,627 [INFO] [DONE] high2_bull__TA0_CZCE | total_return=-0.2196332000000023 max_dd%=-0.5595500386962895 sharpe=-0.1675051162599061 trades=36
+2026-04-19 10:44:19,627 [INFO] [RUN] high2_bull__MA0_CZCE
+2026-04-19 10:44:19,697 [INFO] [DONE] high2_bull__MA0_CZCE | total_return=0.0603539999999958 max_dd%=-0.4249606343331106 sharpe=0.03813028391575151 trades=45
+2026-04-19 10:44:19,707 [INFO] [ALL DONE] 输出: /Users/wuyuliang/code/vnpy/cta/strategy/brooks/report/20260419_104417

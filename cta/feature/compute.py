@@ -30,6 +30,12 @@ from cta.feature.price_action_context import compute_price_action_context_featur
 from cta.feature.price_action_advanced import compute_price_action_advanced_features
 from cta.feature.stats_feat import compute_stats_features
 from cta.feature.cross_section import compute_cross_section_features
+from cta.feature.volatility_regime import compute_volatility_regime_features
+from cta.feature.price_action_supplement import compute_price_action_supplement_features
+from cta.feature.multi_timeframe import compute_multi_timeframe_features
+from cta.feature.regime import compute_regime_features
+from cta.feature.composite import compute_composite_features
+from cta.feature.entry_stop import compute_entry_stop_features
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,7 +55,9 @@ def compute_single_symbol_features(df: pd.DataFrame,
     Parameters
     ----------
     df : 原始 OHLCV 数据
-    interval : "day" 或 "minute"，分钟级数据额外计算同比特征
+    interval : canonical 频率名 day / minute / minute5 / minute15 / minute30 / minute60
+               - minute 才追加 §11 同比特征
+               - §15 多周期特征用该值决定 LTF 检测是否启用
     """
     # 确保必需列存在，缺失则用默认值填充
     if "open_interest" not in df.columns:
@@ -67,15 +75,36 @@ def compute_single_symbol_features(df: pd.DataFrame,
         compute_price_action_context_features(df),
         compute_price_action_advanced_features(df),
         compute_stats_features(df),
+        # §13 波动率体制补充
+        compute_volatility_regime_features(df),
+        # §14 Al Brooks 形态补充
+        compute_price_action_supplement_features(df),
+        # §15 多周期对齐（需要 datetime 列，day/minute 都兼容）
+        compute_multi_timeframe_features(df, interval=interval),
+        # §18 入场/止损建议价（只依赖 OHLCV，可单独算）
+        compute_entry_stop_features(df),
     ]
 
-    # 分钟级额外计算同比特征
+    # 分钟级（1-min）才生成 tod 同比特征；
+    # minute5/minute15/minute30/minute60 的 bar 已跨多分钟，内部再按 1/3/5/10/20
+    # 分钟粒度聚合没有物理意义，显式不加，避免 "静默缺失"。
     if interval == "minute":
         from cta.feature.minute_tod import compute_minute_tod_features
         tod_feat = compute_minute_tod_features(df)
         if not tod_feat.empty and len(tod_feat.columns) > 0:
             parts.append(tod_feat)
+
     features = pd.concat(parts, axis=1)
+
+    # §16 / §17 依赖上游其它类特征，分两步：
+    #   先把 parts 拼好后再喂给 regime / composite
+    with_upstream = pd.concat([df, features], axis=1)
+    regime_feat = compute_regime_features(with_upstream)
+    composite_feat = compute_composite_features(
+        pd.concat([with_upstream, regime_feat], axis=1)
+    )
+    features = pd.concat([features, regime_feat, composite_feat], axis=1)
+
     # 全局清理 inf → NaN，避免下游模型异常
     features.replace([np.inf, -np.inf], np.nan, inplace=True)
     # 保留原始列
@@ -111,8 +140,6 @@ def compute_all_features(
 
     from cta.feature.loader import normalize_interval, load_intraday_data
     canon = normalize_interval(interval)
-    # compute 仅区分 1min vs 其它；minute5/15/30/60 走与 day 相同的特征集
-    compute_interval = "minute" if canon == "minute" else "day"
 
     for idx, (_, row) in enumerate(symbols_df.iterrows(), 1):
         symbol = row["symbol"]
@@ -123,7 +150,7 @@ def compute_all_features(
             else:
                 df = load_intraday_data(symbol, row["exchange"], interval=canon)
 
-            df_with_feat = compute_single_symbol_features(df, interval=compute_interval)
+            df_with_feat = compute_single_symbol_features(df, interval=canon)
             all_dfs.append(df_with_feat)
 
             # 按品种保存

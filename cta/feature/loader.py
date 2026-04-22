@@ -108,6 +108,11 @@ def _get_alpha_prefix(name: str) -> str:
     return m.group(1).upper() if m else ''
 
 
+def _dir_symbol(name: str) -> str:
+    """从子目录名提取品种代码：'CU0.SHF' -> 'CU0'，'CU_small' -> 'CU_SMALL'"""
+    return name.split(".", 1)[0].upper()
+
+
 def load_intraday_data(symbol: str, exchange: str, interval: str = "minute") -> pd.DataFrame:
     """
     加载单品种盘中数据（parquet 按日期存储），支持任意频率
@@ -116,22 +121,57 @@ def load_intraday_data(symbol: str, exchange: str, interval: str = "minute") -> 
 
     interval 取值: minute / minute5 / minute15 / minute30 / minute60
                   也接受老别名 5min / 15min / 30min / 60min
-    目录匹配: 按品种字母前缀扫描所有匹配目录
-    例如 symbol='CU0' 会匹配 CU0.SHFE, CU.SHF, CU_small 等
+
+    目录匹配策略（严格，不会跨品种）：
+      1) 优先精确匹配 {symbol}.{exchange}（若 exchange 提供，还会尝试 SHF/CZC/ZCE 等常见缩写）
+      2) 退回匹配 `split('.')[0] == symbol` 的目录（同一合约多个交易所缩写）
+      3) 纯符号目录（无 '.'）只在目录名 == symbol 时使用
+    示例：symbol='CU0' 只匹配 'CU0.SHF' / 'CU0.SHFE'，不会吸收 'CU_small'
     """
     base_dir = resolve_interval_dir(interval)
-    prefix = _get_alpha_prefix(symbol)
+    sym_upper = symbol.upper()
 
-    # 扫描所有以该品种字母前缀开头的目录
-    folders = []
+    # 交易所缩写扩展（与 download 端保持一致）
+    exch_aliases: dict[str, list[str]] = {
+        "SHFE": ["SHF", "SHFE"],
+        "INE":  ["INE"],
+        "DCE":  ["DCE"],
+        "CZCE": ["CZC", "ZCE", "CZCE"],
+        "CFFEX": ["CFX", "CFFEX"],
+        "GFEX": ["GFE", "GFEX"],
+    }
+    exch_key = (exchange or "").upper()
+    wanted_exch = exch_aliases.get(exch_key, [exch_key] if exch_key else [])
+
+    def _match(d: Path, target_sym: str) -> bool:
+        d_sym = _dir_symbol(d.name)
+        if d_sym != target_sym:
+            return False
+        if wanted_exch and "." in d.name:
+            suffix = d.name.split(".", 1)[1].upper()
+            if suffix not in wanted_exch:
+                return False
+        return True
+
+    folders: list[Path] = []
     if base_dir.exists():
+        # 1) 精确匹配 symbol（例 'CU0' 只接受 'CU0' 或 'CU0.SHF'）
         for d in sorted(base_dir.iterdir()):
-            if d.is_dir() and _get_alpha_prefix(d.name) == prefix:
+            if d.is_dir() and _match(d, sym_upper):
                 folders.append(d)
+        # 2) 回退：部分频率目录用"symbol 不带末尾 0"的写法（例 minute5/RB 对应 RB0）
+        #    仅当主匹配未命中时才尝试；并进一步要求 CU_SMALL 这类后缀名不被纳入
+        if not folders:
+            stem = sym_upper.rstrip("0")
+            if stem and stem != sym_upper:
+                for d in sorted(base_dir.iterdir()):
+                    if d.is_dir() and _match(d, stem):
+                        folders.append(d)
 
     if not folders:
         raise FileNotFoundError(
-            f"{interval} 数据目录不存在，品种前缀: {prefix}，搜索路径: {base_dir}"
+            f"{interval} 数据目录不存在: 未找到 symbol={symbol} exchange={exchange} "
+            f"的精确目录，搜索路径: {base_dir}"
         )
 
     # 从所有匹配目录加载 parquet
@@ -181,36 +221,37 @@ def list_intraday_symbols(interval: str = "minute") -> list[dict]:
     if not base_dir.exists():
         return []
 
-    # 按字母前缀分组
+    # 严格按目录名的品种部分（split('.')[0]）分组，避免跨品种聚合
+    # 例：'CU0.SHF' 与 'CU_small' 属于不同 symbol，不合并
     groups: dict[str, list[Path]] = {}
     for folder in sorted(base_dir.iterdir()):
         if not folder.is_dir():
             continue
-        prefix = _get_alpha_prefix(folder.name)
-        if not prefix:
+        sym = _dir_symbol(folder.name)
+        if not sym:
             continue
-        if prefix not in groups:
-            groups[prefix] = []
-        groups[prefix].append(folder)
+        groups.setdefault(sym, []).append(folder)
 
     # 从 symbols_list.csv 查找交易所
     try:
         symbols_df = load_symbols()
-        sym_exchange = dict(zip(symbols_df["symbol"], symbols_df["exchange"]))
+        sym_exchange = {
+            str(s).upper(): str(e).upper()
+            for s, e in zip(symbols_df["symbol"], symbols_df["exchange"])
+        }
     except Exception:
         sym_exchange = {}
 
     result = []
-    for prefix, folders in sorted(groups.items()):
+    for symbol, folders in sorted(groups.items()):
         has_data = any(list(f.glob("*.parquet")) for f in folders)
         if not has_data:
             continue
-        symbol = prefix + "0"
         exchange = sym_exchange.get(symbol, "")
         if not exchange:
             for f in folders:
                 if "." in f.name:
-                    exchange = f.name.split(".", 1)[1]
+                    exchange = f.name.split(".", 1)[1].upper()
                     break
         result.append({
             "symbol": symbol,

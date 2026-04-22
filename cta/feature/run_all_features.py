@@ -299,9 +299,8 @@ def _worker_compute(
                 "error_type": "EmptyData", "error": "loaded empty df",
             }
 
-        # 2) 计算特征
-        compute_interval = "minute" if canon == "minute" else "day"
-        feat = compute_single_symbol_features(df, interval=compute_interval)
+        # 2) 计算特征（传入 canonical interval，让 compute 内部决定走哪些特征）
+        feat = compute_single_symbol_features(df, interval=canon)
 
         if feat is None or feat.empty:
             return {

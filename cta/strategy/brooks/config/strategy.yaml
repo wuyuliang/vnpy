@@ -1,0 +1,101 @@
+# Brooks v3 运行期配置
+# CLI 可用 --config <path> 覆盖,个别字段可用 --<field> 直接覆盖。
+
+# ---- 品种筛选 ----
+symbols:
+  ranking_csv: cta/feature/symbols_research_ranking.csv
+  top_n: 8                       # 取前 N 名(策略回测 + 模型训练统一入口)
+  max_tier: B                    # 仅取该档及更高(A < B < C < D)
+  require_feature_interval: minute5  # 过滤:该 interval 下必须有 parquet
+  explicit_include: []           # 强制包含(追加)
+  explicit_exclude: []           # 强制排除
+
+# ---- 周期 ----
+intervals:
+  htf: day                       # 高周期偏向
+  mtf: minute60                  # 中周期 setup
+  ltf: minute5                   # 低周期入场
+  warmup_bars:                   # 每个 interval 的 warmup 上限(防止 O(N) 全量扫描)
+    day: 250
+    minute60: 250
+    minute30: 300
+    minute15: 300
+    minute5: 500
+    minute: 1000
+
+# ---- 信号阈值 ----
+signal:
+  htf:
+    # pa_always_in_dir 范围 -0.4..+0.4;|dir| >= 阈值视为"有明确方向"
+    always_in_dir_min_abs: 0.10
+    # pa_trend_strength_20 范围数十;|strength|/atr 相关,这里直接阈值
+    trend_strength_min_abs: 3.0
+    # pa_ema_slope_20 符号决定方向
+    ema_slope_must_match: true
+  mtf:
+    # pa_h123 ∈ {0,1,2,3};仅非 0 视为有效 setup
+    h123_valid: [1, 2, 3]
+    # pa_pullback_depth_20 ∈ [0,1];太浅(0.1)不入,太深(0.9)也不入
+    pullback_depth_min: 0.10
+    pullback_depth_max: 0.95
+    # 是否强制与 HTF 方向一致
+    align_htf_direction: true
+  ltf:
+    # pa_breakout_up_20 / pa_breakout_down_20 作为入场触发器
+    require_breakout_fire: true
+    lookback: 10                  # 使用 pa_breakout_*_{lookback} (3/10/20)
+    # pa_breakout_strength_{lookback} 范围 -1..+1
+    breakout_strength_min_abs: 0.2
+    # pa_signal_strength_{lookback} 范围 -5..+5
+    signal_strength_min_abs: 1.0
+    # pa_expected_rr 至少
+    expected_rr_min: 1.2
+    # pa_breakout_fail_* 若置位且反向,拒绝
+    reject_if_breakout_fail: true
+
+# ---- 风控 ----
+risk:
+  per_trade_risk_pct: 0.001      # 0.1% per trade
+  atr_window: 14
+  stop_atr_mult: 1.0             # 初始止损距离 = stop_atr_mult * ATR
+  trailing_atr_mult: 2.0         # 移动止损 = max_close - trailing_atr_mult * ATR
+  fail_exit_bars: 3              # 入场后 N 根未创新高即退出
+  max_holding_bars: 30           # 单笔最长持仓 bar 数
+  portfolio:
+    dd_threshold_half: 0.02      # -2% 时 leverage *= 0.5
+    dd_threshold_quarter: 0.05   # -5% 时 leverage *= 0.25
+    recover_to_full_at_new_high: true
+
+# ---- 模型 ----
+model:
+  enabled: true
+  path: null                     # 默认用 models/ 下最新 .ubj
+  threshold: 0.55                # score >= threshold 才放行
+  target_rr: 2.0                 # 标注时的目标 R:R
+  target_bars: 20                # 向前看窗口(bars)
+  train:
+    splits:
+      train_end: "2022-06-30"
+      val_end:   "2023-06-30"
+    xgb:
+      n_estimators: 400
+      max_depth: 5
+      learning_rate: 0.05
+      subsample: 0.8
+      colsample_bytree: 0.8
+      min_child_weight: 5
+      reg_lambda: 1.0
+      early_stopping_rounds: 30
+      eval_metric: auc
+
+# ---- 合约默认 ----
+contract:
+  default_rate: 0.0001
+  default_slippage: 1.0
+  default_size: 10
+  default_pricetick: 1.0
+
+# ---- 输出 ----
+output:
+  report_root: cta/strategy/brooks/report
+  models_root: cta/strategy/brooks/models
