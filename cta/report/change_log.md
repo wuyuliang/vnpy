@@ -4,6 +4,236 @@
 
 ---
 
+## 2026-04-24 — cta/skills 章节 02/03/04（Price Action / Trend / Range）代码化
+
+**分支**: 当前  
+**任务**: 按 `cta/cta_skills/02_price_action`、`03_trend_strategies`、`04_range_strategies`
+顺序逐类实现，要求每类先测试再实现，并兼容
+`day/minute60/minute30/minute15/minute5/minute`。
+
+### 修改文件
+
+- 新增包：`cta/skills/price_action/`（6 模块 + tests）
+  - `tight_range_breakout.py`
+  - `bull_bear_flag.py`
+  - `breakout_pullback.py`
+  - `hl_structure.py`
+  - `failed_breakout.py`
+  - `channel_state.py`
+- 新增包：`cta/skills/trend_strategies/`（5 模块 + tests）
+  - `donchian_breakout.py`
+  - `atr_breakout.py`
+  - `ma_trend_following.py`
+  - `cross_sectional_momentum.py`
+  - `trend_hold_trailing.py`
+- 新增包：`cta/skills/range_strategies/`（4 模块 + tests）
+  - `range_boundary_reversal.py`
+  - `mean_reversion.py`
+  - `false_breakout_reversal.py`
+  - `noise_filtering.py`
+
+### 运行命令
+
+```bash
+python3 -m unittest discover -s cta/skills/price_action/tests -v
+python3 -m unittest discover -s cta/skills/trend_strategies/tests -v
+python3 -m unittest discover -s cta/skills/range_strategies/tests -v
+python3 -m compileall cta/skills/price_action cta/skills/trend_strategies cta/skills/range_strategies
+```
+
+### 输出位置
+
+- 代码与测试：
+  - `cta/skills/price_action/`
+  - `cta/skills/trend_strategies/`
+  - `cta/skills/range_strategies/`
+- 测试与编译输出：控制台日志
+
+### 主要结果
+
+- 新增 15 个实现模块，33 个测试用例（02:18，03:14，04:11）全部通过。
+- 关键检测/信号函数已提供统一周期兼容入口（`interval` 参数或无周期耦合实现）。
+- 02/03/04 三类功能可独立调用，也可继续与 05-10 章节做联动集成。
+
+### 风险与后续
+
+1. 当前实现为可运行骨架版，部分细节阈值仍建议结合真实 `cta/data/feature` 样本做标定。  
+2. 03/04 与 07 仓位风控、08 回测引擎可进一步打通做端到端组合回测。  
+3. 若后续引入更复杂特征（如 `pa_leg_*`、`pa_channel_*` 完整版），建议优先补充回归测试后再替换规则。
+
+---
+
+## 2026-04-23 — cta/skills 章节 06-10（Filtering/Portfolio/Backtest/ML/LiveOps）代码化
+
+**分支**: 当前  
+**任务**: 按 `cta/cta_skills/06_filtering_and_scoring` 到 `10_live_ops` 顺序，
+在 `cta/skills/` 下逐类实现；每类先写测试再写实现，兼容
+`day/minute60/minute30/minute15/minute5/minute` 周期体系。
+
+### 修改文件
+
+- 新增包：`cta/skills/filtering_scoring/`（5 模块 + tests）
+  - `setup_quality.py` / `breakout_quality.py` / `context_score.py` / `risk_reward_score.py` / `ml_opportunity_model.py`
+- 新增包：`cta/skills/position_portfolio/`（5 模块 + tests）
+  - `single_trade_risk.py` / `vol_targeting.py` / `sector_exposure.py` / `drawdown_control.py` / `portfolio_allocation.py`
+- 新增包：`cta/skills/data_backtest/`（5 模块 + tests）
+  - `continuous_contract.py` / `rollover_rules.py` / `transaction_cost.py` / `event_driven_backtest.py` / `trade_evaluation.py`
+- 新增包：`cta/skills/ml_augmentation/`（5 模块 + tests）
+  - `trade_filter_model.py` / `regime_classifier.py` / `mfe_mae_prediction.py` / `feature_store.py` / `walk_forward_validation.py`
+- 新增包：`cta/skills/live_ops/`（5 模块 + tests）
+  - `signal_to_order.py` / `order_execution.py` / `monitoring_alerting.py` / `daily_review.py` / `strategy_iteration_loop.py`
+
+### 运行命令
+
+```bash
+python3 -m unittest discover -s cta/skills/filtering_scoring/tests -v
+python3 -m unittest discover -s cta/skills/position_portfolio/tests -v
+python3 -m unittest discover -s cta/skills/data_backtest/tests -v
+python3 -m unittest discover -s cta/skills/ml_augmentation/tests -v
+python3 -m unittest discover -s cta/skills/live_ops/tests -v
+python3 -m compileall cta/skills/filtering_scoring cta/skills/position_portfolio cta/skills/data_backtest cta/skills/ml_augmentation cta/skills/live_ops
+```
+
+### 输出位置
+
+- 代码与测试：`cta/skills/{filtering_scoring,position_portfolio,data_backtest,ml_augmentation,live_ops}/`
+- 测试运行输出：控制台（无覆盖原始数据）
+
+### 主要结果
+
+- 新增 `06-10` 五章共 `25` 个实现模块、`56` 个测试用例，已全部通过。
+- 每章先建测试后实现，已覆盖核心接口：评分/风控/组合/连续合约/回测引擎/ML 数据集与验证/实盘运维流程。
+- 关键函数均可在 day/minute60/minute30/minute15/minute5/minute 场景下复用或无周期耦合。
+
+### 风险与后续
+
+1. 当前 ML 相关实现为“无重依赖轻量版”（便于本地可运行），后续可替换为 XGBoost/LightGBM 生产模型。  
+2. 事件回测与执行模块为基础骨架（bar 级），后续可继续补充部分成交、挂单队列和更细粒度成交仿真。  
+3. 建议下一轮在 `cta/data/feature` 实盘样本上做端到端联调（06 分数 -> 07 仓位 -> 08 回测 -> 09 gate -> 10 review）。
+
+---
+
+## 2026-04-23 — cta/skills 章节 05（Regime Switch Strategies）代码化
+
+**分支**: 当前  
+**任务**: 读取 `cta/cta_skills/05_regime_switch_strategies/*.md`，按 01→04 顺序在
+`cta/skills/` 下落地代码，要求先写测试再写实现，并兼容
+`day/minute60/minute30/minute15/minute5/minute` 六种周期名。
+
+### 修改文件
+
+| 文件 | 改动 |
+|------|------|
+| `cta/skills/regime_switch/__init__.py` | 新建；统一导出 05 章 API |
+| `cta/skills/regime_switch/volatility_transition.py` | 新建；压缩/扩张/常态三态识别、切换事件、`rollback_if_false_switch` |
+| `cta/skills/regime_switch/breakout_score.py` | 新建；`BreakoutScoreResult`、单 bar 突破评分、历史权重校准 |
+| `cta/skills/regime_switch/switch_machine.py` | 新建；regime 状态机、置信度、age、next regime、策略白名单 |
+| `cta/skills/regime_switch/transition_risk.py` | 新建；过渡期风控调整与 max-hold 判定 |
+| `cta/skills/regime_switch/tests/__init__.py` | 新建；测试包初始化 |
+| `cta/skills/regime_switch/tests/test_volatility_transition.py` | 新建；状态识别/回滚/多周期兼容测试 |
+| `cta/skills/regime_switch/tests/test_breakout_score.py` | 新建；评分输出、HTF 对齐影响、权重校准测试 |
+| `cta/skills/regime_switch/tests/test_switch_machine.py` | 新建；状态机输出、标签覆盖、白名单测试 |
+| `cta/skills/regime_switch/tests/test_transition_risk.py` | 新建；transition 风控与持仓时长限制测试 |
+
+### 运行命令
+
+```bash
+# 05 章节单测
+python3 -m unittest discover -s cta/skills/regime_switch/tests -v
+
+# 语法冒烟
+python3 -m compileall cta/skills/regime_switch
+```
+
+### 输出位置
+
+- 代码与测试：`cta/skills/regime_switch/`
+- 无额外数据落盘；仅控制台测试输出。
+
+### 主要结果
+
+- `regime_switch` 新包已可导入，四个子模块均可独立调用。
+- 单测 `17/17` 通过，覆盖状态切换、突破评分、状态机与过渡期风控核心路径。
+- 六周期字符串兼容已纳入测试（day/minute60/minute30/minute15/minute5/minute）。
+
+### 风险与后续
+
+1. 当前 `calibrate_weights_from_history` 为轻量相关系数法（无 sklearn 依赖），后续可升级为 logistic / XGBoost 权重学习。  
+2. `detect_vol_transition` 的阈值仍为规则参数，建议下一步在 RB0 + 研究池做阈值稳定性扫描。  
+3. 下一个阶段按你的顺序继续实现 `06_filtering_and_scoring`，延续“先测试后实现”。
+
+---
+
+## 2026-04-22 — cta/skills 章节 00（Overview & Methodology）代码化
+
+**分支**: 当前
+**任务**: 把 `cta/cta_skills/00_overview_methodology/` 5 篇 md 的「第 6 节代码模块设计」
+**全部落成可运行 + 可测的 Python 包**，放在 `cta/skills/overview/` 下；配置外置到
+`cta/skills/configs/`，运行产物统一落 `cta/skills/output/`；所有函数对
+`day / minute60 / minute30 / minute15 / minute5 / minute` 六种周期一视同仁。
+
+### 修改文件
+
+| 文件 | 改动 |
+|------|------|
+| `cta/skills/__init__.py` | 新建；暴露 `SKILLS_ROOT / CONFIG_DIR / OUTPUT_DIR / PROJECT_ROOT / CANON_INTERVALS` |
+| `cta/skills/configs/acceptance.yaml` | 新建；Gate A/B 门槛（annret/maxdd/sharpe/calmar/trade_count/...）以 `{op,value}` 声明 |
+| `cta/skills/configs/research_pool.yaml` | 新建；A 档（rank≤12）/ B 档（rank≤24）+ per-tier intervals + coverage 阈值 |
+| `cta/skills/overview/__init__.py` | 新建；统一 re-export 5 个子模块公开 API |
+| `cta/skills/overview/acceptance.py` | §01 门槛判定：`REQUIRED_COLUMNS / GateDecision / assert_passes_gate_a,b / assess_against_gates`；内置 `INTERVAL_TO_GATE` 映射 |
+| `cta/skills/overview/research_pool.py` | §02 研究池：`PoolMember / ResearchPool / build_research_pool (lru_cache) / in_research_pool / resolve_research_symbols / reset_cache`；读 `cta/feature/symbols_research_ranking.csv` |
+| `cta/skills/overview/backtest_principles.py` | §03 回测配置 + lookahead 检测：`BacktestConfig`（禁 `fill_model='close'` / 强制 `signal_lag_bars≥1`）+ `detect_lookahead`（shift_divergence + corr_with_future **前向收益** 双模式）+ `assert_no_lookahead` |
+| `cta/skills/overview/live_principles.py` | §04 实盘原则：`LiveGateState`（6 阶段灰度）/ `CircuitAction` / `check_circuit`（daily_dd / consecutive_loss / signal_mismatch，按 stop>halt>warn 排序）/ `reconcile_positions` |
+| `cta/skills/overview/iteration.py` | §05 想法追踪：`IdeaRecord` + `record_idea`（写 `meta.yaml + hypothesis.md` 模板，幂等）+ `list_open_ideas` / `advance_stage`；根目录 `cta/report/ideas/{YYYYMMDD}_{slug}/` |
+| `cta/skills/overview/tests/test_acceptance.py` | 12 用例，含 Gate A/B 通过失败 / 缺列 / 混合 interval / yaml 覆盖 |
+| `cta/skills/overview/tests/test_research_pool.py` | 10 用例，含默认构建 / 自定义 yaml / 非法周期 / require_feature 子集 |
+| `cta/skills/overview/tests/test_backtest_principles.py` | 14 用例，含 BacktestConfig 校验 / 干净信号不报 / shift(-N) 偷看可检出 / assert 抛异常 |
+| `cta/skills/overview/tests/test_live_principles.py` | 16 用例，含熔断等级排序 / cfg 覆盖 / 对账差集 |
+| `cta/skills/overview/tests/test_iteration.py` | 14 用例，含 slugify / 幂等 / advance_stage |
+| `cta/skills/overview/tests/test_smoke_rb0.py` | 2 用例端到端：真实 `cta/data/day/RB0.csv` + shift(-3) 合成偷看信号；合成跨 interval summary 跑 `assess_against_gates` 落盘到 `cta/skills/output/` |
+
+### 设计要点
+
+- **周期无关**：所有 API 收 `interval: str` 字符串走 `cta.feature.loader.normalize_interval`，6 种
+  canonical interval 全部支持；`INTERVAL_TO_GATE` 把 day/60/30 → Gate A、15/5/1 → Gate B。
+- **品种顺序**：`build_research_pool` 调 `load_symbols_ranked()`（昨日新增），强制按
+  `research_rank` 升序；与 `cta/feature/run_all_features.py` 等入口一致。
+- **lookahead 检测**：
+  - `shift_divergence`：对比 `signal * fwd_ret` vs `signal.shift(1) * fwd_ret`（合规执行版），
+    仅在 naive 绝对 sharpe > 0.5 时才报，避免对纯噪声信号假阳性。
+  - `corr_with_future`：signal 与**未来 h 根 bar 的前向收益**（不是 raw close 价格）
+    做 pearson；真实 RB0 日线 + `close.shift(-3)>close` 在 corr_threshold=0.15 下可检出。
+- **yaml-driven 阈值**：Gate A/B 用 `{op, value}` 描述每个指标，新增指标/调整方向不用改代码。
+
+### 运行命令
+
+```bash
+# 单元测试（全部 69 用例）
+python3 -m unittest discover -s cta/skills/overview/tests -p 'test_*.py' -v
+
+# 读研究池（按 research_rank 升序）
+python3 -c "from cta.skills.overview import resolve_research_symbols; \
+            print(resolve_research_symbols('A', interval='day', require_feature=True)[:5])"
+
+# 新建一个想法
+python3 -c "from cta.skills.overview import record_idea; \
+            print(record_idea('Tight Range Breakout', owner='wu', created_at='2026-04-22'))"
+```
+
+### 输出位置
+
+- 单测瞬时产物：`cta/skills/output/`（smoke test 自清理）
+- 想法目录：`cta/report/ideas/{YYYYMMDD}_{slug}/`
+
+### 风险与后续
+
+- 本次**仅建 00 章**。后续按 `01_market_regime` → `10_live_ops` 逐章落代码。
+- `detect_lookahead` 仍是启发式，最终需人工 code review 定性。
+- `assess_against_gates` 的 `INTERVAL_TO_GATE` 默认把 minute15 算 Gate B，若用户希望
+  minute15 保持 Gate A 可用 `gate_override={'minute15':'A'}` 覆盖。
+
+---
+
 ## 2026-04-21 — 合并 FEATURE.md 到 FEATURES.md + 区分 bar-derivable vs 未来特征
 
 **分支**: `feature`
@@ -904,3 +1134,75 @@ python3 -m cta.feature.run_all_features \
 2. **regime.py 阈值**：当前 trend_up/range/compression/expansion 的分段阈值（30/70 分位、0.6 trading_range、-0.5 bb_z、0.5 atr_z）是 FEATURES.md 中建议值；品种/周期差异下可能需按品种再做一次分位标定。
 3. **multi_timeframe 的 LTF 信号**：仅在 `interval in (minute, minute5)` 启用；更高频率（15/30/60m）下 `ltf_signal_ready_5m=0`，这是设计使然（避免未来信息）。
 4. **minute5 耗时**：RB0 单品种 17k bar 约 495s，其中 trend_channel 与 regime softmax 占比较高；全 71 品种全历史仍建议夜间批处理。
+
+---
+
+## 2026-04-23 · main · run_all_features 诊断日志 + 1min 内存治理
+
+### 背景
+
+服务器上跑 1-minute 全量生成（71 品种）出现 success=1 / fail=70 的系统性失败，但
+旧的单层 try/except 把 4 个阶段的异常全部归到同一个 `error_type`，`fail.csv` 里
+看不清到底死在哪一步。同时 `ProcessPoolExecutor` 默认不会回收 worker，
+1-minute 单品种峰值 RSS 2-3GB，跑多个品种后 worker 内存持续累加很容易 OOM 被 kill。
+
+### 任务
+
+1. 把 `_worker_compute` 拆成 4 个独立阶段，各自 try/except，`error_type` 精确到
+   `LoadError:*` / `ComputeError:*` / `FilterError:*` / `WriteError:*`。
+2. 每阶段打印 `pid / symbol / 行列数 / 阶段耗时 / RSS` 日志。
+3. 1-minute interval 下启用 `max_tasks_per_child=1`（Python 3.11+），每处理完 1
+   个品种就回收 worker 进程，彻底释放内存。
+4. 主进程每完成 5 个品种触发一次 `gc.collect()` 并打印 `main_rss / 进度`。
+
+### 修改文件
+
+**`cta/feature/run_all_features.py`**
+
+- 新增 `_rss_mb()` 工具函数，兼容 macOS（`ru_maxrss` bytes）与 Linux（KB）。
+- `_worker_compute` 结构重写：
+    - Stage 1 `load`: `LoadError:FileNotFound / LoadError:<ExcName> / LoadError:Empty`
+    - Stage 2 `compute`: `ComputeError:<ExcName>` / `ComputeError:Empty`
+    - Stage 3 `filter`: `FilterError:MissingDatetime / FilterError:<ExcName>`
+    - Stage 4 `write`: `WriteError:<ExcName>`（附 `written_before_fail` 计数）
+    - 每阶段成功后打印 `begin / loaded / features / done` 四行日志，含 `rss`
+      和 `total_t / peak_delta`。
+    - Stage 2 结束后立即 `del df; gc.collect()` 避免 compute + 原始 df 叠加。
+    - `detail` 字段拆分成 `load=…s compute=…s write=…s rss_end=…MB`，
+      方便从 `finished.csv` 直接看阶段耗时。
+- `run_interval` 增强：
+    - `canon == "minute"` 且 Python ≥3.11 时 `max_tasks_per_child=1`，打印启用提示。
+    - 每 `GC_EVERY=5` 个完成或最后一个完成后主进程 `gc.collect()` 并打印
+      `progress / ok / fail / main_rss`。
+
+### 未改动
+
+- `cta/feature/compute.py`、`cta/feature/minute_tod.py`：本轮仅做 review，未发现
+  明确 bug。真正的 1-min 失败类型待加上分阶段日志后重跑一轮即可从 `fail.csv`
+  `error_type` 列直接定位。
+
+### 运行命令
+
+```bash
+# 服务器上重跑 1-minute（旧 fail 会被覆盖 append）
+python3 -m cta.feature.run_all_features --interval minute
+
+# 若要先清空旧 fail.csv 便于观察新 error_type
+rm -f cta/data/feature/fail.csv
+python3 -m cta.feature.run_all_features --interval minute
+```
+
+### 输出位置
+
+- `cta/data/feature/minute/{SYMBOL}/{YYYY-MM-DD}.parquet`
+- `cta/data/feature/finished.csv`（`detail` 列新增 load/compute/write 耗时拆分）
+- `cta/data/feature/fail.csv`（`error_type` 列新增阶段前缀）
+
+### 风险 / 待确认项
+
+1. `max_tasks_per_child=1` 要求 Python 3.11+。服务器如果是 3.10 及以下会被
+   `sys.version_info` 检查跳过（仍按默认行为运行，不报错，但退回内存累积模式）。
+2. 若重跑后 `fail.csv` 里仍是 `WorkerCrash`（主进程捕获的异常，子进程已死），
+   则 90% 是 OOM / SIGKILL，下一步需要降低 per-worker 内存（如进一步精简
+   `compute_minute_tod_features` 的中间拷贝，或显式 `chunksize` 聚合）。
+3. Stage 日志级别是 INFO，跑 71 品种 × 4 行 ≈ 284 行额外日志；若嫌噪音可改 DEBUG。

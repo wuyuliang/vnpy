@@ -14,6 +14,7 @@ import pandas as pd
 CTA_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = CTA_ROOT / "data"
 SYMBOLS_CSV = DATA_DIR / "day" / "symbols_list.csv"
+RANKING_CSV = CTA_ROOT / "feature" / "symbols_research_ranking.csv"
 
 # 分钟数据列名映射 (原始 -> 统一)
 MINUTE_COL_MAP = {
@@ -89,6 +90,47 @@ def resolve_interval_dir(interval: str) -> Path:
 def load_symbols() -> pd.DataFrame:
     """加载品种列表，返回 DataFrame(symbol, exchange, name)"""
     return pd.read_csv(SYMBOLS_CSV, encoding="utf-8-sig")
+
+
+def load_symbols_ranked(
+    symbols_filter: list[str] | None = None,
+    max_rank: int | None = None,
+) -> pd.DataFrame:
+    """
+    加载品种列表并按 research_rank 升序排序。
+    所有批量任务（特征生成、下载、回测）都应通过此函数确定品种遍历顺序。
+
+    Parameters
+    ----------
+    symbols_filter : 可选，只保留这些 symbol（大小写不敏感）
+    max_rank : 可选，只保留 research_rank <= max_rank 的品种
+
+    Returns
+    -------
+    DataFrame(symbol, exchange, research_rank, name?)，symbol/exchange 大写、去空，
+    按 research_rank 升序，index 已重置。
+    """
+    if not RANKING_CSV.exists():
+        raise FileNotFoundError(f"排名文件不存在: {RANKING_CSV}")
+    df = pd.read_csv(RANKING_CSV, encoding="utf-8-sig")
+    required = {"symbol", "exchange", "research_rank"}
+    if not required.issubset(df.columns):
+        raise ValueError(
+            f"{RANKING_CSV.name} 缺少必要列 {required - set(df.columns)}"
+        )
+    keep_cols = [c for c in ("symbol", "exchange", "research_rank", "name")
+                 if c in df.columns]
+    df = df[keep_cols].copy()
+    df["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
+    df["exchange"] = df["exchange"].astype(str).str.strip().str.upper()
+    df = df.dropna(subset=["symbol", "exchange", "research_rank"])
+    df = df.sort_values("research_rank").reset_index(drop=True)
+    if max_rank is not None:
+        df = df[df["research_rank"] <= max_rank].reset_index(drop=True)
+    if symbols_filter:
+        want = {s.upper() for s in symbols_filter}
+        df = df[df["symbol"].isin(want)].reset_index(drop=True)
+    return df
 
 
 def load_day_data(symbol: str) -> pd.DataFrame:
@@ -284,8 +326,8 @@ def list_available_intervals() -> list[str]:
 
 
 def load_all_day_data() -> pd.DataFrame:
-    """加载所有品种日线数据，合并为一个 DataFrame"""
-    symbols_df = load_symbols()
+    """加载所有品种日线数据，按 research_rank 升序合并为一个 DataFrame"""
+    symbols_df = load_symbols_ranked()
     dfs = []
     for _, row in symbols_df.iterrows():
         try:

@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from cta.feature.loader import load_symbols, load_day_data
+from cta.feature.loader import load_symbols_ranked, load_day_data
 from cta.feature.trend import compute_trend_features
 from cta.feature.momentum import compute_momentum_features
 from cta.feature.volatility import compute_volatility_features
@@ -131,9 +131,8 @@ def compute_all_features(
     -------
     包含全部特征的 DataFrame
     """
-    symbols_df = load_symbols()
-    if symbols:
-        symbols_df = symbols_df[symbols_df["symbol"].isin(symbols)]
+    # 按 research_rank 升序遍历，确保所有批量入口顺序一致
+    symbols_df = load_symbols_ranked(symbols_filter=symbols)
 
     all_dfs = []
     total = len(symbols_df)

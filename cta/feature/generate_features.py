@@ -39,10 +39,9 @@ from pathlib import Path
 import pandas as pd
 
 from cta.feature.loader import (
-    load_symbols,
+    load_symbols_ranked,
     load_day_data,
     load_minute_data,
-    list_minute_symbols,
 )
 from cta.feature.compute import compute_single_symbol_features
 from cta.feature.cross_section import compute_cross_section_features
@@ -65,9 +64,8 @@ def generate_day_features(
     out_dir = FEATURE_DIR / "day"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    symbols_df = load_symbols()
-    if symbols:
-        symbols_df = symbols_df[symbols_df["symbol"].isin(symbols)]
+    # 按 research_rank 升序遍历
+    symbols_df = load_symbols_ranked(symbols_filter=symbols)
 
     total = len(symbols_df)
     all_dfs: list[pd.DataFrame] = []
@@ -121,21 +119,19 @@ def generate_minute_features(
     out_dir = FEATURE_DIR / "minute"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    available = list_minute_symbols()
-    if not available:
-        logger.warning("没有找到分钟级数据目录")
+    # 按 research_rank 升序遍历；无分钟数据的品种在加载阶段 FileNotFoundError 后跳过
+    ranked = load_symbols_ranked(symbols_filter=symbols)
+    if ranked.empty:
+        logger.warning("没有匹配到任何品种")
         return
 
-    if symbols:
-        available = [s for s in available if s["symbol"] in symbols]
-
-    total = len(available)
+    total = len(ranked)
     all_dfs: list[pd.DataFrame] = []
     t0 = time.time()
 
-    for idx, info in enumerate(available, 1):
-        symbol = info["symbol"]
-        exchange = info["exchange"]
+    for idx, (_, row) in enumerate(ranked.iterrows(), 1):
+        symbol = row["symbol"]
+        exchange = row["exchange"]
         out_path = out_dir / f"{symbol}.parquet"
         try:
             logger.info(f"[Minute {idx}/{total}] {symbol}.{exchange} ...")

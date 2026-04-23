@@ -20,7 +20,8 @@ cta/data/feature/fail.csv
 - 执行顺序：长周期 → 短周期 (day → minute60 → minute30 → minute15 → minute5 → minute)
   因为 minute 级耗时最长；优先完成信息密度高、耗时短的频率
 - 品种顺序：按 `symbols_research_ranking.csv` 的 research_rank 升序
-- 多进程并行：4 个 CPU 并行；minute 级自动降低到 2 worker 以控制内存
+- 多进程并行：day / minute5 / minute15 / minute30 / minute60 各 4 worker；
+  minute（1min）单品种数据量最大、峰值内存 2-3GB，强制单 worker 避免 OOM
 - 每 (symbol, interval) 独立任务；一个失败不影响其它
 - 断点续跑:
     * 无 date range 且非 --overwrite 且 (symbol, interval) 在 finished.csv 中 success
@@ -70,6 +71,10 @@ from __future__ import annotations
 import argparse
 import gc
 import logging
+import os
+import platform
+import resource
+import sys
 import time
 import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -86,6 +91,23 @@ from cta.feature.loader import (
     load_intraday_data,
     normalize_interval,
 )
+
+
+# -----------------------------------------------------------------------------
+# 内存采样
+# -----------------------------------------------------------------------------
+def _rss_mb() -> float:
+    """返回当前进程 RSS (MB)。
+    - macOS: getrusage ru_maxrss 单位是 bytes
+    - Linux: getrusage ru_maxrss 单位是 kilobytes
+    """
+    try:
+        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    except Exception:
+        return 0.0
+    if platform.system() == "Darwin":
+        return rss / 1024.0 / 1024.0   # bytes -> MB
+    return rss / 1024.0                # KB -> MB
 
 # =============================================================================
 # 常量 & 日志
@@ -116,10 +138,13 @@ SIZE_THRESHOLDS = {
 DEFAULT_SIZE_THRESHOLD = 512 * 1024
 
 # 每个频率默认 worker 上限（控制内存）
-# 16GB RAM 下：minute 特征大约 2-3 GB/品种，保守 2 worker；其它轻量可以 4
+# 16GB RAM 下：
+#   - minute（1min）单品种数据量最大（~百万 bar），峰值内存 2-3GB，强制单 worker
+#   - minute5/15/30/60 单品种数据量较小（≤20 万 bar），4 路并行
+#   - day 最轻量，4 路并行
 INTERVAL_WORKER_CAP = {
     "day":      4,
-    "minute":   2,
+    "minute":   1,
     "minute5":  4,
     "minute15": 4,
     "minute30": 4,
@@ -276,6 +301,10 @@ def _worker_compute(
     date range 规则:
       - 计算阶段始终喂入品种全历史（保证滚动特征准确）
       - 只有 [start_date, end_date] 交集内的自然日会被落盘
+
+    为便于定位 minute 级大量失败，拆成 4 个阶段，每阶段独立 try/except,
+    error_type 会精确到 LoadError / ComputeError / FilterError / WriteError，
+    同时记录阶段耗时与 RSS 内存。
     """
     # 延迟导入（子进程首次调用时才加载，避免 fork 浪费）
     from cta.feature.compute import compute_single_symbol_features
@@ -284,37 +313,96 @@ def _worker_compute(
     out_dir = FEATURE_DIR / canon / symbol
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    pid = os.getpid()
+    w_logger = logging.getLogger(f"worker.{canon}")
+    t_begin = time.time()
+    rss_start = _rss_mb()
+    w_logger.info(
+        f"[pid={pid}][{canon}][{symbol}] begin rss={rss_start:.0f}MB"
+    )
+
+    # ---------------- Stage 1: load ----------------
     t0 = time.time()
     try:
-        # 1) 加载数据（全历史）
         if canon == "day":
             df = load_day_data(symbol)
         else:
             df = load_intraday_data(symbol, exchange, interval=canon)
+    except FileNotFoundError as e:
+        return {
+            "kind": "fail",
+            "symbol": symbol, "exchange": exchange, "interval": canon,
+            "error_type": "LoadError:FileNotFound", "error": str(e),
+        }
+    except Exception as e:  # noqa: BLE001
+        tb = traceback.format_exc(limit=5)
+        return {
+            "kind": "fail",
+            "symbol": symbol, "exchange": exchange, "interval": canon,
+            "error_type": f"LoadError:{type(e).__name__}",
+            "error": f"{e} || {tb.splitlines()[-1] if tb else ''}",
+        }
 
-        if df is None or df.empty:
-            return {
-                "kind": "fail",
-                "symbol": symbol, "exchange": exchange, "interval": canon,
-                "error_type": "EmptyData", "error": "loaded empty df",
-            }
+    if df is None or df.empty:
+        return {
+            "kind": "fail",
+            "symbol": symbol, "exchange": exchange, "interval": canon,
+            "error_type": "LoadError:Empty", "error": "loaded empty df",
+        }
+    load_rows = len(df)
+    load_elapsed = time.time() - t0
+    w_logger.info(
+        f"[pid={pid}][{canon}][{symbol}] loaded rows={load_rows} "
+        f"cols={len(df.columns)} load_t={load_elapsed:.1f}s "
+        f"rss={_rss_mb():.0f}MB"
+    )
 
-        # 2) 计算特征（传入 canonical interval，让 compute 内部决定走哪些特征）
+    # ---------------- Stage 2: compute features ----------------
+    t0 = time.time()
+    try:
         feat = compute_single_symbol_features(df, interval=canon)
+    except Exception as e:  # noqa: BLE001
+        tb = traceback.format_exc(limit=8)
+        # 释放输入内存再返回
+        del df
+        gc.collect()
+        return {
+            "kind": "fail",
+            "symbol": symbol, "exchange": exchange, "interval": canon,
+            "error_type": f"ComputeError:{type(e).__name__}",
+            "error": (
+                f"{e} || load_rows={load_rows} || "
+                f"{tb.splitlines()[-1] if tb else ''}"
+            ),
+        }
 
-        if feat is None or feat.empty:
-            return {
-                "kind": "fail",
-                "symbol": symbol, "exchange": exchange, "interval": canon,
-                "error_type": "EmptyFeature", "error": "compute returned empty",
-            }
+    if feat is None or feat.empty:
+        return {
+            "kind": "fail",
+            "symbol": symbol, "exchange": exchange, "interval": canon,
+            "error_type": "ComputeError:Empty",
+            "error": "compute returned empty",
+        }
+    compute_elapsed = time.time() - t0
+    feat_cols = len(feat.columns)
+    feat_rows = len(feat)
+    w_logger.info(
+        f"[pid={pid}][{canon}][{symbol}] features rows={feat_rows} "
+        f"cols={feat_cols} compute_t={compute_elapsed:.1f}s "
+        f"rss={_rss_mb():.0f}MB"
+    )
 
-        # 3) 按自然日切片
+    # 释放原始 df（compute 内部已拼好，对输出不再需要）
+    del df
+    gc.collect()
+
+    # ---------------- Stage 3: filter by date ----------------
+    try:
         if "datetime" not in feat.columns:
             return {
                 "kind": "fail",
                 "symbol": symbol, "exchange": exchange, "interval": canon,
-                "error_type": "MissingDatetime",
+                "error_type": "FilterError:MissingDatetime",
                 "error": "feat has no 'datetime' column",
             }
         feat["_date"] = pd.to_datetime(feat["datetime"]).dt.strftime("%Y-%m-%d")
@@ -322,32 +410,44 @@ def _worker_compute(
             feat = feat[feat["_date"] >= start_date]
         if end_date:
             feat = feat[feat["_date"] <= end_date]
+    except Exception as e:  # noqa: BLE001
+        tb = traceback.format_exc(limit=5)
+        return {
+            "kind": "fail",
+            "symbol": symbol, "exchange": exchange, "interval": canon,
+            "error_type": f"FilterError:{type(e).__name__}",
+            "error": f"{e} || {tb.splitlines()[-1] if tb else ''}",
+        }
 
-        if feat.empty:
-            return {
-                "kind": "finished",
-                "symbol": symbol, "exchange": exchange, "interval": canon,
-                "status": "success",
-                "days_written": 0, "rows": 0, "cols": 0,
-                "date_start": "", "date_end": "",
-                "output_dir": str(out_dir),
-                "detail": f"empty after date filter [{start_date},{end_date}]",
-            }
+    if feat.empty:
+        del feat
+        gc.collect()
+        return {
+            "kind": "finished",
+            "symbol": symbol, "exchange": exchange, "interval": canon,
+            "status": "success",
+            "days_written": 0, "rows": 0, "cols": 0,
+            "date_start": "", "date_end": "",
+            "output_dir": str(out_dir),
+            "detail": f"empty after date filter [{start_date},{end_date}]",
+        }
 
-        # 4) 按日 groupby 落盘；已存在且非 overwrite 则跳过该日
-        days_written = 0
-        days_skipped = 0
-        total_rows = 0
-        cols = len(feat.columns) - 1  # 去掉 _date 辅助列
-        date_list: List[str] = []
-        # 单日 parquet 最小字节数（小于此视为脏文件，会被重写）
-        # 全历史阈值 / 每年约 250 交易日 ≈ 每日 0.4%，这里用 1% 做下限
-        full_threshold = SIZE_THRESHOLDS.get(canon, DEFAULT_SIZE_THRESHOLD)
-        if canon == "day":
-            day_threshold = 4096  # 单日 parquet 大约 10-50KB，4KB 作为 sanity check
-        else:
-            day_threshold = max(int(full_threshold * 0.01), 4096)
+    # ---------------- Stage 4: write per-day parquet ----------------
+    t0 = time.time()
+    days_written = 0
+    days_skipped = 0
+    total_rows = 0
+    cols = len(feat.columns) - 1  # 去掉 _date 辅助列
+    date_list: List[str] = []
+    # 单日 parquet 最小字节数（小于此视为脏文件，会被重写）
+    # 全历史阈值 / 每年约 250 交易日 ≈ 每日 0.4%，这里用 1% 做下限
+    full_threshold = SIZE_THRESHOLDS.get(canon, DEFAULT_SIZE_THRESHOLD)
+    if canon == "day":
+        day_threshold = 4096  # 单日 parquet 大约 10-50KB，4KB 作为 sanity check
+    else:
+        day_threshold = max(int(full_threshold * 0.01), 4096)
 
+    try:
         for date, group in feat.groupby("_date", sort=True):
             out_path = out_dir / f"{date}.parquet"
             if out_path.exists() and not overwrite:
@@ -359,44 +459,53 @@ def _worker_compute(
             days_written += 1
             total_rows += len(group)
             date_list.append(date)
-
-        elapsed = time.time() - t0
-        date_start = date_list[0] if date_list else ""
-        date_end = date_list[-1] if date_list else ""
-
-        # 主动释放
-        del feat, df
-        gc.collect()
-
-        return {
-            "kind": "finished",
-            "symbol": symbol, "exchange": exchange, "interval": canon,
-            "status": "success",
-            "days_written": int(days_written),
-            "rows": int(total_rows),
-            "cols": int(cols),
-            "date_start": date_start,
-            "date_end": date_end,
-            "output_dir": str(out_dir),
-            "detail": (
-                f"elapsed={elapsed:.1f}s, written={days_written}, "
-                f"skipped={days_skipped}"
-            ),
-        }
-    except FileNotFoundError as e:
-        return {
-            "kind": "fail",
-            "symbol": symbol, "exchange": exchange, "interval": canon,
-            "error_type": "FileNotFound", "error": str(e),
-        }
     except Exception as e:  # noqa: BLE001
         tb = traceback.format_exc(limit=5)
+        # 部分写入的情况下也返回 fail（上次成功的不会被回滚）
         return {
             "kind": "fail",
             "symbol": symbol, "exchange": exchange, "interval": canon,
-            "error_type": type(e).__name__,
-            "error": f"{e} || {tb.splitlines()[-1] if tb else ''}",
+            "error_type": f"WriteError:{type(e).__name__}",
+            "error": (
+                f"{e} || written_before_fail={days_written} || "
+                f"{tb.splitlines()[-1] if tb else ''}"
+            ),
         }
+
+    write_elapsed = time.time() - t0
+    elapsed = time.time() - t_begin
+    date_start = date_list[0] if date_list else ""
+    date_end = date_list[-1] if date_list else ""
+
+    # 主动释放
+    del feat
+    gc.collect()
+    rss_end = _rss_mb()
+    w_logger.info(
+        f"[pid={pid}][{canon}][{symbol}] done "
+        f"write_t={write_elapsed:.1f}s total_t={elapsed:.1f}s "
+        f"written={days_written} skipped={days_skipped} "
+        f"rss={rss_end:.0f}MB (peak_delta={rss_end-rss_start:+.0f}MB)"
+    )
+
+    return {
+        "kind": "finished",
+        "symbol": symbol, "exchange": exchange, "interval": canon,
+        "status": "success",
+        "days_written": int(days_written),
+        "rows": int(total_rows),
+        "cols": int(cols),
+        "date_start": date_start,
+        "date_end": date_end,
+        "output_dir": str(out_dir),
+        "detail": (
+            f"elapsed={elapsed:.1f}s "
+            f"(load={load_elapsed:.1f}s compute={compute_elapsed:.1f}s "
+            f"write={write_elapsed:.1f}s), "
+            f"written={days_written}, skipped={days_skipped}, "
+            f"rss_end={rss_end:.0f}MB"
+        ),
+    }
 
 
 # =============================================================================
@@ -442,7 +551,18 @@ def run_interval(
 
     n_ok = n_fail = 0
     t0 = time.time()
-    with ProcessPoolExecutor(max_workers=workers) as ex:
+
+    # minute (1min) 单品种内存占用 2-3GB，强制每个 worker 只处理 1 个品种
+    # 后立即退出释放内存（需要 Python 3.11+）
+    executor_kwargs: Dict[str, object] = {"max_workers": workers}
+    if canon == "minute" and sys.version_info >= (3, 11):
+        executor_kwargs["max_tasks_per_child"] = 1
+        logger.info(f"[{canon}] 启用 max_tasks_per_child=1（每品种后回收 worker）")
+
+    # 每完成 N 个品种后在主进程主动 gc 一次
+    GC_EVERY = 5
+
+    with ProcessPoolExecutor(**executor_kwargs) as ex:
         fut_map = {
             ex.submit(
                 _worker_compute, sym, exch, canon, overwrite,
@@ -500,6 +620,15 @@ def run_interval(
                 logger.warning(
                     f"  [{i}/{len(todo)}][{canon}] FAIL {sym}: "
                     f"{res.get('error_type')}: {res.get('error','')[:200]}"
+                )
+
+            # 每 GC_EVERY 个完成后在主进程 gc 一次 + 打印进度/内存
+            if i % GC_EVERY == 0 or i == len(todo):
+                gc.collect()
+                logger.info(
+                    f"  [{canon}] progress {i}/{len(todo)} "
+                    f"ok={n_ok} fail={n_fail} "
+                    f"main_rss={_rss_mb():.0f}MB"
                 )
 
     elapsed = time.time() - t0
