@@ -1,0 +1,46 @@
+# 策略准入门槛
+# 对应 cta/cta_skills/00_overview_methodology/01_objectives.md §5
+
+# 回测 summary 必须包含的列
+required_columns:
+  - symbol
+  - interval
+  - total_return
+  - annual_return
+  - max_drawdown
+  - sharpe
+  - calmar
+  - win_rate
+  - profit_factor
+  - avg_holding_bars
+  - trade_count
+  - turnover
+
+# 门槛 A：中频趋势（day / minute60 / minute30）
+gate_a:
+  description: "中频趋势策略准入"
+  thresholds:
+    annual_return:   {op: ">=", value: 0.20}   # ≥ 20%
+    max_drawdown:    {op: "<=", value: 0.15}   # ≤ 15%
+    sharpe:          {op: ">=", value: 1.3}
+    calmar:          {op: ">=", value: 1.3}
+    trade_count:     {op: ">=", value: 30}     # 至少 30 笔才算有样本
+  oos_is_ratio_min: 0.6                         # 样本外 Sharpe / 样本内 Sharpe
+
+# 门槛 B：日内反转 / 震荡（minute15 / minute5 / minute）
+gate_b:
+  description: "日内反转/震荡策略准入"
+  thresholds:
+    annual_return:   {op: ">=", value: 0.25}
+    max_drawdown:    {op: "<=", value: 0.10}
+    sharpe:          {op: ">=", value: 1.5}
+    win_rate:        {op: ">=", value: 0.45}
+    profit_factor:   {op: ">=", value: 1.3}
+    trade_count:     {op: ">=", value: 100}
+  oos_is_ratio_min: 0.7
+
+# 组合级全局约束（不按门槛独立判定，供回测汇总检查）
+portfolio_constraints:
+  single_trade_risk_max: 0.003     # 单笔 ≤ 0.3% 总权益
+  single_symbol_risk_max: 0.01     # 单品种 ≤ 1%
+  portfolio_risk_max:   0.05       # 全组合同时在险 ≤ 5%

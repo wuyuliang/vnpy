@@ -1,0 +1,28 @@
+# 研究池定义
+# 对应 cta/cta_skills/00_overview_methodology/02_research_boundary.md §5-§6
+#
+# 最终的 "哪些品种入池" 以 cta/feature/symbols_research_ranking.csv 的 research_rank
+# 为主（见 research_pool.py::ResearchPool），本 yaml 只提供 *覆盖/排除* 语义：
+#   - tiers: tier-A 的 max_rank、tier-B 的 max_rank
+#   - explicit_include: 强制纳入（跨 tier 时）
+#   - explicit_exclude: 强制剔除（如保证金上调、流动性恶化）
+
+tiers:
+  A:
+    max_rank: 12             # research_rank <= 12
+    description: "A 档 初期研究池，流动性 Top 20%"
+  B:
+    max_rank: 24             # research_rank <= 24 但 > A.max_rank
+    description: "B 档 扩展研究池"
+
+explicit_include: []          # 例如: ["SC0.INE"]
+explicit_exclude: []          # 例如: ["FG0.CZCE"]
+
+# 每个 tier 的默认研究周期
+intervals:
+  A: [day, minute60, minute30, minute15, minute5]
+  B: [day, minute60, minute30]
+
+# 本池覆盖率门槛（低于即认为 "数据边界未就绪"）
+coverage:
+  min_feature_ratio: 0.8      # 有 feature 落盘的品种占比 ≥ 80%
