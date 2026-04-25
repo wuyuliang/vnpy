@@ -101,9 +101,8 @@ def run_backtest(
                     pos_side = "short"
                 cost = 0.0
                 if cfg.cost_fn is not None:
-                    comp = cfg.cost_fn(
+                    common = dict(
                         symbol=str(sig.get("symbol", "")),
-                        price=px,
                         lots=abs(position),
                         side=pos_side,
                         multiplier=float(sig.get("multiplier", 1.0)),
@@ -111,7 +110,12 @@ def run_backtest(
                         tick_size=float(sig.get("tick_size", 1.0)),
                         slippage_ticks=cfg.slippage_ticks,
                     )
-                    cost = float(getattr(comp, "total", 0.0))
+                    # 双腿成本：entry 用 entry_price，exit 用 px
+                    comp_entry = cfg.cost_fn(price=float(entry_price), **common)
+                    comp_exit = cfg.cost_fn(price=px, **common)
+                    cost = float(getattr(comp_entry, "total", 0.0)) + float(
+                        getattr(comp_exit, "total", 0.0)
+                    )
                 net = gross - cost
                 closed_pnl += net
                 trade_rows.append(

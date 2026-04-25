@@ -14,6 +14,7 @@ class ReportConfig:
     include_plots: bool = True
     per_symbol: bool = True
     per_year: bool = True
+    periods_per_year: int = 252
 
 
 def _max_drawdown(equity: pd.Series) -> float:
@@ -26,8 +27,11 @@ def _max_drawdown(equity: pd.Series) -> float:
 def summarize_trades(
     trade_log: pd.DataFrame,
     equity: pd.Series,
+    periods_per_year: int = 252,
 ) -> dict:
     """Return a compact metrics dictionary."""
+    if periods_per_year <= 0:
+        raise ValueError(f"periods_per_year 应 > 0，got {periods_per_year}")
     tl = trade_log.copy()
     if "net_pnl" not in tl.columns:
         tl["net_pnl"] = tl.get("gross_pnl", pd.Series([0.0] * len(tl))).astype(float)
@@ -41,11 +45,16 @@ def summarize_trades(
     eq = equity.astype(float)
     rets = eq.diff().fillna(0.0)
     ret_std = float(rets.std(ddof=0))
-    sharpe = 0.0 if ret_std == 0 else float(rets.mean() / ret_std * np.sqrt(252))
+    sharpe = (
+        0.0
+        if ret_std == 0
+        else float(rets.mean() / ret_std * np.sqrt(float(periods_per_year)))
+    )
     mdd = _max_drawdown(eq)
     annualized = 0.0
     if len(eq) > 1 and eq.iloc[0] != 0:
-        years = max(len(eq) / 252.0, 1.0 / 252.0)
+        n_periods = max(len(eq) - 1, 1)
+        years = max(n_periods / float(periods_per_year), 1.0 / float(periods_per_year))
         annualized = float((eq.iloc[-1] / eq.iloc[0]) ** (1.0 / years) - 1.0)
     calmar = annualized / max(mdd, 1e-9) if mdd > 0 else 0.0
 
@@ -71,7 +80,11 @@ def write_report(
     out_dir.mkdir(parents=True, exist_ok=True)
     ts = pd.Timestamp.now(tz="UTC").strftime("%Y%m%d_%H%M%S")
     path = out_dir / f"summary_{ts}.md"
-    s = summarize_trades(trade_log, equity)
+    s = summarize_trades(
+        trade_log,
+        equity,
+        periods_per_year=int(cfg.periods_per_year),
+    )
 
     lines = [
         "# Backtest Summary",

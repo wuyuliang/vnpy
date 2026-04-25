@@ -46,6 +46,23 @@ class TestSignalToOrder(unittest.TestCase):
         self.assertIn(orders[0].open_close, {"close_today", "close_yesterday", "close"})
 
 
+    def test_zero_lots_logs_warning(self) -> None:
+        """lots<=0 不得静默丢弃，需 log.warning 以便实盘审计。"""
+        import logging
+        sig = Signal(
+            ts=pd.Timestamp("2024-01-01"),
+            symbol="rb888.SHFE",
+            side="long",
+            lots=0,
+            reason="test_zero",
+        )
+        with self.assertLogs("cta.skills.live_ops.signal_to_order",
+                             level=logging.WARNING) as cm:
+            orders = orderize(sig, {}, {"exchange_rule": "shfe"}, "rb2405")
+        self.assertEqual(orders, [])
+        self.assertTrue(any("lots" in m.lower() for m in cm.output))
+
+
 if __name__ == "__main__":
     unittest.main()
 

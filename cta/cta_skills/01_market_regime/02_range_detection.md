@@ -27,7 +27,7 @@
 | Bollinger 宽度 | `(UB - LB) / MA` | N=20, k=2 | < 历史 30% 分位 → 压缩 | TODO |
 | ADX | Wilder ADX | N=14 | < 20 视为震荡 | TODO |
 | Hurst 指数 | R/S 或 DFA | window=100 | < 0.45 回归性强 | TODO |
-| 通道拟合残差 | `std(close - linreg(close, N)) / close` | N=50 | < 1% 视为震荡 | TODO |
+| 通道拟合残差 | `std(close - linreg(close, N)) / close` | N=50 | **> 1% 视为震荡**（残差大=偏离趋势线=乱动） | `cta/skills/market_regime/range.py::_channel_residual_pct` |
 | 震荡上下沿 | 过去 N bar 的高低点 | N=20 | — | `cta/feature/price_action.py::pa_rolling_high/low_*` |
 
 ## 5. 常见策略映射
@@ -38,7 +38,7 @@
   range_score = 0.30 * (adx < 20 ? 1 : 0)
               + 0.25 * (bb_width < Q30 ? 1 : 0)
               + 0.25 * (hurst < 0.45 ? 1 : 0)
-              + 0.20 * (|close - linreg| / close < 1% ? 1 : 0)
+              + 0.20 * (|close - linreg| / close > 1% ? 1 : 0)   # 残差大=偏离趋势线=乱动=震荡
   upper = rolling_high(N=20)
   lower = rolling_low(N=20)
   ```

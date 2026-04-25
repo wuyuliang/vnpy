@@ -13,12 +13,12 @@ cta/data/minute15/{PREFIX}/{YYYY-MM-DD}.parquet
 cta/data/minute30/{PREFIX}/{YYYY-MM-DD}.parquet
 cta/data/minute60/{PREFIX}/{YYYY-MM-DD}.parquet
 
-跟踪文件（与本脚本同目录）
+跟踪文件（统一放 cta/data/）
 ---------------------------
-cta/data_code/finished.csv
+cta/data/finished_YYYYMMDD.csv
     列: symbol, exchange, interval, status, rows, date_start, date_end, completed_at, detail
 
-cta/data_code/empty.csv
+cta/data/empty_YYYYMMDD.csv
     按时间区间汇总（非逐日）
     列: symbol, exchange, interval, date_start, date_end, count, reason, recorded_at
     举例: (ZS0, DCE, minute, 2009-03-30, 2009-12-31, 185, tushare_empty, ...)
@@ -31,7 +31,8 @@ cta/data_code/empty.csv
 断点续跑
 --------
 - day: 若 {SYMBOL}.csv 存在即跳过
-- minute*: finished.csv 里 status ∈ {success, empty} 即跳过该 (symbol, interval)
+- minute*: 历史所有 finished_*.csv（含兼容旧文件）里 status ∈ {success, empty}
+           即跳过该 (symbol, interval)
 - 单日文件：per-date parquet 存在即跳过
 
 在线复用
@@ -43,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -77,8 +79,21 @@ logger = logging.getLogger("download_all")
 CTA_ROOT = Path(__file__).resolve().parent.parent
 CODE_DIR = Path(__file__).resolve().parent               # cta/data_code/
 RANKING_CSV = CTA_ROOT / "feature" / "symbols_research_ranking.csv"
-FINISHED_CSV = DATA_DIR / "data_finished.csv"
-EMPTY_CSV = DATA_DIR / "data_empty.csv"
+TRACKING_DATE = datetime.now().strftime("%Y%m%d")
+FINISHED_CSV = DATA_DIR / f"finished_{TRACKING_DATE}.csv"
+EMPTY_CSV = DATA_DIR / f"empty_{TRACKING_DATE}.csv"
+
+# 兼容历史路径（仅迁移，不再写入）
+LEGACY_FINISHED_CSVS = (
+    DATA_DIR / "data_finished.csv",
+    DATA_DIR / "finished.csv",
+    CODE_DIR / "finished.csv",
+)
+LEGACY_EMPTY_CSVS = (
+    DATA_DIR / "data_empty.csv",
+    DATA_DIR / "empty.csv",
+    CODE_DIR / "empty.csv",
+)
 
 FINISHED_COLS = [
     "symbol", "exchange", "interval",
@@ -103,6 +118,34 @@ _finished_lock = Lock()
 _empty_lock = Lock()
 
 
+def _migrate_tracking_csv(target: Path, legacy_paths: Tuple[Path, ...]) -> None:
+    """
+    兼容历史路径：若 target 不存在，从第一份存在的 legacy 文件复制到 target。
+    仅复制，不删除旧文件，避免误删用户历史。
+    """
+    if target.exists():
+        return
+    # 若已有日期化文件，说明迁移已完成，不再每日重复复制
+    pattern = f"{target.stem.split('_')[0]}_*.csv"
+    if any(DATA_DIR.glob(pattern)):
+        return
+    for legacy in legacy_paths:
+        if legacy.exists():
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(legacy, target)
+                logger.info(f"migrate tracking csv: {legacy} -> {target}")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"migrate tracking csv failed: {legacy} -> {target}: {e}")
+            return
+
+
+def migrate_legacy_tracking_files() -> None:
+    """在启动阶段迁移历史 tracking csv 到 cta/data。"""
+    _migrate_tracking_csv(FINISHED_CSV, LEGACY_FINISHED_CSVS)
+    _migrate_tracking_csv(EMPTY_CSV, LEGACY_EMPTY_CSVS)
+
+
 def _load_csv(path: Path, cols: List[str]) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame(columns=cols)
@@ -113,16 +156,54 @@ def _load_csv(path: Path, cols: List[str]) -> pd.DataFrame:
     return df[cols]
 
 
+def _tracking_files(prefix: str, legacy_paths: Tuple[Path, ...]) -> List[Path]:
+    """收集可读的状态文件：历史日期化文件 + 旧固定文件（若存在）。"""
+    paths: List[Path] = []
+    paths.extend(sorted(p for p in DATA_DIR.glob(f"{prefix}_*.csv") if p.is_file()))
+    for p in legacy_paths:
+        if p.exists():
+            paths.append(p)
+    # 去重并保持顺序
+    out: List[Path] = []
+    seen: Set[Path] = set()
+    for p in paths:
+        rp = p.resolve()
+        if rp not in seen:
+            seen.add(rp)
+            out.append(p)
+    return out
+
+
+def _load_csv_many(paths: List[Path], cols: List[str]) -> pd.DataFrame:
+    if not paths:
+        return pd.DataFrame(columns=cols)
+    dfs: List[pd.DataFrame] = []
+    for p in paths:
+        try:
+            dfs.append(_load_csv(p, cols))
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"load tracking csv failed: {p}: {e}")
+    if not dfs:
+        return pd.DataFrame(columns=cols)
+    return pd.concat(dfs, ignore_index=True)[cols]
+
+
 def load_finished() -> pd.DataFrame:
-    return _load_csv(FINISHED_CSV, FINISHED_COLS)
+    return _load_csv_many(
+        _tracking_files("finished", LEGACY_FINISHED_CSVS),
+        FINISHED_COLS,
+    )
 
 
 def load_empty() -> pd.DataFrame:
-    return _load_csv(EMPTY_CSV, EMPTY_COLS)
+    return _load_csv_many(
+        _tracking_files("empty", LEGACY_EMPTY_CSVS),
+        EMPTY_COLS,
+    )
 
 
 def append_finished(result: DownloadResult) -> None:
-    """线程安全地把一条记录 append 到 finished.csv"""
+    """线程安全地把一条记录 append 到当日 finished_YYYYMMDD.csv"""
     row = {
         "symbol":       result.symbol,
         "exchange":     result.exchange,
@@ -213,7 +294,7 @@ def _aggregate_empty_rows(
 def flush_empty_aggregated(
     empties: List[Tuple[str, str, str, str, str]],
 ) -> int:
-    """聚合后 append 到 empty.csv，返回写入的区间行数"""
+    """聚合后 append 到当日 empty_YYYYMMDD.csv，返回写入的区间行数"""
     rows = _aggregate_empty_rows(empties)
     if not rows:
         return 0
@@ -437,14 +518,16 @@ def main() -> None:
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     CODE_DIR.mkdir(parents=True, exist_ok=True)
+    migrate_legacy_tracking_files()
 
     logger.info("=" * 70)
     logger.info("CTA 商品期货批量下载")
     logger.info(f"  code dir:      {CODE_DIR}")
     logger.info(f"  排名文件:      {RANKING_CSV}")
     logger.info(f"  数据根目录:    {DATA_DIR}")
-    logger.info(f"  finished.csv:  {FINISHED_CSV}")
-    logger.info(f"  empty.csv:     {EMPTY_CSV}")
+    logger.info(f"  tracking date: {TRACKING_DATE}")
+    logger.info(f"  finished csv:  {FINISHED_CSV}")
+    logger.info(f"  empty csv:     {EMPTY_CSV}")
     logger.info(f"  下载频率:      {intervals}")
     logger.info(f"  worker 数:     {args.workers}")
     logger.info(f"  rate limit:    {args.rate_limit}/min")
@@ -561,8 +644,8 @@ def main() -> None:
     elapsed = time.time() - t_total
     logger.info("=" * 70)
     logger.info(f"全部完成！总耗时 {elapsed:.1f}s")
-    logger.info(f"finished.csv: {FINISHED_CSV}")
-    logger.info(f"empty.csv:    {EMPTY_CSV}")
+    logger.info(f"finished csv: {FINISHED_CSV}")
+    logger.info(f"empty csv:    {EMPTY_CSV}")
 
 
 if __name__ == "__main__":

@@ -56,6 +56,36 @@ class TestRiskReward(unittest.TestCase):
         self.assertGreater(out.rr, 0.0)
         self.assertEqual(rr_gate(out.rr, min_rr=0.1), True)
 
+    def test_no_lookahead_at_current_bar(self) -> None:
+        """swing 窗口不得含当前 bar 的 high/low：改当前 bar 的 H/L 不应影响 target。"""
+        df = _df_for_rr()
+        i = 120
+        out1 = compute_rr(df, i, entry=110.0, stop=108.0,
+                          direction="long", lookback=50, atr_k=2.0)
+        # 污染当前 bar 的 high 到天价
+        df2 = df.copy()
+        df2.at[i, "high"] = 1e6
+        out2 = compute_rr(df2, i, entry=110.0, stop=108.0,
+                          direction="long", lookback=50, atr_k=2.0)
+        # ATR 会被 bar i 的 high 影响（这个 OK，因为 atr_14 本来就只能用到 i），
+        # 但 swing 目标不应因此变。这里直接断言 target 未被污染到 1e6 附近：
+        self.assertLess(out2.target, 1e5,
+                        "当前 bar 的 high 不应直接成为 swing target")
+        # 若 ATR 受污染也只是小幅变化；target 差异不该爆炸
+        self.assertLess(abs(out2.target - out1.target), 1e4)
+
+    def test_short_no_lookahead_at_current_bar(self) -> None:
+        df = _df_for_rr()
+        i = 120
+        out1 = compute_rr(df, i, entry=108.0, stop=110.0,
+                          direction="short", lookback=50, atr_k=2.0)
+        df2 = df.copy()
+        df2.at[i, "low"] = -1e6
+        out2 = compute_rr(df2, i, entry=108.0, stop=110.0,
+                          direction="short", lookback=50, atr_k=2.0)
+        self.assertGreater(out2.target, -1e5,
+                           "当前 bar 的 low 不应直接成为 swing target")
+
     def test_interval_compatibility(self) -> None:
         df = _df_for_rr()
         for interval in ("day", "minute60", "minute30", "minute15", "minute5", "minute"):

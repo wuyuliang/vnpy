@@ -96,36 +96,50 @@ def build_continuous(
 
     out = active[["date", "open", "high", "low", "close", "volume", "contract"]].copy()
     out = out.rename(columns={"contract": "contract_code"})
+    # 确保 OHLC 是 float：否则下面 loc[mask, col] = float_series 会触发 dtype 冲突
+    for _col in ("open", "high", "low", "close"):
+        out[_col] = out[_col].astype(float)
     out["symbol_root"] = symbol_root
-    out["adj_factor"] = 1.0
+    # back: 累积加法偏移（最新 bar=0）；ratio: 累积乘法因子（最新 bar=1）
+    out["adj_factor"] = 0.0 if method == "back" else 1.0
 
     if method == "none":
         return ContinuousSeries(df=out, roll_events=roll_events)
 
-    add_shift = 0.0
-    ratio_shift = 1.0
-    for i in range(1, len(out)):
-        d = pd.Timestamp(out["date"].iloc[i])
-        if d in roll_map:
-            from_c, to_c = roll_map[d]
-            old_row = df[(df["date"] == d) & (df["contract"] == from_c)]
-            new_row = df[(df["date"] == d) & (df["contract"] == to_c)]
-            if len(old_row) and len(new_row):
-                old_close = float(old_row["close"].iloc[0])
-                new_open = float(new_row["open"].iloc[0])
-                if method == "back":
-                    add_shift += old_close - new_open
-                elif method == "ratio" and new_open != 0:
-                    ratio_shift *= old_close / new_open
+    # 标准 back-adjust 语义：最新合约保持不变，历史 bar 被调整以平滑 roll gap。
+    # 做法：收集所有 roll 事件，按【时间倒序】逐个把 date < d 的所有 bar 前移
+    # （back: 加上 new_open - old_close；ratio: 乘以 new_open / old_close）。
+    # 一根历史 bar 的最终调整 = 它之后发生的所有 roll 的偏移累加/累乘。
+    events: list[tuple[pd.Timestamp, float, float]] = []
+    for _, r in roll_events.iterrows():
+        d = pd.Timestamp(r["date"])
+        from_c = str(r["from_contract"])
+        to_c = str(r["to_contract"])
+        old_row = df[(df["date"] == d) & (df["contract"] == from_c)]
+        new_row = df[(df["date"] == d) & (df["contract"] == to_c)]
+        if not len(old_row) or not len(new_row):
+            continue
+        old_close = float(old_row["close"].iloc[0])
+        new_open = float(new_row["open"].iloc[0])
+        events.append((d, old_close, new_open))
 
+    out_dates = pd.to_datetime(out["date"])
+    for d, old_close, new_open in reversed(events):
+        mask = out_dates < d
+        if not mask.any():
+            continue
         if method == "back":
+            shift = new_open - old_close
             for col in ("open", "high", "low", "close"):
-                out.at[i, col] = float(out.at[i, col]) + add_shift
-            out.at[i, "adj_factor"] = add_shift
+                out.loc[mask, col] = out.loc[mask, col].astype(float) + shift
+            out.loc[mask, "adj_factor"] = out.loc[mask, "adj_factor"].astype(float) + shift
         elif method == "ratio":
+            if old_close == 0:
+                continue
+            ratio = new_open / old_close
             for col in ("open", "high", "low", "close"):
-                out.at[i, col] = float(out.at[i, col]) * ratio_shift
-            out.at[i, "adj_factor"] = ratio_shift
+                out.loc[mask, col] = out.loc[mask, col].astype(float) * ratio
+            out.loc[mask, "adj_factor"] = out.loc[mask, "adj_factor"].astype(float) * ratio
 
     return ContinuousSeries(df=out, roll_events=roll_events)
 

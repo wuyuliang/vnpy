@@ -50,6 +50,34 @@ class TestBreakoutQuality(unittest.TestCase):
         for key in ("s_cross", "s_vol", "s_body", "s_follow", "s_shadow"):
             self.assertIn(key, bq.components)
 
+    def test_default_no_lookahead(self) -> None:
+        """默认 follow_bars=0：改动 i+1,i+2 的 close 不应影响 score。"""
+        df = _breakout_df().copy()
+        i = 92
+        level = float(df["close"].iloc[:90].max())
+        bq1 = score_breakout(df, i, level, atr=1.5)
+        # 污染未来 bar：无论正负都不应影响得分
+        df2 = df.copy()
+        df2.loc[i + 1 : i + 10, "close"] = -1e6
+        df2.loc[i + 1 : i + 10, "high"] = -1e6
+        df2.loc[i + 1 : i + 10, "low"] = -1e6
+        df2.loc[i + 1 : i + 10, "volume"] = 0.0
+        bq2 = score_breakout(df2, i, level, atr=1.5)
+        self.assertAlmostEqual(bq1.score, bq2.score, places=9,
+                               msg="默认模式下不得使用 i 之后的 bar")
+
+    def test_opt_in_follow_bars_uses_future(self) -> None:
+        """显式 follow_bars>0：读取未来 bar，属 post-hoc 标注模式。"""
+        df = _breakout_df()
+        i = 92
+        level = float(df["close"].iloc[:90].max())
+        bq_live = score_breakout(df, i, level, atr=1.5, follow_bars=0)
+        bq_label = score_breakout(df, i, level, atr=1.5, follow_bars=2)
+        # 分量字典里 s_follow 在 live 模式下应为 None 或默认值；label 模式下有数值
+        # 弱断言：两种模式可以给出不同 score
+        self.assertIsInstance(bq_live.score, float)
+        self.assertIsInstance(bq_label.score, float)
+
     def test_gate(self) -> None:
         df = _breakout_df()
         bq = score_breakout(
@@ -66,6 +94,66 @@ class TestBreakoutQuality(unittest.TestCase):
         for interval in ("day", "minute60", "minute30", "minute15", "minute5", "minute"):
             bq = score_breakout(df, 92, level, atr=1.0, interval=interval)
             self.assertTrue(0.0 <= bq.score <= 1.0, interval)
+
+
+    def test_follow_bars_partial_window(self) -> None:
+        """follow_bars 超过剩余 bar 数：seen 应衰减为剩余可读 bar，不报错。"""
+        df = _breakout_df()
+        i = len(df) - 1  # 最后一根 bar，没有 i+1
+        level = float(df["close"].iloc[:i].max())
+        bq = score_breakout(df, i, level, atr=1.5, follow_bars=5)
+        self.assertTrue(0.0 <= bq.score <= 1.0)
+        # 没有未来 bar 时 s_follow 应回退为 0（除以 max(seen,1) 不爆）
+        self.assertGreaterEqual(bq.components["s_follow"], 0.0)
+        self.assertLessEqual(bq.components["s_follow"], 1.0)
+
+    def test_follow_bars_negative_treated_as_live(self) -> None:
+        """follow_bars 负值视同 0：走 live-safe 分支（以本 bar close 位置为代理）。"""
+        df = _breakout_df()
+        i = 92
+        level = float(df["close"].iloc[:90].max())
+        bq_live = score_breakout(df, i, level, atr=1.5, follow_bars=0)
+        bq_neg = score_breakout(df, i, level, atr=1.5, follow_bars=-3)
+        self.assertAlmostEqual(bq_live.score, bq_neg.score, places=9)
+
+    def test_live_proxy_close_near_high_for_up_breakout(self) -> None:
+        """live-safe s_follow 代理：上破时 close 越贴近 high → s_follow 越高。"""
+        # 用显式低 level 保证两个样本都是 up-break，避免 is_up 翻转
+        df = _breakout_df().copy()
+        i = 92
+        level = 100.0  # 显式低位 level，使 strong/weak 两个 close 都 > level
+        # 强势：close 接近 high
+        df.at[i, "open"] = 100.0
+        df.at[i, "low"] = 100.0
+        df.at[i, "high"] = 110.0
+        df.at[i, "close"] = 109.5  # 95% 位置
+        bq_strong = score_breakout(df, i, level, atr=1.5, follow_bars=0)
+        # 弱势：close 接近 low（但仍 > level）
+        df.at[i, "close"] = 101.0  # 10% 位置
+        bq_weak = score_breakout(df, i, level, atr=1.5, follow_bars=0)
+        self.assertGreater(
+            bq_strong.components["s_follow"],
+            bq_weak.components["s_follow"],
+            "上破时 close 越靠 high s_follow 应越高",
+        )
+
+    def test_live_proxy_close_near_low_for_down_breakout(self) -> None:
+        """live-safe s_follow 代理：下破时 close 越贴近 low → s_follow 越高（对称）。"""
+        df = _breakout_df().copy()
+        i = 92
+        level = 200.0  # 显式高位 level，使 strong/weak 两个 close 都 < level (下破)
+        df.at[i, "open"] = 110.0
+        df.at[i, "low"] = 100.0
+        df.at[i, "high"] = 110.0
+        df.at[i, "close"] = 100.5  # 5% 位置（贴底，下破强）
+        bq_strong = score_breakout(df, i, level, atr=1.5, follow_bars=0)
+        df.at[i, "close"] = 109.0  # 90% 位置（贴顶，下破弱）
+        bq_weak = score_breakout(df, i, level, atr=1.5, follow_bars=0)
+        self.assertGreater(
+            bq_strong.components["s_follow"],
+            bq_weak.components["s_follow"],
+            "下破时 close 越靠 low s_follow 应越高",
+        )
 
 
 if __name__ == "__main__":

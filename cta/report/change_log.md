@@ -4,6 +4,287 @@
 
 ---
 
+## 2026-04-24 — 修复 code review 第二轮关键 bug（lookahead / asof / back-adjust / two-leg cost / log）
+
+**分支**: 当前  
+**任务**: 完成 code review 列出的剩余关键问题修复，TDD 流程：先写测试 → 再修代码 → 全量回归。
+
+### 修改文件（代码）
+
+- `cta/skills/filtering_scoring/breakout_quality.py`
+  - `score_breakout` 新增 `follow_bars: int = 0`（默认 live-safe）。
+  - `follow_bars=0`：用「本 bar close 相对 [low, high] 的位置」作为 s_follow 代理，
+    上破时 `pos = (c-l)/(h-l)`，下破时 `1 - pos`，**不读取未来 bar**。
+  - `follow_bars>0`：post-hoc 标注模式，读取 `i+1..i+follow_bars` 计算 follow-through。
+  - `follow_bars` 负值视同 0；`i` 接近末尾时 `seen` 自动衰减。
+
+- `cta/skills/filtering_scoring/context_score.py`
+  - 新增 `_asof_index()`：用 `searchsorted` 按 timestamp 做 asof 对齐，避免按 LTF 位置索引落到 MTF/HTF 的错误时间窗口。
+  - 当 `df_*tf` 含 `datetime` 列：`compute_context_score` 用 LTF[i] 时间戳查 MTF / HTF 的 asof 位置；缺 `datetime` 时退化为旧的位置对齐（legacy 行为）。
+  - 当 LTF 时间早于 HTF 首根：`i_htf = -1`，方向置 `flat`，不抛异常。
+
+- `cta/skills/data_backtest/continuous_contract.py`
+  - **修正 back-adjust 拼接方向**：roll events **倒序遍历**，`mask = out_dates < d` 仅调整 roll 之前的历史 bar，最新合约最近的 bar 价格被严格保留。
+  - `adj_factor` 累加（back）/累乘（ratio）所有后续 roll 的 shift / ratio，最新 bar 分别为 `0.0` / `1.0`。
+  - 起始处把 `open/high/low/close` 列强制 `astype(float)`，避免源数据为 int64 时 `loc[mask, col] += float_shift` 报 dtype 错误。
+
+- `cta/skills/data_backtest/transaction_cost.py`
+  - `apply_cost_to_pnl` 探测 `entry_price + exit_price` 列时分别按两腿计费再求和；只有 `price` 列时退回单腿（向后兼容）。
+
+- `cta/skills/data_backtest/event_driven_backtest.py`
+  - 平仓填单时把 entry 与 exit 两腿成本独立调用 `cost_fn` 计算并累加，避免低估实际成交成本。
+
+- `cta/skills/live_ops/signal_to_order.py`
+  - 加入 `logger = logging.getLogger(__name__)`；`sig.lots <= 0` 时 `logger.warning` 而非静默跳过。
+
+- `cta/skills/market_regime/range.py`
+  - docstring 更新为「通道拟合残差大: 0.20 * (residual_pct > 0.01)」，与 md 描述统一。
+
+- `cta/cta_skills/01_market_regime/02_range_detection.md`
+  - 修订残差阈值描述为 `> 1% 视为震荡`，与代码一致。
+
+### 修改文件（测试）
+
+- `cta/skills/filtering_scoring/tests/test_breakout_quality.py`
+  - `test_default_no_lookahead`：默认模式下污染 `i+1..i+10` 不影响得分。
+  - `test_opt_in_follow_bars_uses_future`：opt-in 模式两种 `follow_bars` 给出不同行为。
+  - `test_follow_bars_partial_window`：`i = len-1` 时 `seen` 衰减为 0 不报错。
+  - `test_follow_bars_negative_treated_as_live`：负值与 0 等价。
+  - `test_live_proxy_close_near_high_for_up_breakout` / `test_live_proxy_close_near_low_for_down_breakout`：上下破对称验证 close 位置代理。
+
+- `cta/skills/filtering_scoring/tests/test_context_score.py`
+  - `test_htf_mtf_timestamp_asof`：构造 100-day HTF（前 60 天上行 + 后 40 天下跌），LTF 时间在 7-1，asof 应落到下跌段（与 long setup 反向）；位置对齐会落到上行段（与 long 同向）。
+  - `test_htf_before_first_bar_returns_flat`：LTF 时间早于 HTF 首根 → `s_htf=0`。
+  - `test_no_datetime_falls_back_to_positional`：无 datetime 列时退化为位置对齐（legacy）。
+  - `test_mtf_asof_independent_of_htf`：MTF / HTF asof 各自独立。
+
+- `cta/skills/filtering_scoring/tests/test_risk_reward_score.py`
+  - 新增 `test_no_lookahead_at_current_bar` / `test_short_no_lookahead_at_current_bar`：验证 RR 在当前 bar 不读未来数据（验证「不是 bug」）。
+
+- `cta/skills/data_backtest/tests/test_continuous_contract.py`
+  - `test_back_adjust_preserves_last_close`：最新合约最新 bar 价格不被改写。
+  - `test_back_adjust_smooths_roll_gap`：拼接 gap 应被调整后 `|Δclose|.max() < 2.0`。
+  - `test_back_adjust_history_shifted`：day0 close 应抬升 +5（roll 当天 new_open - old_close）。
+  - `test_back_adjust_factor_zero_at_latest`：最新 bar `adj_factor=0.0`，历史 bar 累积非零。
+  - `test_ratio_adjust_preserves_last_close`：ratio 法 `adj_factor` 最新 bar = 1.0。
+  - 新增 `TestContinuousMultiRoll` 类，3 合约 + 2 次 roll：
+    - `test_multi_roll_cumulative_back_adjust`：day0 累积 `adj_factor` = sum(各 roll shift)。
+    - `test_multi_roll_smoothness`：整段 close.diff() 不出现大跳跃。
+    - `test_ratio_adjust_cumulative`：day0 ratio = 各 roll 比率累乘。
+    - `test_method_none_preserves_raw_close`：`method='none'` 不改 OHLC。
+
+- `cta/skills/data_backtest/tests/test_transaction_cost.py`
+  - `test_apply_cost_both_legs`：进出场两腿独立计费再求和。
+  - `test_event_driven_charges_entry_and_exit`：事件驱动回测平仓时两腿都被扣。
+
+- `cta/skills/live_ops/tests/test_signal_to_order.py`
+  - `test_zero_lots_logs_warning`：`assertLogs` 捕捉 `lots<=0` 的 WARNING。
+
+- `cta/skills/data_backtest/tests/test_trade_evaluation.py`
+  - `test_periods_per_year_affects_sharpe` / `test_annualized_uses_periods_per_year`：跨周期年化正确。
+
+### 运行命令
+
+```bash
+python3 -m unittest discover -s cta/skills -p 'test_*.py'
+```
+
+### 输出位置
+
+- 代码：`cta/skills/filtering_scoring/`、`cta/skills/data_backtest/`、`cta/skills/live_ops/`、`cta/skills/market_regime/`
+- 文档：`cta/cta_skills/01_market_regime/02_range_detection.md`
+- 测试：对应 `tests/` 目录与控制台输出
+
+### 结果
+
+- `cta/skills`：`264 / 264` 通过
+
+### 风险与后续
+
+1. `score_breakout` 默认行为变化（`follow_bars=0` live-safe）：若旧调用方依赖之前的 default lookahead 语义，需要显式传 `follow_bars=N`。
+2. `apply_cost_to_pnl` 新增了 `entry_price + exit_price` 双列识别；旧 trade_log 仅有 `price` 列时仍按单腿计费，向后兼容。
+3. `continuous_contract.build_continuous` 的 back-adjust 现在严格不改最新 bar 价格；若历史 backtest 报告依赖旧的「平移最新 bar」行为，需要重跑。
+4. `context_score` 新的 asof 对齐在多数场景下结果会变；若旧策略依赖「按 LTF 位置截断 HTF」的 legacy 行为，必须显式去掉 datetime 列。
+
+---
+
+## 2026-04-25 — 下载状态文件名追加年月日后缀
+
+**分支**: 当前  
+**任务**: 按要求将下载“完成状态”文件名加上年月日后缀，统一落 `cta/data/`。
+
+### 修改文件
+
+- `cta/data_code/download_all.py`
+  - 状态文件从固定名改为日期名：
+    - `cta/data/finished_YYYYMMDD.csv`
+    - `cta/data/empty_YYYYMMDD.csv`
+  - `load_finished()` / `load_empty()` 改为自动汇总历史日期化文件（并兼容旧固定文件），保证断点续跑不受影响。
+  - 保留旧路径兼容迁移逻辑（仅复制，不删除旧文件）。
+  - 启动日志改为输出 `tracking date` 与当日目标文件路径。
+
+### 运行命令
+
+```bash
+python3 - <<'PY'
+from cta.data_code.download_all import TRACKING_DATE, FINISHED_CSV, EMPTY_CSV
+print(TRACKING_DATE)
+print(FINISHED_CSV)
+print(EMPTY_CSV)
+PY
+
+python3 -m cta.data_code.download_all --help
+```
+
+### 输出位置
+
+- 当日状态文件：
+  - `cta/data/finished_YYYYMMDD.csv`
+  - `cta/data/empty_YYYYMMDD.csv`
+- 历史状态文件：同目录按日期累积。
+
+### 风险与后续
+
+1. 状态文件会按天累积，后续可按月归档以减少目录文件数。  
+2. 若外部分析脚本写死 `finished.csv/empty.csv`，需同步改成按日期匹配读取。
+
+---
+
+## 2026-04-25 — download_all 跟踪文件落盘目录调整到 cta/data
+
+**分支**: 当前  
+**任务**: 运行 `cta/data_code` 下载流程后，`finished.csv` / `empty.csv` 统一落到 `cta/data/`，不再写到 `cta/data_code/`。
+
+### 修改文件
+
+- `cta/data_code/download_all.py`
+  - 跟踪文件路径改为：
+    - `cta/data/finished.csv`
+    - `cta/data/empty.csv`
+  - 新增历史路径兼容迁移：
+    - `cta/data/data_finished.csv` -> `cta/data/finished.csv`
+    - `cta/data/data_empty.csv` -> `cta/data/empty.csv`
+    - `cta/data_code/finished.csv` -> `cta/data/finished.csv`
+    - `cta/data_code/empty.csv` -> `cta/data/empty.csv`
+  - 启动时自动迁移（仅复制，不删除旧文件）。
+  - 同步更新模块文档说明，避免误导到 `cta/data_code/`。
+
+### 运行命令
+
+```bash
+python3 - <<'PY'
+from cta.data_code.download_all import FINISHED_CSV, EMPTY_CSV
+print(FINISHED_CSV)
+print(EMPTY_CSV)
+PY
+
+python3 -m cta.data_code.download_all --help
+```
+
+### 输出位置
+
+- 品种状态跟踪文件：`cta/data/finished.csv`、`cta/data/empty.csv`
+
+### 风险与后续
+
+1. 历史旧文件会保留（不自动删除），避免误删；若确认不再使用，可后续人工清理。  
+2. 若其它外部脚本硬编码读取旧文件名（如 `data_finished.csv`），需要同步改到新路径。
+
+---
+
+## 2026-04-24 — 修复 code review 发现的关键 bug（failed_breakout / context_score / annualization）
+
+**分支**: 当前  
+**任务**: 修复上一轮 code review 中确认的关键问题，并完成全量回归验证。
+
+### 修改文件
+
+- `cta/skills/price_action/failed_breakout.py`
+  - `detect_failed_breakout` 新增 `use_prev_boundary`（默认 `True`），默认使用上一根 range 边界做突破判定，修复“边界含当前 bar 时难以触发”问题。
+  - 增加 `max_confirm_bars > 0` 参数校验。
+- `cta/skills/filtering_scoring/context_score.py`
+  - 新增 `regime_label` 优先读取逻辑（兼容 `regime` 旧列名），修复上下文评分列名不一致导致的误判。
+  - 将 `expansion_trending` 纳入 trend 组 regime 匹配。
+- `cta/skills/data_backtest/trade_evaluation.py`
+  - `summarize_trades` 新增 `periods_per_year` 参数，Sharpe 与 annualized 正确按周期年化。
+  - `ReportConfig` 增加 `periods_per_year`，`write_report` 透传到汇总函数。
+- 测试更新
+  - `cta/skills/price_action/tests/test_failed_breakout.py`
+    - 新增回归用例：当前 bar 边界语义下可触发 failed-breakout。
+  - `cta/skills/filtering_scoring/tests/test_context_score.py`
+    - 新增回归用例：仅有 `regime_label` 时应正确评分。
+
+### 运行命令
+
+```bash
+python3 -m unittest cta.skills.price_action.tests.test_failed_breakout -v
+python3 -m unittest cta.skills.filtering_scoring.tests.test_context_score -v
+python3 -m unittest cta.skills.data_backtest.tests.test_trade_evaluation -v
+python3 -m unittest discover -s cta/skills -p 'test_*.py'
+python3 -m unittest discover -s cta/feature/test
+```
+
+### 输出位置
+
+- 代码：`cta/skills/price_action/`、`cta/skills/filtering_scoring/`、`cta/skills/data_backtest/`
+- 测试：对应 `tests/` 目录与控制台输出
+
+### 结果
+
+- `cta/skills`：`254/254` 通过  
+- `cta/feature/test`：`21/21` 通过
+
+### 风险与后续
+
+1. `failed_breakout` 默认行为已更贴近 `compute_range_state` 输出语义；若外部调用已预先 shift 边界，可显式传 `use_prev_boundary=False`。  
+2. `online.FeatureGenerator` 的全窗口重算是性能风险而非逻辑错误；后续可考虑增量特征缓存优化。
+
+---
+
+## 2026-04-24 — feature/skills 增强测试 + 本地真实数据实测 + code review
+
+**分支**: 当前  
+**任务**:  
+1. 阅读 `cta/feature/FEATURES.md`，补充 `cta/feature/test` 高覆盖测试，执行 code review + 单测 + 本地数据实测。  
+2. 阅读 `cta/cta_skills` 文档并对 `cta/skills` 代码做更多测试，增加基于 `cta/data/feature` 的真实数据集成测试。
+
+### 修改文件
+
+- 更新测试：
+  - `cta/feature/test/test_feature_modules_smoke.py`
+  - `cta/feature/test/test_online_api.py`
+- 新增真实数据集成测试：
+  - `cta/skills/overview/tests/test_real_feature_data_market_price_action.py`
+  - `cta/skills/overview/tests/test_real_feature_data_strategies_scoring.py`
+  - `cta/skills/overview/tests/test_real_feature_data_intervals.py`
+
+### 运行命令
+
+```bash
+python3 -m unittest discover -s cta/feature/test -v
+python3 -m unittest discover -s cta/skills -p 'test_*.py' -v
+```
+
+### 输出位置
+
+- feature 测试：`cta/feature/test/`
+- skills 测试：`cta/skills/overview/tests/`
+- 本地真实数据输入：`cta/data/feature/{day,minute,minute5,minute15,minute30,minute60}`
+
+### 主要结果
+
+- `cta/feature/test`：21 条测试全部通过（含真实本地数据加载/计算验证）。
+- `cta/skills`：236 条测试全部通过（含新增真实数据集成测试 11 条）。
+- 在真实数据上确认多个模块可产生机会信号（如 tight range / flag / breakout pullback / Donchian / ATR channel / MR 等）。
+
+### 风险与后续
+
+1. `price_action.failed_breakout` 与 `market_regime.range` 当前组合存在边界定义耦合风险，真实样本几乎无法触发 failed-breakout（详见本轮 code review 结论）。  
+2. `context_score` 对 regime 列名默认读取 `regime`，与 feature 常见列 `regime_label` 存在命名不一致风险。  
+3. 建议下一步补一组“策略级回测联动测试”（信号→仓位→回测）以验证机会信号的收益可迁移性。
+
+---
+
 ## 2026-04-24 — cta/skills 章节 02/03/04（Price Action / Trend / Range）代码化
 
 **分支**: 当前  

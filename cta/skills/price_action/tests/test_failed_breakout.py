@@ -67,7 +67,41 @@ class TestFailedBreakout(unittest.TestCase):
             out = detect_failed_breakout(df, r, interval=interval)
             self.assertEqual(len(out), len(df))
 
+    def test_current_bar_range_boundary_can_trigger_signal(self) -> None:
+        """
+        回归测试：当 range 上下沿包含当前 bar 时，默认应使用上一根边界，
+        否则 failed-breakout 永远难触发。
+        """
+        n = 32
+        close = np.full(n, 100.0)
+        open_ = close.copy()
+        high = np.full(n, 100.6)
+        low = np.full(n, 99.4)
+
+        # 构造一次向上假突破 + 次日回落确认
+        high[24] = 103.0
+        close[24] = 102.7
+        low[25] = 98.8
+        close[25] = 99.2
+
+        df = pd.DataFrame(
+            {
+                "datetime": pd.date_range("2024-01-01", periods=n, freq="D"),
+                "open": open_,
+                "high": high,
+                "low": low,
+                "close": close,
+            }
+        )
+        # 故意不 shift：模拟与 compute_range_state 同语义边界
+        r = pd.DataFrame(index=df.index)
+        r["range_upper"] = df["high"].rolling(20, min_periods=5).max()
+        r["range_lower"] = df["low"].rolling(20, min_periods=5).min()
+
+        out = detect_failed_breakout(df, r, max_confirm_bars=3)
+        self.assertGreater(int(out["fb_valid"].sum()), 0)
+        self.assertIn("short", set(out["fb_side"].astype(str)))
+
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -41,6 +41,8 @@ def _clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
 
 
 def _infer_direction(close: pd.Series, i: int, lb: int = 20) -> str:
+    if i is None or i < 0 or i >= len(close):
+        return "flat"
     st = max(0, i - lb)
     if i <= st:
         return "flat"
@@ -50,6 +52,37 @@ def _infer_direction(close: pd.Series, i: int, lb: int = 20) -> str:
     if slope < 0:
         return "short"
     return "flat"
+
+
+def _asof_index(ref_ts: pd.Timestamp, df: pd.DataFrame) -> int:
+    """
+    Return the largest index j such that df['datetime'][j] <= ref_ts.
+    Returns -1 if ref_ts < first bar (no valid asof).
+    """
+    if "datetime" not in df.columns:
+        # 无 datetime 列，退化为「取最后一根 <= 当前 LTF 位置」的位置对齐
+        return -1
+    ts = pd.to_datetime(df["datetime"])
+    pos = int(ts.searchsorted(ref_ts, side="right")) - 1
+    if pos < 0:
+        return -1
+    return min(pos, len(df) - 1)
+
+
+def _resolve_regime_value(df_ltf: pd.DataFrame, i_ltf: int) -> str:
+    """
+    Resolve regime label with backward compatibility.
+
+    Priority:
+    1) regime_label (feature pipeline common name)
+    2) regime (legacy name)
+    3) default 'trend'
+    """
+    if "regime_label" in df_ltf.columns:
+        return str(df_ltf["regime_label"].iloc[i_ltf]).lower()
+    if "regime" in df_ltf.columns:
+        return str(df_ltf["regime"].iloc[i_ltf]).lower()
+    return "trend"
 
 
 def compute_context_score(
@@ -68,21 +101,36 @@ def compute_context_score(
     _ = _norm_interval(interval)
     i = int(bar_idx_ltf)
     i_ltf = min(max(i, 0), len(df_ltf) - 1)
-    i_mtf = min(i_ltf, len(df_mtf) - 1)
-    i_htf = min(i_ltf, len(df_htf) - 1)
+
+    # 对齐：优先用 timestamp asof；若 df_*tf 无 datetime 列，退化为位置对齐（legacy）。
+    ref_ts: pd.Timestamp | None = None
+    if "datetime" in df_ltf.columns:
+        ref_ts = pd.to_datetime(df_ltf["datetime"].iloc[i_ltf])
+
+    if ref_ts is not None and "datetime" in df_mtf.columns:
+        i_mtf = _asof_index(ref_ts, df_mtf)
+    else:
+        i_mtf = min(i_ltf, len(df_mtf) - 1)
+    if ref_ts is not None and "datetime" in df_htf.columns:
+        i_htf = _asof_index(ref_ts, df_htf)
+    else:
+        i_htf = min(i_ltf, len(df_htf) - 1)
 
     ltf_dir = setup_dir
-    mtf_dir = _infer_direction(df_mtf["close"].astype(float), i_mtf)
-    htf_dir = _infer_direction(df_htf["close"].astype(float), i_htf)
+    # 若 asof 返回 -1（LTF 时间早于 HTF 首根 bar），方向置 flat
+    mtf_dir = _infer_direction(df_mtf["close"].astype(float), i_mtf) if i_mtf >= 0 else "flat"
+    htf_dir = _infer_direction(df_htf["close"].astype(float), i_htf) if i_htf >= 0 else "flat"
 
     s_htf = 1.0 if htf_dir == ltf_dir else 0.0
     s_mtf = 1.0 if mtf_dir == ltf_dir else 0.3
 
-    regime = str(df_ltf.get("regime", pd.Series(["trend"] * len(df_ltf))).iloc[i_ltf]).lower()
+    regime = _resolve_regime_value(df_ltf, i_ltf)
     setup_group = "trend" if setup_type in {"tight_range", "bull_flag", "bear_flag", "bp"} else "range"
     if regime in {"transition", "normal"}:
         s_regime = 0.5
-    elif setup_group == "trend" and regime in {"trend", "trend_up", "trend_down", "expansion"}:
+    elif setup_group == "trend" and regime in {
+        "trend", "trend_up", "trend_down", "expansion", "expansion_trending"
+    }:
         s_regime = 1.0
     elif setup_group == "range" and regime in {"range", "compression"}:
         s_regime = 1.0
@@ -128,4 +176,3 @@ def combine_final_score(
         ]
     )
     return float(np.prod(vals) ** (1.0 / len(vals)))
-

@@ -23,14 +23,26 @@ def detect_failed_breakout(
     df: pd.DataFrame,
     range_df: pd.DataFrame,
     max_confirm_bars: int = 3,
+    use_prev_boundary: bool = True,
     interval: str = "day",
 ) -> pd.DataFrame:
-    """Detect failed breakouts from range boundary violation + fast rejection."""
+    """
+    Detect failed breakouts from range-boundary violation + fast rejection.
+
+    Parameters
+    ----------
+    use_prev_boundary:
+        True: 使用上一根 bar 的 range 上下沿作为突破参考，避免同 bar 边界导致
+              `high > range_upper` / `low < range_lower` 永远不触发。
+        False: 直接使用传入边界（兼容外部已自行 shift 的调用方）。
+    """
     _ = norm_interval(interval)
     need = {"high", "low", "close"}
     miss = need - set(df.columns)
     if miss:
         raise KeyError(f"detect_failed_breakout 缺少列: {miss}")
+    if max_confirm_bars <= 0:
+        raise ValueError(f"max_confirm_bars 应 > 0，got {max_confirm_bars}")
     for c in ("range_upper", "range_lower"):
         if c not in range_df.columns:
             raise KeyError(f"range_df 缺少列: {c}")
@@ -47,6 +59,9 @@ def detect_failed_breakout(
     low = out["low"].astype(float)
     upper = range_df["range_upper"].astype(float).reindex(out.index)
     lower = range_df["range_lower"].astype(float).reindex(out.index)
+    if use_prev_boundary:
+        upper = upper.shift(1)
+        lower = lower.shift(1)
 
     n = len(out)
     for i in range(n):
@@ -103,4 +118,3 @@ def failed_breakout_entry(
     if setup.side == "short":
         return {"side": "short", "trigger": low - tick, "stop": setup.extreme_level + tick}
     return {"side": "long", "trigger": high + tick, "stop": setup.extreme_level - tick}
-

@@ -46,12 +46,22 @@ def score_breakout(
     atr: float,
     weights: dict[str, float] | None = None,
     interval: str = "day",
+    follow_bars: int = 0,
 ) -> BreakoutQuality:
     """
     Score breakout bar quality (0-1).
 
     Components follow chapter formula:
     s_cross/s_vol/s_body/s_follow/s_shadow.
+
+    Parameters
+    ----------
+    follow_bars : int, default 0
+        **仅在 post-hoc 标注/模型训练时显式设为 >0**。>0 时会读取 bar
+        ``i+1..i+follow_bars`` 做 follow-through 分量，因此不能在实盘/
+        live 回测中使用（会产生未来函数）。
+        默认 0：live-safe；用「本 bar 收盘相对 range 的位置」作为同 bar
+        proxy 代替 s_follow，不触达未来 bar。
     """
     need = {"open", "high", "low", "close", "volume"}
     miss = need - set(df.columns)
@@ -82,14 +92,26 @@ def score_breakout(
     s_body = _clamp(body_ratio / 0.8)
 
     is_up = c >= float(breakout_level)
-    follow_count = 0
-    for j in (i + 1, i + 2):
-        if j >= len(df):
-            break
-        cj = float(df["close"].iloc[j])
-        if (is_up and cj >= float(breakout_level)) or ((not is_up) and cj <= float(breakout_level)):
-            follow_count += 1
-    s_follow = _clamp(follow_count / 2.0)
+    fb = int(follow_bars)
+    if fb > 0:
+        follow_count = 0
+        seen = 0
+        for j in range(i + 1, i + 1 + fb):
+            if j >= len(df):
+                break
+            seen += 1
+            cj = float(df["close"].iloc[j])
+            if (is_up and cj >= float(breakout_level)) or (
+                (not is_up) and cj <= float(breakout_level)
+            ):
+                follow_count += 1
+        s_follow = _clamp(follow_count / max(seen, 1))
+    else:
+        # live-safe 代理：本 bar close 相对 range 的位置
+        # 上破时 close 越贴近 high 越强；下破反之
+        rng_i = max(h - l, 1e-9)
+        pos = (c - l) / rng_i  # 0=贴底, 1=贴顶
+        s_follow = _clamp(pos if is_up else (1.0 - pos))
 
     upper = max(0.0, h - max(o, c))
     lower = max(0.0, min(o, c) - l)

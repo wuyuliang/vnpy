@@ -7,7 +7,7 @@ range_score 组成（权重来自 md §5 策略 A）
 - ADX 低           : 0.30 * (adx < 20)
 - 布林带宽压缩     : 0.25 * (bb_width < 其 30% 分位)
 - 反持续 (1-DER)   : 0.25 * (DER < 0.3)           # 用 DER 低作为 Hurst 的廉价代理
-- 通道拟合残差小   : 0.20 * (residual_pct < 0.01)
+- 通道拟合残差大   : 0.20 * (residual_pct > 0.01)   # 残差大=偏离趋势线=乱动=震荡
 
 上下沿：rolling high/low(N)。宽度：(upper - lower) / mid。
 范围年龄：range_score 连续高于阈值的 bar 数。
@@ -166,8 +166,8 @@ def compute_range_state(
     c1 = (adx < 20).astype(float).where(adx.notna(), np.nan)
     c2 = (bb_w_pct < 0.3).astype(float).where(bb_w_pct.notna(), np.nan)
     c3 = (der < 0.3).astype(float).where(der.notna(), np.nan)
-    # 通道残差：我们想表达"小于 1% price" = 贴趋势线 = 趋势性强 = 非 range。
-    # 所以反向用：residual > 1%（偏离线性趋势） → 更像 range。
+    # 通道残差：residual > 1%（偏离线性趋势） → 乱动 → 更像 range；
+    # residual < 1% → 贴趋势线 → 趋势性强 → 非 range。
     c4 = (resid_pct > 0.01).astype(float).where(resid_pct.notna(), np.nan)
 
     score = (0.30 * c1.fillna(0) + 0.25 * c2.fillna(0)

@@ -1,11 +1,14 @@
 """§10-01 signal to order."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Literal
 
 import pandas as pd
 
+
+logger = logging.getLogger(__name__)
 
 Side = Literal["long", "short", "flat"]
 
@@ -45,6 +48,10 @@ def orderize(
 ) -> list[Order]:
     """Convert one strategy signal into broker-ready orders."""
     if sig.lots <= 0:
+        logger.warning(
+            "orderize skipped: lots=%d (symbol=%s ts=%s reason=%s)",
+            int(sig.lots), sig.symbol, sig.ts, sig.reason,
+        )
         return []
     ref = _signal_id(sig)
     exchange_rule = str(meta.get("exchange_rule", "")).lower()

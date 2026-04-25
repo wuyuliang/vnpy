@@ -48,13 +48,19 @@ def apply_cost_to_pnl(
     trade_log: pd.DataFrame,
     cost_fn: Callable[..., CostComponents],
 ) -> pd.DataFrame:
-    """Append `cost` and `net_pnl` columns to trade log."""
+    """
+    Append `cost` and `net_pnl` columns to trade log.
+
+    如果 trade_log 同时含 ``entry_price`` 与 ``exit_price``，则按完整交易
+    (entry + exit) 各扣一腿成本；否则按单腿 ``price`` 估算。
+    """
     out = trade_log.copy()
     costs: list[float] = []
+    has_entry = "entry_price" in out.columns
+    has_exit = "exit_price" in out.columns
     for _, row in out.iterrows():
-        comp = cost_fn(
+        common = dict(
             symbol=str(row.get("symbol", "")),
-            price=float(row.get("price", row.get("entry_price", 0.0))),
             lots=int(row.get("lots", 0)),
             side=str(row.get("side", "long")),
             multiplier=float(row.get("multiplier", 1.0)),
@@ -63,8 +69,21 @@ def apply_cost_to_pnl(
             slippage_ticks=float(row.get("slippage_ticks", 1.5)),
             adv=float(row["adv"]) if "adv" in row and pd.notna(row["adv"]) else None,
         )
-        costs.append(comp.total)
+        if has_entry and has_exit:
+            # 双腿：entry 用 entry_price，exit 用 exit_price
+            entry_px = float(row["entry_price"])
+            exit_px = float(row["exit_price"])
+            comp_in = cost_fn(price=entry_px, **common)
+            comp_out = cost_fn(price=exit_px, **common)
+            costs.append(float(comp_in.total) + float(comp_out.total))
+        else:
+            # 单腿：兼容老 schema
+            price = float(row.get("price", row.get("entry_price", 0.0)))
+            comp = cost_fn(price=price, **common)
+            costs.append(float(comp.total))
     out["cost"] = costs
-    out["net_pnl"] = out.get("gross_pnl", pd.Series([0.0] * len(out), index=out.index)).astype(float) - out["cost"]
+    out["net_pnl"] = out.get(
+        "gross_pnl", pd.Series([0.0] * len(out), index=out.index)
+    ).astype(float) - out["cost"]
     return out
 
