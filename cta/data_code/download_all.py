@@ -4,14 +4,14 @@
 从 cta/feature/symbols_research_ranking0.csv 按 research_rank 顺序逐品种下载，
 支持日线 + 多档分钟级（1/5/15/30/60min），断点续跑、交易所兜底、并发可配。
 
-目录产物（数据仍写入 cta/data/）
+目录产物（原始行情写入 cta/data/origin/）
 --------------------------------
-cta/data/day/{SYMBOL}.csv
-cta/data/minute/{PREFIX}/{YYYY-MM-DD}.parquet     # 1min
-cta/data/minute5/{PREFIX}/{YYYY-MM-DD}.parquet    # 由 1min 本地重采样
-cta/data/minute15/{PREFIX}/{YYYY-MM-DD}.parquet
-cta/data/minute30/{PREFIX}/{YYYY-MM-DD}.parquet
-cta/data/minute60/{PREFIX}/{YYYY-MM-DD}.parquet
+cta/data/origin/day/{SYMBOL}.csv
+cta/data/origin/minute/{PREFIX}/{YYYY-MM-DD}.parquet     # 1min
+cta/data/origin/minute5/{PREFIX}/{YYYY-MM-DD}.parquet    # 由 1min 本地重采样
+cta/data/origin/minute15/{PREFIX}/{YYYY-MM-DD}.parquet
+cta/data/origin/minute30/{PREFIX}/{YYYY-MM-DD}.parquet
+cta/data/origin/minute60/{PREFIX}/{YYYY-MM-DD}.parquet
 
 跟踪文件（统一放 cta/data/）
 ---------------------------

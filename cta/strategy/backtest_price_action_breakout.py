@@ -26,6 +26,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from cta.config.skill_tight_range_breakout_config import SYMBOLS_LIST_PATH
 from vnpy.trader.database import get_database
 from vnpy.trader.constant import Exchange, Interval
 
@@ -37,7 +38,7 @@ WARMUP_START = "2014-01-01"
 BACKTEST_START = "2015-01-01"
 BACKTEST_END = "2023-12-31"
 
-SYMBOLS_CSV_PATH = "/Users/wuyuliang/code/vnpy/cta/data/day/symbols_list.csv"
+SYMBOLS_CSV_PATH = str(SYMBOLS_LIST_PATH)
 OUTPUT_DIR = "output_price_action_breakout"
 
 TOP_N_LOW_VOL = 10

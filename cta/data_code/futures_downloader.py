@@ -18,8 +18,8 @@
     datetime, open, high, low, close, volume, open_interest, turnover, symbol, exchange
 
 目录约定:
-    cta/data/day/{SYMBOL}.csv
-    cta/data/{interval}/{alpha_prefix}/{YYYY-MM-DD}.parquet
+    cta/data/origin/day/{SYMBOL}.csv
+    cta/data/origin/{interval}/{alpha_prefix}/{YYYY-MM-DD}.parquet
         interval ∈ {minute, minute5, minute15, minute30, minute60}
         alpha_prefix = 品种字母前缀（CU0 -> CU, I0 -> I）
 
@@ -54,7 +54,8 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 CTA_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = CTA_ROOT / "data"
-DAY_DIR = DATA_DIR / "day"
+DATA_ORIGIN_DIR = DATA_DIR / "origin"
+DAY_DIR = DATA_ORIGIN_DIR / "day"
 
 # 支持的分钟级频率（与目录名一一对应）
 MINUTE_INTERVALS: Tuple[str, ...] = ("minute", "minute5", "minute15", "minute30", "minute60")
@@ -236,7 +237,7 @@ class FuturesDownloader:
         overwrite: bool = False,
     ) -> DownloadResult:
         """
-        下载单品种全历史日线 -> cta/data/day/{SYMBOL}.csv
+        下载单品种全历史日线 -> cta/data/origin/day/{SYMBOL}.csv
 
         与 download_data.py 一致字段:
         symbol, exchange, interval, datetime, open, high, low, close,
@@ -450,7 +451,7 @@ class FuturesDownloader:
 
         返回 {interval: DownloadResult}
         """
-        out_root = out_root or DATA_DIR
+        out_root = out_root or DATA_ORIGIN_DIR
         prefix = alpha_prefix(symbol)
         intervals = [i for i in intervals if i in MINUTE_INTERVALS]
 

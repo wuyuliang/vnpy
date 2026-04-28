@@ -29,44 +29,54 @@
 cta/
 ├── README.md
 ├── data/
-│   ├── day/
-│   └── minute/
-│   └── feature/
+│   ├── origin/
+│   │   ├── day/
+│   │   ├── minute/
+│   │   ├── minute5/
+│   │   ├── minute15/
+│   │   ├── minute30/
+│   │   └── minute60/
+│   ├── feature/
+│   └── model_feature/
 ├── strategy/
-├── backtest/
+├── backtest/                # 占位，目前回测入口已分散到 strategy/ 与 skills/data_backtest/
 ├── config/
+├── feature/                 # 通用特征引擎（见 cta/feature/FEATURES.md）
+├── model/                   # 三类模型 + pipeline（见 cta/model/model.md）
+│   └── feature/             # 候选事件 → 训练样本拼接
+├── skills/                  # cta_skills 技能树文档与对应模块化代码
 ├── report/
-├── tests/
-├── utils/
+├── strategy/tests/
+├── model/tests/
+└── model/feature/tests/
+```
 
 说明：
-	•	data/day/
-	•	日线数据目录
-	•	可存放清洗后的日线 csv/parquet
-	•	data/minute/
-	•	分钟级数据目录
-	•	将来新增分钟数据统一放这里
+	•	data/origin/day/
+		•	日线数据目录
+		•	可存放清洗后的日线 csv/parquet
+	•	data/origin/<interval>/<ALPHA_PREFIX>/<YYYY-MM-DD>.parquet
+		•	分钟级数据布局；`ALPHA_PREFIX` = symbol 前 2 个英文字母大写（如 `RB0` → `RB/`），由 `cta/data_code/futures_downloader.py` 负责落盘
+		•	其它分钟级目录同层：`minute5/15/30/60`
 	•	strategy/
-	•	策略实现目录
-	•	一个策略一个文件
-	•	命名应体现策略逻辑
+		•	策略实现目录
+		•	一个策略一个文件
+		•	命名应体现策略逻辑
 	•	backtest/
-	•	回测入口与批量实验脚本
+		•	占位目录；当前事件驱动回测在 `cta/skills/data_backtest/event_driven_backtest.py`，策略入口（如 `cta/strategy/skill_tight_range_backtest.py`）直接调用之
 	•	config/
-	•	回测参数、路径、手续费、滑点、品种配置
+		•	回测参数、路径、手续费、滑点、品种配置
 	•	report/
-	•	结果、图表、实验说明、结论
-	•	tests/
-	•	单元测试、回归测试、冒烟测试
-	•	utils/
-	•	公共函数、数据处理、指标计算、日志工具
+		•	结果、图表、实验说明、结论
+	•	各模块 tests/
+		•	测试与实现代码同目录维护（如 `strategy/tests`、`model/tests`、`model/feature/tests`）
 
 ---
 
 ## 四、数据来源说明
 
 1. 当前已有数据
-	•	day/：当前中国商品 CTA 日线原始数据目录
+	•	origin/day/：当前中国商品 CTA 日线原始数据目录
 	•	该目录视为输入源，默认只读
 
 2. 数据处理原则
@@ -139,29 +149,6 @@ cta/
 	•	feature/data_pipeline_xxx
 	•	exp/xxx
 	•	fix/xxx
-
-
-说明：
-	•	data/day/
-	•	日线数据目录
-	•	可存放清洗后的日线 csv/parquet
-	•	data/minute/
-	•	分钟级数据目录
-	•	将来新增分钟数据统一放这里
-	•	strategy/
-	•	策略实现目录
-	•	一个策略一个文件
-	•	命名应体现策略逻辑
-	•	backtest/
-	•	回测入口与批量实验脚本
-	•	config/
-	•	回测参数、路径、手续费、滑点、品种配置
-	•	report/
-	•	结果、图表、实验说明、结论
-	•	tests/
-	•	单元测试、回归测试、冒烟测试
-	•	utils/
-	•	公共函数、数据处理、指标计算、日志工具
 
 ⸻
 
@@ -495,4 +482,3 @@ cta/
 
 ### 11.1 执行口径
 当前 Al Brooks价格行为学策略开发，默认只研究做多突破和单边上涨/下跌，不优先研究震荡反转、摸顶抄底类策略。
-

@@ -1,6 +1,7 @@
 # Brooks v3 中国 CTA 策略
 
-基于 Al Brooks 价格行为学,消费 `cta/feature/` 预计算的 180+ pa_* 特征,做
+基于 Al Brooks 价格行为学,消费 `cta/feature/` 预计算的 ~100 个 pa_* 特征
+(实测计数：`grep -h '"pa_' cta/feature/price_action*.py | grep -oE '"pa_[a-zA-Z0-9_]+"' | sort -u | wc -l`),做
 **HTF(day) → MTF(minute60) → LTF(minute5) 多周期共振**,
 加 **ATR 止损 + 0.1% per-trade 风控 + 组合回撤降仓**,最终由
 **XGBoost 评分门控**决定是否入场。

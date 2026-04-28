@@ -12,7 +12,7 @@ import pandas as pd
 
 # 项目根路径
 CTA_ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = CTA_ROOT / "data"
+DATA_DIR = CTA_ROOT / "data" / "origin"
 SYMBOLS_CSV = DATA_DIR / "day" / "symbols_list.csv"
 RANKING_CSV = CTA_ROOT / "feature" / "symbols_research_ranking.csv"
 

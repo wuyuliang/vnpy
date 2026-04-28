@@ -3,7 +3,7 @@
   verifying detect_lookahead 能检出
 - 构造一个假的 summary.csv，跑 assess_against_gates，写到 cta/skills/output/
 
-不依赖 feature 落盘；只用 cta/data/day/RB0.csv。
+不依赖 feature 落盘；只用 cta/data/origin/day/RB0.csv。
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from cta.skills.overview.backtest_principles import detect_lookahead
 
 DAY_CSV = (
     Path(__file__).resolve().parent.parent.parent.parent
-    / "data" / "day" / "RB0.csv"
+    / "data" / "origin" / "day" / "RB0.csv"
 )
 
 

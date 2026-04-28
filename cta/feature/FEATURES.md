@@ -1,6 +1,7 @@
 # CTA 特征说明文档
 
-> 共 **18 大类、已落地 12 类 + 新增 6 类（§13-§18） + 截面特征**，全部基于 OHLCV + 持仓量原始字段计算。
+> 共 **18 大类全部落地 + 截面特征**，全部基于 OHLCV + 持仓量原始字段计算。
+> §13–§18 已通过 `volatility_regime.py / price_action_supplement.py / multi_timeframe.py / regime.py / composite.py / entry_stop.py` 实现，对应 py 文件可直接 grep。
 > §11 的 75 个同比特征**仅在 1 分钟 bar 上生成**；minute5/15/30/60 的 bar 时间跨度本身已超过同比所定义的 1/3/5/10/20 分钟粒度，显式不生成以避免假精度。
 > 所有特征以 parquet 格式输出，按日分片落盘：`cta/data/feature/{interval}/{SYMBOL}/{YYYY-MM-DD}.parquet`。
 > **生成入口**：`python3 -m cta.feature.run_all_features`（支持全频率覆盖 day/minute/minute5/minute15/minute30/minute60 + 多进程 + 断点续跑）。
@@ -25,14 +26,14 @@
 11. [分钟级同比特征 (minute_tod.py)](#11-分钟级同比特征-minute_todpy)
 12. [统计/分形类特征 (stats_feat.py)](#12-统计分形类特征-stats_featpy)
 
-**新增规划（源自 `cta/cta_skills/`，bar-derivable，待实现）：**
+**已落地（源自 `cta/cta_skills/` 设计，已实现 py 文件）：**
 
-13. [波动率体制补充](#13-波动率体制补充--volatility-regime-supplement)
-14. [Al Brooks 形态补充](#14-al-brooks-形态补充--price-action-supplement)
-15. [多周期对齐](#15-多周期对齐--multi-timeframe-alignment)
-16. [市场状态机](#16-市场状态机--regime-labels)
-17. [综合评分](#17-综合评分--composite-scores)
-18. [入场/止损建议价](#18-入场止损建议价--entry--stop-hints)
+13. [波动率体制补充](#13-波动率体制补充--volatility-regime-supplement) — `volatility_regime.py`
+14. [Al Brooks 形态补充](#14-al-brooks-形态补充--price-action-supplement) — `price_action_supplement.py`
+15. [多周期对齐](#15-多周期对齐--multi-timeframe-alignment) — `multi_timeframe.py`
+16. [市场状态机](#16-市场状态机--regime-labels) — `regime.py`
+17. [综合评分](#17-综合评分--composite-scores) — `composite.py`
+18. [入场/止损建议价](#18-入场止损建议价--entry--stop-hints) — `entry_stop.py`
 
 **未来特征（非 bar 原始数据派生，依赖交易 / 组合 / 元数据 / ML 模型，后续接入）：**
 

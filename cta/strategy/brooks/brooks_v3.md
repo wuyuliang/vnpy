@@ -183,7 +183,7 @@ cta/strategy/brooks/
 - `online/live_strategy.py`:CtaTemplate 子类 → delegate `BrooksV3Core(mode="online")`
 
 ### Phase H — 测试 + 最小可复现实验
-`cta/tests/`:
+`cta/strategy/brooks/tests/`:
 - `test_brooks_v3_symbols.py`:`resolve_symbols(top_n=3)` 在 ranking 前 3 名(RB0/HC0/I0)中取交集
 - `test_brooks_v3_adapter.py`:offline vs online 同 ts 特征一致性(1e-6 精度)
 - `test_brooks_v3_signal.py`:合成 bar 喂入 HTF/MTF/LTF 分别命中
@@ -201,7 +201,7 @@ cta/strategy/brooks/
 - `core/**` 所有 .py
 - `backtest/{engine,runner,reporter}.py`
 - `online/{runner,live_strategy}.py`
-- `cta/tests/test_brooks_v3_*.py`
+- `cta/strategy/brooks/tests/test_brooks_v3_*.py`
 
 **修改**:
 - `config/params.py`(从 yaml 加载)
@@ -222,7 +222,7 @@ cta/strategy/brooks/
 - `cta/feature/online.py`:`FeatureGenerator(interval).warmup(df).update(bar)` / `compute_features` / `compute_latest_features`
 - `cta/feature/FEATURES.md`:pa_* 特征列目录(实际为 180 列,已与 parquet 核对)
 - `cta/feature/symbols_research_ranking.csv`:品种排序
-- `cta/data/day/{SYMBOL}.csv` + `cta/data/minute/{symbol}/YYYY-MM-DD.parquet` + `cta/data/feature/{interval}/{symbol}/YYYY-MM-DD.parquet`
+- `cta/data/origin/day/{SYMBOL}.csv` + `cta/data/origin/minute/{symbol}/YYYY-MM-DD.parquet` + `cta/data/feature/{interval}/{symbol}/YYYY-MM-DD.parquet`
 - `vnpy.trader.database.get_database().load_bar_data()`:日线已导入 SQLite
 - `vnpy_ctastrategy.backtesting.BacktestingEngine`:回测引擎(同 v1)
 - `vnpy.trader.constant.Exchange`:品种交易所映射
@@ -231,7 +231,7 @@ cta/strategy/brooks/
 
 ## 7. 验证
 
-1. **单元测试**:`python3 -m pytest cta/tests/test_brooks_v3_*.py -v` 全绿
+1. **单元测试**:`python3 -m pytest cta/strategy/brooks/tests/test_brooks_v3_*.py -v` 全绿
 2. **品种解析**:`python3 -m cta.strategy.brooks.config.symbols --top-n 3` 输出 `['RB0.SHFE','HC0.SHFE','I0.DCE']`(若 HC0/I0 缺失 minute5 特征则自动回退到下一名)
 3. **离线/在线特征一致性**:`test_brooks_v3_adapter` 抽 10 个 (symbol, interval, ts) 逐列 ≤ 1e-6
 4. **规则回测 sanity**(无模型,top-3):

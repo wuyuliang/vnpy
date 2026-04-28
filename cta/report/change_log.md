@@ -4,6 +4,1054 @@
 
 ---
 
+## 2026-04-28 (三) · main · `model_pipeline` `--interval` 支持数组（一次跑多个周期）
+
+### 任务
+
+- `cta/model/model_pipeline.py` 的 `--interval` 参数从单值升级为可接收数组；
+- 同步新增程序化入口 `run_model_pipeline_multi(...)`；
+- 单一 interval 报错不再阻断后续 interval（独立 try/except），保证批量任务的健壮性；
+- 同步更新 `cta/model/model.md` 使用示例。
+
+### 修改文件（测试先行）
+
+- `cta/model/tests/test_model_pipeline.py`
+  - `test_normalize_intervals_accepts_space_separated_values`
+  - `test_normalize_intervals_splits_comma_separated_values`
+  - `test_normalize_intervals_dedupes_preserving_first_seen_order`
+  - `test_normalize_intervals_strips_whitespace_and_skips_empty`
+  - `test_normalize_intervals_raises_when_all_empty`
+  - `test_parse_args_interval_supports_multiple_values`
+  - `test_parse_args_interval_default_is_single_60min`
+  - `test_run_model_pipeline_multi_returns_one_result_per_interval`
+
+### 修改文件（实现）
+
+- `cta/model/model_pipeline.py`
+  - 新增 `_normalize_intervals(raw)`：支持空格 / 逗号混合分隔，去重保序，全空时 raise `ValueError`。
+  - 新增 `run_model_pipeline_multi(..., intervals=(...))`：循环调用 `run_model_pipeline`，每个 interval 独立 try/except，输出聚合 `list[ModelPipelineResult]`。
+  - `_parse_args(argv=None)` 接受可选 argv（便于单测），`--interval` 改为 `nargs="+"`，默认 `["60min"]`。
+  - `main(argv=None)` 通过 `run_model_pipeline_multi` 跑全部 interval，逐个打印 `[interval] report/predictions/metrics/top10` 路径；当部分 interval 失败时打印 warning 但不退出。
+  - `__all__` 导出新增 `run_model_pipeline_multi`。
+
+### 修改文件（文档）
+
+- `cta/model/model.md`
+  - Step C 增加多 interval 用法说明（空格 / 逗号 / 混合写法）。
+  - 第 3.1 节追加"一次跑全部 6 个 interval"的 CLI 示例与 `run_model_pipeline_multi` 程序化示例。
+
+### 运行命令
+
+```bash
+python3 -m unittest \
+  cta.model.tests.test_model_pipeline \
+  cta.model.tests.test_models_core \
+  cta.model.feature.tests.test_model_feature_builder \
+  cta.model.feature.tests.test_candidate_training_dataset \
+  cta.strategy.tests.test_baseline_skill_suite
+```
+
+CLI 多 interval 实跑示例：
+
+```bash
+python3 -m cta.model.model_pipeline \
+  --symbol RB0 --exchange SHFE \
+  --interval day 60min 30min 15min \
+  --start 2010-01-01 --end 2019-12-31
+```
+
+### 验证结果
+
+- 61 tests 全部通过（OK），耗时约 50.9s。
+
+### 风险与后续
+
+1. **向后兼容**：`--interval 60min`、`run_model_pipeline(interval=...)` 单值入口完全保留；只有调用 `run_model_pipeline_multi` 或一次性传多个 interval 才走新分支。
+2. 多 interval 顺序执行不并行；6 周期合计耗时大约是单周期的 6×。如需并行可在外层用 `concurrent.futures` 包一层。
+3. 单一 interval 失败时只 `logger.exception` 不终止；批量任务想要严格"全部成功"，请检查 `len(results) == len(intervals)` 或自行 raise。
+
+---
+
+## 2026-04-28 (二) · main · 特征重要度补充“特征含义”列 + topN 品种参数
+
+### 任务
+
+1. `top10_feature_importance` 增加“特征含义”列；  
+2. `cta/model` 支持通过 `cta/feature/symbols_research_ranking.csv` 加载 topN 品种（N 为参数）。
+
+### 修改文件（测试先行）
+
+- `cta/model/tests/test_model_pipeline.py`
+  - `test_run_pipeline_smoke` 增加断言：`*_top10_feature_importance.csv` 包含 `feature_meaning`。
+  - 新增 `test_parse_args_supports_top_n_symbols`（CLI 参数覆盖）。
+  - 新增 `test_load_top_n_symbols_from_ranking_orders_by_rank`（按 `research_rank` 取前 N）。
+
+### 修改文件（实现）
+
+- `cta/model/model_pipeline.py`
+  - 新增 `FEATURES_DOC_PATH`、`SYMBOLS_RANKING_PATH` 常量。
+  - 新增 `_load_feature_meaning_map(...)`：从 `cta/feature/FEATURES.md` 解析 `特征名 -> 含义`。
+  - 新增 `_feature_meaning(...)`：优先命中本地兜底字典，其次命中 FEATURES.md，未命中给统一 fallback 描述。
+  - `top10_feature_importance` 输出新增列：`feature_meaning`。
+  - 新增 `_load_top_n_symbols_from_ranking(...)`：从 ranking csv 读取并按 `research_rank` 返回 topN `(symbol, exchange)`。
+  - CLI 新增参数：
+    - `--top-n-symbols`
+    - `--symbols-ranking-path`
+  - `main()` 增加 topN 模式：
+    - 当 `--top-n-symbols > 0` 时忽略 `--symbol`，按 ranking 批量跑。
+
+### 修改文件（文档）
+
+- `cta/model/model.md`
+  - 增加 topN 品种模式说明与命令示例。
+  - 更新 `*_top10_feature_importance.csv` 描述（包含 `feature_meaning`）。
+- `cta/strategy/readme.md`
+  - 增加 topN 品种命令示例。
+  - 明确 top10 文件列：`feature / feature_meaning / importance`。
+
+### 验证命令
+
+```bash
+python3 -m unittest cta.model.tests.test_models_core cta.model.tests.test_model_pipeline -v
+python3 -m cta.model.model_pipeline --help
+python3 -m cta.model.model_pipeline \
+  --top-n-symbols 2 \
+  --interval 60min \
+  --start 2018-01-01 --end 2018-12-31 \
+  --train-end 2018-06-30 --valid-end 2018-09-30 \
+  --max-walk-forward-windows 1 \
+  --output-root /tmp/cta_model_topn_smoke
+```
+
+### 输出位置
+
+- topN 冒烟输出目录：
+  - `/tmp/cta_model_topn_smoke/20260428_RB0_minute60_both_model_pipeline/`
+  - `/tmp/cta_model_topn_smoke/20260428_HC0_minute60_both_model_pipeline/`
+- 其中 `*_top10_feature_importance.csv` 已包含 `feature_meaning` 列。
+
+---
+
+## 2026-04-28 (二) · main · 三模型训练后输出 Top10 特征重要性 + 重跑样本与模型
+
+### 任务
+
+- 每个模型训练完成后打印 Top10 重要特征；
+- 重新生成一遍训练样本特征与模型产物（RB0, 60min）。
+
+### 修改文件（测试先行）
+
+- `cta/model/tests/test_models_core.py`
+  - 新增断言：`TradeFilterModel` / `RegimeClassifierModel` / `MfeMaeModel` 均可返回 Top 特征重要性表（`feature/importance`，按降序）。
+- `cta/model/tests/test_model_pipeline.py`
+  - `test_run_pipeline_smoke` 增加断言：pipeline 输出 `top_feature_importance_path` 且文件含 `model/feature/importance` 列。
+
+### 修改文件（实现）
+
+- `cta/model/trade_filter_model.py`
+  - 新增 `get_top_feature_importance(...)`：
+    - 优先用模型原生重要性；
+    - 对不暴露原生重要性的模型（如 HGB）回退 permutation importance。
+- `cta/model/regime_classifier_model.py`
+  - 新增 `get_top_feature_importance(...)`（RandomForest 原生重要性；dummy 回退 0）。
+- `cta/model/mfe_mae_model.py`
+  - 新增 `get_top_feature_importance(...)`（multi-output 子模型重要性取均值）。
+- `cta/model/model_pipeline.py`
+  - `ModelPipelineResult` 新增 `top_feature_importance_path`；
+  - 每个 signal/window 训练三模型后，日志打印 Top10 重要特征；
+  - 新增输出文件 `*_top10_feature_importance.csv`；
+  - 报告 `model_report.md` 增加该 CSV 路径记录。
+- `cta/model/model.md`
+  - 文档补充 `*_top10_feature_importance.csv` 产物说明。
+
+### 验证命令
+
+```bash
+python3 -m unittest cta.model.tests.test_models_core cta.model.tests.test_model_pipeline -v
+```
+
+### 重跑命令（样本特征 + 模型）
+
+```bash
+# 1) 重建候选训练样本特征
+python3 -m cta.model.feature.candidate_training_dataset \
+  --symbol RB0 --exchange SHFE --interval 60min \
+  --start 2010-01-01 --end 2019-12-31 \
+  --trade-side-mode both --run-tag 20260428
+
+# 2) 重跑模型 pipeline（训练+评估+报告）
+python3 -m cta.model.model_pipeline \
+  --symbol RB0 --exchange SHFE --interval 60min \
+  --start 2010-01-01 --end 2019-12-31 \
+  --trade-side-mode both \
+  --train-end 2017-12-31 --valid-end 2018-12-31 \
+  --window-mode expanding --max-walk-forward-windows 3 --by-signal-type
+```
+
+### 输出位置
+
+- 训练样本特征：
+  - `cta/data/model_feature/minute60/RB0/20260428/20260428_RB0_minute60_candidate_events.parquet`
+  - `cta/data/model_feature/minute60/RB0/20260428/20260428_RB0_minute60_training_samples.parquet`
+  - `cta/data/model_feature/minute60/RB0/20260428/20260428_RB0_minute60_dataset_summary.csv`
+- 模型报告目录：
+  - `cta/report/backtest/20260428_RB0_minute60_both_model_pipeline/`
+  - 包含 `*_top10_feature_importance.csv` / `*_metrics.csv` / `*_predictions.csv` / `*_model_report.md`
+
+---
+
+## 2026-04-28 (二) · main · `rb60` 模型文件改名为通用入口并同步文档
+
+### 任务
+
+- 将 `cta/model` 中以 `rb60` 命名的 pipeline 文件改为通用命名；
+- 保持模型 pipeline 对任意品种和任意周期（`day/60min/30min/15min/5min/min`）可用；
+- 同步更新相关 markdown 文档与测试入口。
+
+### 修改文件（测试先行）
+
+- `cta/model/tests/test_model_pipeline.py`
+  - 由 `test_rb60_model_pipeline.py` 重命名而来；
+  - 导入入口改为 `cta.model.model_pipeline`；
+  - 调用入口改为 `run_model_pipeline`。
+
+### 修改文件（实现）
+
+- `cta/model/model_pipeline.py`
+  - 由 `rb60_model_pipeline.py` 重命名而来；
+  - 对外类型改名：`RbModelPipelineResult` → `ModelPipelineResult`；
+  - 对外函数改名：`run_rb_model_pipeline` → `run_model_pipeline`；
+  - 日志文案去除 `rb` 限定，保持通用策略/品种语义。
+
+### 修改文件（文档）
+
+- `cta/model/model.md`
+  - 运行命令入口统一更新为 `python3 -m cta.model.model_pipeline`；
+  - 代码示例导入路径改为 `from cta.model.model_pipeline import ...`；
+  - 模型测试命令改为 `cta.model.tests.test_model_pipeline`。
+- `cta/strategy/readme.md`
+  - `run_rb_model_pipeline` 文案更新为 `run_model_pipeline`；
+  - CLI 示例更新为 `cta.model.model_pipeline`。
+- `cta/strategy/bug.md`
+  - 代码引用路径更新为 `cta/model/model_pipeline.py`。
+
+### 运行命令
+
+```bash
+python3 -m unittest cta.model.tests.test_model_pipeline -v
+```
+
+### 验证结果
+
+- 17 tests 全部通过（OK）。
+
+---
+
+## 2026-04-27 (二) · main · candidate_events 第二轮 code review 修复 C1–C10
+
+### 范围
+
+- `cta/strategy/baseline_skill_suite.py`（输出新增 `trigger` / `future_pnl_atr` 字段；NaN 替代 0.0 fallback）
+- `cta/config/baseline_skill_suite_config.py`（新增 `OPPORTUNITY_CLASS_A_BREAK` / `OPPORTUNITY_CLASS_B_BREAK`）
+- `cta/model/feature/candidate_training_dataset.py`（重写 standardize / build_and_save，对齐 `candidate_vs_executed_samples.md`）
+- `cta/tests/test_candidate_training_dataset.py`（+8 tests，原 2 tests 同步翻新）
+
+### 核心修复（按优先级 P0 → P1）
+
+**P0（标签 / 主键 / 业务语义）**
+
+1. **C1/C12**：`candidate_id` 在第一次 `standardize_candidate_events` 生成后即作为稳定主键；merge_asof 后再次归一化时跳过 `_build_candidate_id`，保证 `candidate_events.parquet` 与 `training_samples.parquet` 的主键集合完全一致，下游可按 `candidate_id` 做四类样本（7.1–7.4）join。
+2. **C2**：`entry_price_virtual` 兜底优先级改为 `entry_price → trigger → feature_close → close`；删除 stop_price 这档（在 limit-order/ATR breakout 模式下 stop 与 trigger 不同）。baseline 同步在 row dict 写出 `trigger` 字段供下游消费。
+3. **C3**：机会质量标签在 `atr_warmed=0` 或 mfe/mae 缺失时显式置为 unknown：
+   - `opportunity_score` / `future_mfe_atr` / `future_mae_atr` / `future_return_atr` 全部保留 NaN
+   - `is_good_opportunity` = 0、`opportunity_class` = `"U"`
+   - 不再用 `fillna(0)` 把"未知"伪装成"差机会"
+4. **C4**：`_SAMPLE_STATUS_MAP` 把 baseline 的 `not_triggered`（市场未触发）映射到独立的 `not_triggered_market`，与 `blocked_by_execution`（执行规则阻断）严格区分；`_VALID_SAMPLE_STATUS` 同步扩充。
+5. **C5**：拆分 `opportunity_score`（= mfe − 0.7·mae）与 `future_return_atr`（baseline 真实 horizon 收益 `future_pnl_atr`）。baseline `not_triggered` / `filtered` 分支也补上 `future_pnl` 计算。
+
+**P1（健壮性 / 可观测性）**
+
+6. **C6**：`_normalize_block_reason` 把 NaN / 字符串 `"nan"` 统一识别为缺失（先 `fillna("")` 再 `replace({"nan": ""})`），避免 parquet round-trip 后 reason 被错误填成 `"nan"`。
+7. **C7**：`(symbol, interval, datetime, setup_type, direction)` 重复时直接 raise `ValueError`，不再用 `seq` 兜底掩盖上游 ETL 故障。
+8. **C8**：`OPPORTUNITY_CLASS_A_BREAK = 1.2` / `OPPORTUNITY_CLASS_B_BREAK = 0.6` 抽到 `baseline_skill_suite_config`，与 `LABEL_THRESHOLD` 同源。
+9. **C9**：`label_class` / `atr_warmed` 纳入 `_CORE_COLS`，列序稳定（不再作为 trailing 漂移）。
+10. **C10**：`build_and_save_candidate_training_dataset` 对空输入也写出含完整 schema 的空 parquet（`_empty_candidate_events_frame()` 兜底），下游读取不再缺列。
+
+### 新增 / 翻新测试（TDD）
+
+1. `test_standardize_candidate_events_maps_status_and_labels`（翻新 C2 + C4 断言）
+2. `test_candidate_id_stable_between_candidate_events_and_training_samples`（C1）
+3. `test_entry_price_virtual_falls_back_to_trigger_not_stop_price`（C2）
+4. `test_is_good_opportunity_unknown_when_atr_not_warmed`（C3）
+5. `test_future_return_atr_stores_real_horizon_return_not_score`（C5）
+6. `test_block_reason_treats_string_nan_as_missing`（C6）
+7. `test_standardize_raises_on_duplicate_primary_key`（C7）
+8. `test_core_cols_include_label_class_and_atr_warmed`（C9）
+9. `test_empty_candidate_df_writes_schema_complete_empty_parquet`（C10）
+
+### 验证命令
+
+```bash
+python3 -m unittest \
+  cta.tests.test_baseline_skill_suite \
+  cta.tests.test_model_feature_builder \
+  cta.tests.test_models_core \
+  cta.tests.test_rb60_model_pipeline \
+  cta.tests.test_candidate_training_dataset -v
+```
+
+### 验证结果
+
+- 50 tests 全部通过（OK），耗时约 31.4s。
+
+### 风险与后续
+
+1. **口径变更**：baseline `future_mfe_atr` / `future_mae_atr` 的 fallback 从 `0.0` 改成 `np.nan`。下游 `rb60_model_pipeline` 内部已经做 `fillna(0.0)`，不受影响；但若历史报告 / parquet 是用旧口径生成的，重跑会导致 `good_opportunity_count` 与 `executed_count` 偏离上一版数字（warmup 期 / 缺价样本被显式标记为 U，而不再被混进"差机会"）。
+2. **summary CSV 字段扩展**：新增 `not_triggered_market_count` / `unknown_opportunity_count` 两列。已经下载过老 summary 的脚本需要兼容新增列。
+3. **trigger 字段依赖**：candidate_training_dataset 的 entry_price_virtual 现在依赖 baseline 输出的 `trigger` 列；如果有第三方调用方直接构造 candidate_df 不传 trigger，entry_price_virtual 会回退到 feature_close → close，建议补 trigger 字段以拿到精确的虚拟入场价。
+4. **`U` 类别**：opportunity_class 新增的 `U` 类别在历史 metrics 报告里不存在；如果有按 class 做分桶绘图的脚本，需要追加一个 U 类别色板。
+
+---
+
+## 2026-04-28 (二) — 训练保留未成交样本 + 十档收益仅统计已成交样本
+
+**分支**: 当前  
+**任务**:  
+1) 训练模型时明确保留未成交样本；  
+2) 最后 OOT 十档收益评估只看已成交样本。
+
+### 修改文件（测试先行）
+
+- `cta/model/tests/test_rb60_model_pipeline.py`
+  - `test_training_columns_keep_non_executed_samples`
+  - `test_build_last_oot_decile_table_uses_last_window_test_only`（断言更新：只统计 executed）
+
+### 修改文件（实现）
+
+- `cta/model/rb60_model_pipeline.py`
+  - `_build_last_oot_decile_table` 改为先过滤 `is_executed==1` 再分十档计算收益。
+  - 训练循环新增 `train_executed_count` / `train_non_executed_count`（写入 metrics）。
+  - 修复 `_ensure_training_columns` 在缺少 `feature_trend_dir` 时的标量回退 bug。
+
+- `cta/model/model.md`
+  - 增加训练口径说明：trade/regime 用全量候选（含未成交），MFE/MAE 仅成交样本。
+
+### 运行命令
+
+```bash
+python3 -m unittest cta.model.tests.test_rb60_model_pipeline -v
+```
+
+### 输出位置
+
+- `cta/report/backtest/20260427_RB0_minute60_both_model_pipeline/20260427_RB0_minute60_both_last_oot_decile_returns.csv`
+  - 已按“仅成交样本”口径重算。
+
+---
+
+## 2026-04-27 (一) — 模型评分十档收益（最后 OOT 集合）
+
+**分支**: 当前  
+**任务**: 按最后 OOT 集合（`pred_split=test` 且最大 `window_id`）将 `trade_filter_prob` 分十档，计算每档收益。
+
+### 修改文件（测试先行）
+
+- `cta/model/tests/test_rb60_model_pipeline.py`
+  - 新增 `test_build_last_oot_decile_table_uses_last_window_test_only`
+  - 新增 `test_build_last_oot_decile_table_builds_10_bins_when_enough_samples`
+
+### 修改文件（实现）
+
+- `cta/model/rb60_model_pipeline.py`
+  - 新增 `_build_last_oot_decile_table(prediction_df, bins=10)`：
+    - 自动选择最后 OOT 集合；
+    - 按 `trade_filter_prob` 分位分桶；
+    - 计算每档 `avg_return_atr / total_return_atr / win_rate / executed_rate` 等。
+  - `run_rb_model_pipeline` 新增输出：
+    - `*_last_oot_decile_returns.csv`
+  - 模型报告新增章节：
+    - `Last OOT Decile Returns`
+
+- `cta/model/model.md`
+  - 增加 “最后 OOT 十档收益”使用说明与示例命令。
+
+### 运行命令
+
+```bash
+# 针对 rb60 pipeline 关键回归
+python3 -m unittest cta.model.tests.test_rb60_model_pipeline -v
+
+# 已有 predictions 直接算十档收益
+python3 - <<'PY'
+from pathlib import Path
+import pandas as pd
+from cta.model.rb60_model_pipeline import _build_last_oot_decile_table
+p = Path("cta/report/backtest/20260427_RB0_minute60_both_model_pipeline/20260427_RB0_minute60_both_predictions.csv")
+df = pd.read_csv(p)
+out = _build_last_oot_decile_table(df, bins=10)
+out.to_csv(p.parent / "20260427_RB0_minute60_both_last_oot_decile_returns.csv", index=False, encoding="utf-8-sig")
+print(out)
+PY
+```
+
+### 输出位置
+
+- `cta/report/backtest/20260427_RB0_minute60_both_model_pipeline/20260427_RB0_minute60_both_last_oot_decile_returns.csv`
+
+---
+
+## 2026-04-27 (一) — 测试目录重构 + 原始数据迁移到 `cta/data/origin` + 新增 `cta/model/model.md`
+
+**分支**: 当前  
+**任务**:  
+1) 测试文件从 `cta/tests/` 迁移到对应实现目录下的 `tests/`；  
+2) 原始行情目录 `day/minute*` 统一迁移到 `cta/data/origin/` 并同步代码路径；  
+3) 新增 `cta/model/model.md`，补全“特征生成→模型训练→模型使用”流程与命令示例。
+
+### 修改文件（测试先行）
+
+- `cta/strategy/tests/test_skill_tight_range_backtest_rb0.py`
+  - 新增 `test_backtest_config_uses_origin_data_root`，锁定 `BacktestConfig` 必须默认读取 `cta/data/origin`。
+  - 日线冒烟测试输入路径更新为 `cta/data/origin/day/RB0.csv`。
+
+### 测试目录迁移
+
+- 迁移到 `cta/strategy/tests/`：
+  - `test_skill_tight_range_strategy.py`
+  - `test_skill_tight_range_backtest_rb0.py`
+  - `test_baseline_skill_suite.py`
+- 迁移到 `cta/model/tests/`：
+  - `test_models_core.py`
+  - `test_rb60_model_pipeline.py`
+- 迁移到 `cta/model/feature/tests/`：
+  - `test_model_feature_builder.py`
+  - `test_candidate_training_dataset.py`
+- 新增：
+  - `cta/strategy/tests/__init__.py`
+  - `cta/model/tests/__init__.py`
+  - `cta/model/feature/tests/__init__.py`
+
+### 代码路径与目录迁移
+
+- 目录迁移（原始行情）：
+  - `cta/data/day` -> `cta/data/origin/day`
+  - `cta/data/minute` -> `cta/data/origin/minute`
+  - `cta/data/minute5` -> `cta/data/origin/minute5`
+  - `cta/data/minute15` -> `cta/data/origin/minute15`
+  - `cta/data/minute30` -> `cta/data/origin/minute30`
+  - `cta/data/minute60` -> `cta/data/origin/minute60`
+
+- 关键代码更新：
+  - `cta/config/skill_tight_range_breakout_config.py`
+    - 新增 `DATA_ORIGIN_ROOT`
+    - `BacktestConfig.data_root` 默认改为 `cta/data/origin`
+    - `DATA_DAY_DIR` 改为 `cta/data/origin/day`
+  - `cta/feature/loader.py`
+    - 原始数据根目录改为 `cta/data/origin`
+  - `cta/data_code/futures_downloader.py`
+    - 原始行情默认读写根目录改为 `cta/data/origin`
+    - day/minute 文档说明同步
+  - `cta/data_code/download_all.py`
+    - 文档说明更新为 `cta/data/origin/*`
+  - `cta/strategy/backtest_price_action_breakout.py`
+    - `SYMBOLS_CSV_PATH` 改为复用 `SYMBOLS_LIST_PATH`（不再硬编码绝对路径）
+
+### 文档更新（相关 markdown）
+
+- `cta/README.md`
+  - 目录结构改为 `data/origin` + 按模块分散 `tests/`。
+- `cta/strategy/readme.md`
+  - 新增原始数据路径说明（`cta/data/origin`）与测试目录约定。
+- `cta/strategy/breakout.md`
+  - `cta/data/day` 引用改为 `cta/data/origin/day`。
+- `cta/strategy/brooks/brooks_v3.md`
+  - 测试目录与命令从 `cta/tests` 改到 `cta/strategy/brooks/tests`。
+  - 原始行情路径改到 `cta/data/origin/*`。
+- `cta/report/backtest/20260425_skill_tight_range_breakout_RB0_minute5_both/20260425_RB0_both_report.md`
+- `cta/report/backtest/20260425_skill_tight_range_breakout_RB0_minute60_both/20260425_RB0_both_report.md`
+  - 数据路径文本更新为 `cta/data/origin/...`。
+
+### 新增模型说明文档
+
+- `cta/model/model.md`
+  - 覆盖特征生成、候选样本构建、三模型训练、离线推理、walk-forward、常用命令和测试命令。
+
+### 运行命令
+
+```bash
+# 全量相关回归（新目录）
+python3 -m unittest \
+  cta.strategy.tests.test_skill_tight_range_strategy \
+  cta.strategy.tests.test_skill_tight_range_backtest_rb0 \
+  cta.strategy.tests.test_baseline_skill_suite \
+  cta.model.feature.tests.test_model_feature_builder \
+  cta.model.feature.tests.test_candidate_training_dataset \
+  cta.model.tests.test_models_core \
+  cta.model.tests.test_rb60_model_pipeline -v
+```
+
+### 结果
+
+- 以上 63 个测试全部通过。
+
+### 风险与后续
+
+1. `cta/report/change_log.md` 旧历史条目保留原路径叙述（如 `cta/tests` / `cta/data/day`），代表当时状态；当前生效路径以本条与代码常量为准。  
+2. 新增测试目录后，后续命令请统一使用：
+   - `cta.strategy.tests.*`
+   - `cta.model.tests.*`
+   - `cta.model.feature.tests.*`
+
+---
+
+## 2026-04-27 (一) — 候选样本重构：candidate_events 标准化 + vn.py 通用特征拼接 + 统一落盘
+
+**分支**: 当前  
+**任务**: 根据 `cta/model/feature/candidate_vs_executed_samples.md` 重构训练样本生成流程，支持“候选/已成交/被过滤/未触发”统一建模，并从 `cta/data/feature` 拼接通用特征后落盘到 `cta/data/model_feature/`。
+
+### 修改文件（测试先行）
+
+- `cta/tests/test_candidate_training_dataset.py`
+  - `test_standardize_candidate_events_maps_status_and_labels`
+    - 校验 `candidate_status -> sample_status` 映射：
+      - `filled -> executed`
+      - `filtered -> filtered_by_rule`
+      - `not_triggered -> blocked_by_execution`
+    - 校验核心字段生成：
+      - `candidate_id/setup_type/direction/sample_status/block_reason`
+      - `entry_price_virtual/stop_price_virtual`
+      - `is_good_opportunity/opportunity_class`
+    - 校验机会标签独立于是否成交（filtered 样本也可为好机会）。
+  - `test_build_and_save_candidate_training_dataset_merges_generic_features`
+    - 校验候选特征与 vn.py 通用特征（`generic_*`）拼接成功；
+    - 校验 parquet/csv/summary 文件落盘。
+
+### 修改文件（实现）
+
+- `cta/model/feature/candidate_training_dataset.py`（新增）
+  - 新增 `standardize_candidate_events`：将 baseline 候选样本统一为 `candidate_events` 结构，补齐：
+    - `candidate_id/candidate_flag/sample_status/block_reason`
+    - `entry_price_virtual/stop_price_virtual/target_price_virtual`
+    - `future_return_atr/is_good_opportunity/opportunity_class`
+    - `executed_flag/risk_block_flag/capacity_block_flag/execution_block_flag`
+  - 新增 `generate_candidate_events_from_baselines`：
+    - 从 baseline 规则（Donchian/ATR/TightRange/Pullback）批量生成候选事件。
+  - 新增 `build_and_save_candidate_training_dataset`：
+    - 拼接候选特征与 `cta/data/feature/<interval>/<symbol>` 的 vn.py 通用特征；
+    - 输出到 `cta/data/model_feature/<interval>/<symbol>/<run_tag>/`；
+    - 同步输出 summary。
+  - 新增 `generate_and_save_candidate_training_dataset` + CLI：
+    - 一条命令完成“候选生成 -> 特征拼接 -> 持久化”。
+
+### 运行命令
+
+```bash
+# 新增测试
+python3 -m unittest cta.tests.test_candidate_training_dataset -v
+
+# 回归（核心相关）
+python3 -m unittest cta.tests.test_baseline_skill_suite \
+                  cta.tests.test_model_feature_builder \
+                  cta.tests.test_rb60_model_pipeline \
+                  cta.tests.test_candidate_training_dataset -v
+
+# 实际构建 RB0 60min 候选训练样本（2010-2019）
+python3 -m cta.model.feature.candidate_training_dataset \
+  --symbol RB0 \
+  --exchange SHFE \
+  --interval 60min \
+  --start 2010-01-01 \
+  --end 2019-12-31 \
+  --trade-side-mode both \
+  --run-tag 20260427
+```
+
+### 输出位置
+
+- `cta/data/model_feature/minute60/RB0/20260427/`
+  - `20260427_RB0_minute60_candidate_events.parquet`
+  - `20260427_RB0_minute60_candidate_events.csv`
+  - `20260427_RB0_minute60_training_samples.parquet`
+  - `20260427_RB0_minute60_training_samples.csv`
+  - `20260427_RB0_minute60_dataset_summary.csv`
+
+### 结果摘要（RB0, minute60, 2010-2019）
+
+- `total_candidates`: `4142`
+- `executed_count`: `1798`
+- `filtered_count`: `79`
+- `blocked_execution_count`: `2265`
+- `good_opportunity_count`: `1935`
+- `generic_feature_columns`: `18`
+
+### 风险与后续
+
+1. 当前 `blocked_by_risk/blocked_by_capacity` 主要依赖上游策略/组合层提供，基线策略阶段通常为 0。  
+2. `future_return_atr` 现用 `mfe - 0.7*mae` 的机会分数口径，若后续引入更严格“虚拟出场价”定义，可再替换为真实 horizon return。  
+3. 新流程已兼容全品种与全周期（`day/60min/30min/15min/5min/min`，依赖本地数据是否齐备），可直接按相同 CLI 扩展到多品种批量生成。
+
+---
+
+## 2026-04-26 (二) — Code Review 第三轮：标签/口径/窗口/dummy 模型修复（R1–R10）
+
+**分支**: 当前  
+**任务**: 按第二轮 code review 列出的 10 项修改项（R1–R10）落地修复，全部 TDD（先写/改测试再改实现）。
+
+### 关键修复（与 review 编号对应）
+
+- **R1** `cta/model/rb60_model_pipeline.py` — `_ensure_training_columns` / `_ensure_binary_label_diversity` 重算 label 时**只对** `is_executed==1 & atr_warmed==1` 的成交样本生效，避免把 not_triggered/filtered/warmup 样本误标为正样本。
+- **R2 + R3** `cta/strategy/baseline_skill_suite.py` — `generate_candidate_opportunities` 改为：
+  - ATR 优先取 **entry bar** 的 `atr14`（与实盘风险预算口径一致），缺失时回退 signal bar，再失败用 high-low 兜底；
+  - 输出新列 `atr_warmed (0/1)`，下游 pipeline 在 `_ensure_training_columns` 后**显式 drop** warmup 行并 `logger.warning` 报告丢弃比例。
+- **R4 + R5** `_build_walk_forward_windows` 新增 `window_mode: Literal["expanding","sliding"]` 参数（默认 expanding，与历史一致），sliding 模式下 train 长度恒定；同步修复"数据已超过 valid_end 也不退出"的浪费循环。CLI 增加 `--window-mode`。
+- **R6** `RegimeClassifierModel` 单类 fallback 从 `most_frequent` 改为 `prior`，与 `TradeFilterModel` 一致。
+- **R7** `MfeMaeModel` 增加 `min_samples` 字段（默认 10）+ `model_kind` 字段（`dummy / random_forest`），save/load 透传。同样把 `model_kind` 加入 `TradeFilterModel`、`RegimeClassifierModel`，并在 `metrics_df` 中新增 `model_kind` 列，方便快速识别哪些窗口退化为 dummy。
+- **R8** `_select_feature_columns` 改为 dtype 白名单（数值/布尔/object 但底层是数）：跳过 `feature_label` 之类字符串列，避免被强转为 NaN 后再被 imputer 填中位数。
+- **R9** baseline suite 报告生成增加 `tabulate ImportError` 的回退分支（`to_string + 代码块`），新机器没装 tabulate 也不再报错。
+
+### 新增/修改测试（TDD）
+
+- `cta/tests/test_baseline_skill_suite.py`
+  - **改名 + 翻转断言**：`test_generate_candidate_uses_entry_bar_atr_for_label_norm`（原 signal-bar 版本，反映 R3 新口径）。
+  - **新增 T-D**：`test_long_stop_entry_uses_max_open_trigger_when_open_above_trigger`（gap up 行为）。
+  - **新增 T-I**：`test_atr_warmup_marks_warmed_zero_when_atr14_nan`。
+- `cta/tests/test_rb60_model_pipeline.py`
+  - **新增 T-A**：`test_ensure_binary_label_diversity_does_not_relabel_not_triggered`。
+  - **新增 T-A2**：`test_ensure_binary_label_diversity_skips_atr_warmup`。
+  - **新增 T-C**：`test_walk_forward_windows_monotonic_and_no_overlap` / `_sliding_train_starts_advance` / `_invalid_mode_raises`。
+  - **新增 T-H**：`test_select_feature_columns_skips_string_columns`。
+  - 已有 walk-forward 测试增加 `model_kind` 列断言。
+- `cta/tests/test_model_feature_builder.py`
+  - **新增 T-E**：`test_merge_respects_60min_tolerance_returns_nan_when_too_far`（90 分钟跨度，期望 NaN）。
+- `cta/tests/test_models_core.py`
+  - **新增 T-G**：`test_mfe_mae_model_kind_reflects_dummy_vs_rf`（`min_samples=10` 触发 dummy，并 round-trip 保留 `model_kind`）。
+
+### 运行命令
+
+```bash
+# 仅核心 4 个文件（建议日常回归）
+python3 -m pytest cta/tests/test_baseline_skill_suite.py \
+                  cta/tests/test_models_core.py \
+                  cta/tests/test_model_feature_builder.py \
+                  cta/tests/test_rb60_model_pipeline.py \
+                  -q --tb=short
+
+# 全量
+python3 -m pytest cta --ignore=cta/data -q --tb=short
+```
+
+### 结果
+
+- **核心 4 文件**：31 / 31 通过
+- **全量（不含需要 TUSHARE_TOKEN 的 cta/data）**：328 / 328 通过
+
+### 风险与后续
+
+1. R2 后 warmup 期 (~14 根) 候选会被丢弃；如果某品种数据本身不足 14 根，pipeline 会落入 fallback 合成数据分支（已有 logger 提示）。
+2. R7 新增的 `model_kind` 列在旧的 `metrics.csv` 文件里不存在，回放历史报告需自行兼容 missing 列。
+3. R4 sliding 模式与 expanding 在 RB0 60min 上的对比尚未跑全量回测；后续可在 `cta/report/` 下加一份 A/B 对照。
+4. `to_markdown` 仍优先尝试 tabulate，建议在 `cta/requirements.txt`（若新建）写入 `tabulate>=0.9.0`，避免每次 ImportError 走 fallback。
+
+---
+
+## 2026-04-26 — 新增 pre-2020 训练样本构造 + 四套 baseline skill（Donchian/ATR/TightRange/Pullback）
+
+**分支**: 当前  
+**任务**:  
+1) 将 2020 年之前选中的成交交易构造成训练样本（含 `symbol/interval/datetime/features/signal_type` 等字段）；  
+2) 在 `cta/strategy` 落地四套纯规则 baseline，并可统一回测。
+
+### 修改文件（测试先行）
+
+- `cta/tests/test_baseline_skill_suite.py`
+  - `test_prepare_master_feature_frame_columns`：验证统一特征框架含关键列。
+  - `test_strategy_factory_all_signal_types`：验证四个 baseline 策略均可实例化并生成信号。
+  - `test_build_training_samples_from_trade_log`：验证训练样本字段与标签构造。
+  - `test_run_baseline_suite_smoke_rb0`：真实 RB0 minute60 冒烟回测 + 样本落盘。
+
+### 修改文件（代码）
+
+- `cta/config/baseline_skill_suite_config.py`
+  - 新增 baseline 套件配置：
+    - `BASELINE_SIGNAL_TYPES`
+    - `TRAINING_FEATURE_COLUMNS`
+    - `BaselineSuiteConfig`
+
+- `cta/strategy/baseline_skill_suite.py`
+  - 新增四套 baseline 规则策略：
+    - `DonchianBaselineStrategy`
+    - `ATRBreakoutBaselineStrategy`
+    - `SkillTightRangeBreakoutStrategy`（复用现有实现）
+    - `BreakoutPullbackBaselineStrategy`
+  - 新增统一特征准备：`prepare_master_feature_frame`
+  - 新增训练样本构造：`build_training_samples_from_trade_log`
+  - 新增统一运行入口：`run_baseline_suite`
+  - CLI：`python3 -m cta.strategy.baseline_skill_suite ...`
+
+- `cta/strategy/readme.md`
+  - 追加 baseline 套件与 pre-2020 训练样本构造命令、输出路径、字段规范。
+
+### 运行命令
+
+```bash
+python3 -m unittest cta.tests.test_baseline_skill_suite -v
+
+python3 -m unittest \
+  cta.tests.test_skill_tight_range_strategy \
+  cta.tests.test_skill_tight_range_backtest_rb0 \
+  cta.tests.test_baseline_skill_suite -v
+
+python3 -m cta.strategy.baseline_skill_suite \
+  --symbol RB0 \
+  --exchange SHFE \
+  --interval 60min \
+  --trade-side-mode both \
+  --start 2000-01-01 \
+  --end 2019-12-31
+```
+
+### 输出位置
+
+- 套件目录：`cta/report/backtest/20260426_baseline_skill_suite_RB0_minute60_both/`
+- 汇总指标：`20260426_RB0_minute60_both_suite_summary.csv`
+- 训练样本：`20260426_RB0_minute60_both_training_samples.csv`
+- 报告：`20260426_RB0_minute60_both_baseline_report.md`
+- 各策略分目录：
+  - `donchian_breakout/`
+  - `atr_breakout/`
+  - `tight_range_breakout/`
+  - `breakout_pullback_continuation/`
+
+### 结果摘要（RB0, minute60, <=2019-12-31）
+
+- 有效 bars: `18871`（2010-01-04 09:00:00 ~ 2019-12-30 23:00:00）
+- 训练样本总行数: `886`
+- 各 signal_type 样本数：
+  - `tight_range_breakout`: `275`
+  - `atr_breakout`: `272`
+  - `breakout_pullback_continuation`: `183`
+  - `donchian_breakout`: `156`
+- baseline 汇总（total_return）：
+  - `donchian_breakout`: `0.001062`
+  - `atr_breakout`: `-0.002305`
+  - `tight_range_breakout`: `-0.096933`
+  - `breakout_pullback_continuation`: `-0.002161`
+
+### 风险与后续
+
+1. 训练样本当前来源于“已成交交易”，尚未包含“未成交候选信号”负样本。  
+2. 建议下一步增加候选信号级样本（含未成交/被过滤）以提升模型泛化。  
+3. baseline 目前是单品种单策略逐个回测，后续可加组合层资金约束。
+
+---
+
+## 2026-04-25 — RB0 5min（2020年前全样本）回测与报告输出
+
+**分支**: 当前  
+**任务**: 回测 `RB0` 在 `5min` 周期、`2020-01-01` 之前全部可用数据，并形成结构化报告。
+
+### 修改文件
+
+- `cta/report/backtest/20260425_skill_tight_range_breakout_RB0_minute5_both/20260425_RB0_both_summary.csv`
+  - 本次回测核心指标输出。
+
+- `cta/report/backtest/20260425_skill_tight_range_breakout_RB0_minute5_both/20260425_RB0_both_trades.csv`
+  - 交易明细输出（含方向、成本、净收益）。
+
+- `cta/report/backtest/20260425_skill_tight_range_breakout_RB0_minute5_both/20260425_RB0_both_equity.csv`
+  - 资金曲线输出。
+
+- `cta/report/backtest/20260425_skill_tight_range_breakout_RB0_minute5_both/20260425_RB0_both_yearly_stats.csv`
+  - 新增按退出年份聚合统计。
+
+- `cta/report/backtest/20260425_skill_tight_range_breakout_RB0_minute5_both/20260425_RB0_both_report.md`
+  - 新增本次回测报告（配置、核心指标、按方向/年份统计、输出文件位置、限制说明）。
+
+### 运行命令
+
+```bash
+python3 -m cta.strategy.skill_tight_range_backtest \
+  --symbol RB0 \
+  --exchange SHFE \
+  --interval 5min \
+  --trade-side-mode both \
+  --start 2000-01-01 \
+  --end 2019-12-31
+```
+
+### 数据路径
+
+- 输入：`cta/data/minute5/RB/*.parquet`
+- 有效覆盖区间：`2010-01-04 09:00:00` 至 `2019-12-30 23:00:00`
+- bar 数：`154498`
+
+### 输出位置
+
+- `cta/report/backtest/20260425_skill_tight_range_breakout_RB0_minute5_both/`
+
+### 结果摘要
+
+- `total_pnl`: `-3753549.9490000005`
+- `total_return`: `-3.7535499490000004`
+- `annualized`: `NaN`（权益转负导致当前公式无定义）
+- `mdd`: `3.753549948999992`
+- `sharpe`: `-10.521446826613134`
+- `calmar`: `NaN`
+- `winrate`: `0.04623791509037411`
+- `pf`: `0.018395976973023063`
+- `trade_count`: `2379`
+
+### 风险与后续
+
+1. 当前 `annualized/calmar` 在权益转负时会出现 `NaN`，后续可改为稳健年化口径。  
+2. 5min 成本敏感度高，建议下一步先做成本参数压力测试（rate/slippage 网格）。
+
+---
+
+## 2026-04-25 — RB0 60min（2020年前全样本）回测与报告输出
+
+**分支**: 当前  
+**任务**: 回测 `RB0` 在 `60min` 周期、`2020-01-01` 之前全部可用数据，并形成结构化报告。
+
+### 修改文件
+
+- `cta/report/backtest/20260425_skill_tight_range_breakout_RB0_minute60_both/20260425_RB0_both_summary.csv`
+  - 本次回测核心指标输出（总收益、年化、回撤、Sharpe、Calmar、胜率、盈亏比、成交笔数）。
+
+- `cta/report/backtest/20260425_skill_tight_range_breakout_RB0_minute60_both/20260425_RB0_both_trades.csv`
+  - 交易明细输出（含 entry/exit、方向、成本和净收益）。
+
+- `cta/report/backtest/20260425_skill_tight_range_breakout_RB0_minute60_both/20260425_RB0_both_equity.csv`
+  - 资金曲线输出。
+
+- `cta/report/backtest/20260425_skill_tight_range_breakout_RB0_minute60_both/20260425_RB0_both_yearly_stats.csv`
+  - 新增按退出年份聚合统计（trades/net_pnl/win_rate/avg_pnl/profit_factor）。
+
+- `cta/report/backtest/20260425_skill_tight_range_breakout_RB0_minute60_both/20260425_RB0_both_report.md`
+  - 新增本次回测报告（运行参数、核心指标、按方向统计、按年份统计、输出文件位置、限制说明）。
+
+### 运行命令
+
+```bash
+python3 -m cta.strategy.skill_tight_range_backtest \
+  --symbol RB0 \
+  --exchange SHFE \
+  --interval 60min \
+  --trade-side-mode both \
+  --start 2000-01-01 \
+  --end 2019-12-31
+```
+
+### 数据路径
+
+- 输入：`cta/data/minute60/RB/*.parquet`
+- 时间范围：至 `2019-12-31`（按本地可用分钟数据生效）
+
+### 输出位置
+
+- `cta/report/backtest/20260425_skill_tight_range_breakout_RB0_minute60_both/`
+
+### 结果摘要
+
+- `total_pnl`: `-95768.731`
+- `total_return`: `-0.095768731`
+- `annualized`: `-0.005363175646051377`
+- `mdd`: `0.09576873100000002`
+- `sharpe`: `-2.0404903827837644`
+- `calmar`: `-0.05600132308374615`
+- `winrate`: `0.24253731343283583`
+- `pf`: `0.22012662666461236`
+- `trade_count`: `268`
+
+### 风险与后续
+
+1. 成本模型为手续费+滑点近似，非逐笔成交撮合。  
+2. 若后续用于参数对比，建议固定同一数据窗口并增加 walk-forward 切分报告。
+
+---
+
+## 2026-04-25 — 增强回测周期参数与多空模式兼容（day/60min/30min/15min/5min/min + both/long/short）
+
+**分支**: 当前  
+**任务**: 在已有 skill tight-range breakout 基础上，新增“测试周期参数”与“多空模式”能力；按 TDD 先补测试，再改实现，并验证 `RB0` 日线与分钟级回测可运行。
+
+### 修改文件（测试，先写）
+
+- `cta/tests/test_skill_tight_range_strategy.py`
+  - 新增 `test_prepare_strategy_frame_interval_aliases`：校验 `day/60min/30min/15min/5min/min` 均可进入策略预处理。
+  - 新增 `test_trade_side_mode_short_only_can_emit_short`：`short` 模式可发空头入场。
+  - 新增 `test_trade_side_mode_long_blocks_short`：`long` 模式不会发空头入场。
+
+- `cta/tests/test_skill_tight_range_backtest_rb0.py`
+  - 新增 `test_normalize_interval_aliases`：周期别名归一化。
+  - 新增 `test_load_bars_minute60`：验证分钟级 parquet 聚合加载可用。
+  - 新增 `test_run_rb0_backtest_minute60`：`RB0 60min` 回测冒烟。
+
+### 修改文件（代码）
+
+- `cta/config/skill_tight_range_breakout_config.py`
+  - `StrategyConfig` 新增 `trade_side_mode`（`both/long/short`）与合法性校验。
+  - `BacktestConfig` 新增 `data_root`，用于分钟级路径解析。
+
+- `cta/strategy/skill_tight_range_breakout.py`
+  - 策略新增 `_is_side_allowed()`，在开仓前按 `trade_side_mode` 过滤方向，完整支持多空模式。
+
+- `cta/strategy/skill_tight_range_backtest.py`
+  - 新增 `normalize_interval()`：支持 `day/60min/30min/15min/5min/min`。
+  - 新增 `load_bars()`：
+    - `day` 读取 CSV；
+    - 分钟级读取 `cta/data/<interval>/<symbol_root>/*.parquet` 并按日期聚合。
+  - 新增 `suggest_periods_per_year()`，分钟级默认年化周期自动适配。
+  - CLI 新增参数：
+    - `--interval`
+    - `--trade-side-mode`
+    - `--periods-per-year`
+  - `run_symbol_backtest()` 改为统一走 `load_bars()`，输出目录按实际周期命名。
+
+- `cta/strategy/readme.md`
+  - 同步新增参数与示例命令，明确分钟级已接入，以及多空模式配置方法。
+
+### 运行命令
+
+```bash
+python3 -m unittest cta.tests.test_skill_tight_range_strategy cta.tests.test_skill_tight_range_backtest_rb0 -v
+
+python3 -m cta.strategy.skill_tight_range_backtest \
+  --symbol RB0 \
+  --exchange SHFE \
+  --interval day \
+  --trade-side-mode both \
+  --start 2018-01-01 \
+  --end 2024-12-31
+
+python3 -m cta.strategy.skill_tight_range_backtest \
+  --symbol RB0 \
+  --exchange SHFE \
+  --interval 60min \
+  --trade-side-mode both \
+  --start 2020-01-01 \
+  --end 2020-01-31
+```
+
+### 输出位置
+
+- 日线结果：`cta/report/backtest/20260425_skill_tight_range_breakout_RB0_day_both/`
+- 60 分钟结果：`cta/report/backtest/20260425_skill_tight_range_breakout_RB0_minute60_both/`
+
+### 结果摘要
+
+- 测试：`12/12` 通过（新增 interval + 多空模式相关用例）。
+- `RB0 day` 指标：`trade_count=3`，其余指标见 summary 文件。
+- `RB0 60min`（2020-01）可运行并产出文件（该窗口无成交，`trade_count=0`）。
+- `RB0 day short-only` 可运行并产出空头成交（`trade_count=1`，`side=short`）。
+
+### 风险与后续
+
+1. 分钟级是按日 parquet 聚合读取，超长区间回测时建议先按日期窗口分段。  
+2. 多空模式默认 `both`；若设 `long`/`short`，需注意样本区间可能出现“无交易”。
+
+---
+
+## 2026-04-25 — 新增基于 cta/skills 的 Tight Range Breakout 策略（先测后写）并完成 RB0 本地回测
+
+**分支**: 当前  
+**任务**: 读取 `AGENTS.md` 与 `claude.md` 后，基于现有 `cta/skills` 完成 `cta/strategy/readme.md` 对应策略代码；遵循 TDD（先写测试再实现），并在本地 `RB0` 回测验证，同时保证可切换到服务器其他品种。
+
+### 修改文件（测试，先写）
+
+- `cta/tests/test_skill_tight_range_strategy.py`
+  - 新增策略单测，覆盖：
+    - 策略输入预处理是否补齐 `atr14/tr_valid/trend_dir/breakout_score` 等关键列；
+    - 突破样本下是否能发出 stop 入场信号；
+    - 手数计算函数的最小手数下限。
+
+- `cta/tests/test_skill_tight_range_backtest_rb0.py`
+  - 新增回测/兼容性测试，覆盖：
+    - `RB0` 交易所自动解析（`SHFE`）；
+    - 未知品种合约参数默认回退；
+    - `RB0` 最小回测输出指标字段与产物文件存在性。
+
+### 修改文件（代码）
+
+- `cta/config/skill_tight_range_breakout_config.py`
+  - 新增策略与回测配置 dataclass：
+    - `StrategyConfig`
+    - `BacktestConfig`
+  - 统一路径配置：`cta/data/day`、`symbols_list.csv`、`cta/report/backtest`。
+
+- `cta/strategy/skill_tight_range_breakout.py`
+  - 新增策略实现，复用技能模块：
+    - `detect_tight_range`
+    - `score_breakout` / `breakout_quality_gate`
+    - `compute_trend_state`
+  - 提供 `prepare_strategy_frame()`，先生成指标再驱动策略。
+  - 提供 `SkillTightRangeBreakoutStrategy.on_bar()`，包含：
+    - stop 入场
+    - ATR 初始止损
+    - ATR 跟踪止损
+    - 最大持仓 bars 强平
+    - 风险预算手数计算
+
+- `cta/strategy/skill_tight_range_backtest.py`
+  - 新增本地回测入口（CLI + 可复用函数）：
+    - `resolve_exchange()`：从 `cta/data/day/symbols_list.csv` 自动识别交易所
+    - `build_contract_spec()`：优先用 v3 合约元数据，缺失时回退 `futures_meta` 和默认值
+    - `run_symbol_backtest()`：执行回测并落盘 trades/equity/summary
+  - 指标输出包含：
+    - 总收益（`total_return`）
+    - 年化（`annualized`）
+    - 最大回撤（`mdd`）
+    - Sharpe
+    - Calmar
+    - 胜率（`winrate`）
+    - 盈亏比（`pf`）
+
+- `cta/strategy/readme.md`
+  - 从空文件补全为完整策略文档，包含：
+    - 策略假设、信号定义、风控规则、手续费/滑点假设
+    - RB 最小回测命令
+    - 服务器其它品种运行命令
+    - 输出路径与已知局限
+
+### 运行命令
+
+```bash
+python3 -m unittest cta.tests.test_skill_tight_range_strategy cta.tests.test_skill_tight_range_backtest_rb0 -v
+
+python3 -m cta.strategy.skill_tight_range_backtest \
+  --symbol RB0 \
+  --exchange SHFE \
+  --start 2018-01-01 \
+  --end 2024-12-31
+```
+
+### 输出位置
+
+- 回测目录：`cta/report/backtest/20260425_skill_tight_range_breakout_RB0_day/`
+- 指标文件：`cta/report/backtest/20260425_skill_tight_range_breakout_RB0_day/20260425_RB0_summary.csv`
+- 交易明细：`cta/report/backtest/20260425_skill_tight_range_breakout_RB0_day/20260425_RB0_trades.csv`
+- 资金曲线：`cta/report/backtest/20260425_skill_tight_range_breakout_RB0_day/20260425_RB0_equity.csv`
+
+### 结果（RB0）
+
+- `total_pnl`: `376.568`
+- `total_return`: `0.000376568`
+- `annualized`: `5.591e-05`
+- `mdd`: `0.000410442`
+- `sharpe`: `0.172739`
+- `calmar`: `0.136220`
+- `winrate`: `0.333333`
+- `pf`: `1.917469`
+- `trade_count`: `3`
+
+### 风险与后续
+
+1. 当前回测入口默认 `day` 数据；分钟级需要后续接入 `cta/data/minute*` 后复用同策略框架。  
+2. 由于事件驱动引擎按 next-open 成交，止损触发与盘中真实撮合仍有偏差。  
+3. 目前为单品种回测，尚未加入多品种资金联动和组合级风控。
+
+---
+
 ## 2026-04-24 — 修复 code review 第二轮关键 bug（lookahead / asof / back-adjust / two-leg cost / log）
 
 **分支**: 当前  
@@ -1487,3 +2535,337 @@ python3 -m cta.feature.run_all_features --interval minute
    则 90% 是 OOM / SIGKILL，下一步需要降低 per-worker 内存（如进一步精简
    `compute_minute_tod_features` 的中间拷贝，或显式 `chunksize` 聚合）。
 3. Stage 日志级别是 INFO，跑 71 品种 × 4 行 ≈ 284 行额外日志；若嫌噪音可改 DEBUG。
+
+---
+
+## 2026-04-26 · main · RB0 60min 三模型基线（Trade Filter / Regime / MFE-MAE）
+
+### 任务
+
+1. 基于 `cta/strategy/readme.md` 继续完成三类核心模型链路。  
+2. 先写测试，再补实现。  
+3. baseline 规则策略生成候选机会样本，并拼接通用特征。  
+4. 本地 RB0 60min 回测与模型报告落地。
+
+### 修改文件
+
+1. `cta/tests/test_models_core.py`
+   - 修复 pandas 新版本频率兼容：`freq="H"` -> `freq="h"`。
+
+2. `cta/tests/test_baseline_skill_suite.py`
+   - 新增 `generate_candidate_opportunities` 的测试用例（先测后写）。
+
+3. `cta/tests/test_model_feature_builder.py`
+   - 覆盖候选特征 + 通用特征拼接与构表流程。
+
+4. `cta/tests/test_rb60_model_pipeline.py`
+   - 新增 RB0 60min 三模型 pipeline 冒烟测试（输出文件存在性）。
+
+5. `cta/strategy/baseline_skill_suite.py`
+   - 新增 `generate_candidate_opportunities(...)`：
+     - 基于 4 套 baseline 信号生成候选机会；
+     - stop 单按“下一根 K 线是否触发”判定；
+     - 产出 `future_mfe_atr / future_mae_atr / label_class / regime_label` 及 `feature_*`。
+   - `run_baseline_suite(...)` 的训练样本优先使用候选机会，空样本时回退到成交样本构造。
+
+6. `cta/model/feature/training_feature_builder.py`
+   - 落地候选样本与 `cta/data/feature` 通用特征拼接构表（含 fallback）。
+
+7. `cta/model/trade_filter_model.py`
+   - 二分类模型封装（fit/predict/evaluate/save/load）。
+
+8. `cta/model/regime_classifier_model.py`
+   - 多分类模型封装（fit/predict/evaluate/save/load）。
+
+9. `cta/model/mfe_mae_model.py`
+   - 双目标回归模型封装（fit/predict/evaluate/save/load）。
+
+10. `cta/model/rb60_model_pipeline.py`
+    - 新增端到端 pipeline：
+      - 候选机会生成；
+      - 特征拼接；
+      - 时间切分（train/valid/test）；
+      - 三类模型训练/评估/预测；
+      - 输出 CSV + Markdown 报告 + model artifacts。
+
+11. `cta/model/__init__.py`, `cta/model/feature/__init__.py`
+    - 新包初始化文件。
+
+### 运行命令
+
+```bash
+# 相关测试
+python3 -m unittest \
+  cta.tests.test_baseline_skill_suite \
+  cta.tests.test_model_feature_builder \
+  cta.tests.test_models_core \
+  cta.tests.test_rb60_model_pipeline -v
+
+# RB0 60min baseline 回测（2000-2019）
+python3 -m cta.strategy.baseline_skill_suite \
+  --symbol RB0 --exchange SHFE --interval 60min \
+  --trade-side-mode both --start 2000-01-01 --end 2019-12-31
+
+# RB0 60min 三模型 pipeline
+python3 -m cta.model.rb60_model_pipeline \
+  --symbol RB0 --exchange SHFE --interval 60min \
+  --start 2000-01-01 --end 2019-12-31 \
+  --trade-side-mode both --train-end 2018-12-31 --valid-end 2019-06-30
+```
+
+### 输出位置
+
+1. baseline 回测报告目录：  
+   `cta/report/backtest/20260426_baseline_skill_suite_RB0_minute60_both/`
+   - `20260426_RB0_minute60_both_suite_summary.csv`
+   - `20260426_RB0_minute60_both_training_samples.csv`
+   - `20260426_RB0_minute60_both_baseline_report.md`
+
+2. 三模型 pipeline 报告目录：  
+   `cta/report/backtest/20260426_RB0_minute60_both_model_pipeline/`
+   - `20260426_RB0_minute60_both_candidates.csv`
+   - `20260426_RB0_minute60_both_feature_table.csv`
+   - `20260426_RB0_minute60_both_predictions.csv`
+   - `20260426_RB0_minute60_both_metrics.csv`
+   - `20260426_RB0_minute60_both_model_report.md`
+   - `models/*.joblib`
+
+### 主要结果（RB0 60min, 2000-2019）
+
+1. baseline 交易笔数：
+   - donchian: 156
+   - atr_breakout: 272
+   - tight_range_breakout: 275
+   - breakout_pullback_continuation: 183
+
+2. 模型样本量：
+   - candidate_count: 1793
+   - feature_count: 41
+   - train/valid/test: 1577/114/102
+
+3. 关键指标（test）：
+   - Trade Filter: AUC 0.7462, Accuracy 0.6078, F1 0.7101
+   - Regime Classifier: Accuracy 0.9902, Macro-F1 0.9295
+   - MFE/MAE: mfe_mae=1.7485, mae_mae=1.4364
+
+### 风险与待确认
+
+1. Regime 指标当前偏高，存在标签分布偏斜风险，建议补充分层抽样或类别均衡。  
+2. MFE/MAE 在样本外 R2 仍为负，建议按 `signal_type` 分模型或增加多周期特征。  
+3. 目前候选机会为“信号触发型”样本，下一步可增加“未触发 stop 的取消样本”用于更精细过滤。
+
+---
+
+## 2026-04-26 · main · 候选负样本 + 全周期兼容 + signal_type 分模型 walk-forward
+
+### 任务
+
+1. 样本从“仅已成交”升级为“filled + not_triggered + filtered”全候选样本。  
+2. pipeline 明确兼容 `day/60min/30min/15min/5min/min`。  
+3. 模型训练改为按 `signal_type` 分组，并加入 walk-forward 窗口评估。
+
+### 先测后写（TDD）
+
+新增/更新测试：
+
+1. `cta/tests/test_baseline_skill_suite.py`
+   - 新增 `test_generate_candidate_includes_negative_samples`：
+     - 断言输出包含 `candidate_status/is_executed`；
+     - 断言至少有非 filled 负样本。
+
+2. `cta/tests/test_rb60_model_pipeline.py`
+   - 新增 `test_run_pipeline_support_all_intervals`：
+     - 覆盖 `day/60min/30min/15min/5min/min` 六种周期。
+   - 新增 `test_run_pipeline_by_signal_type_walk_forward`：
+     - 断言 metrics 含 `signal_type/window_id`；
+     - 断言多 signal、多窗口有效。
+
+### 主要代码改动
+
+1. `cta/strategy/baseline_skill_suite.py`
+   - `generate_candidate_opportunities(...)` 升级：
+     - 输出候选状态 `candidate_status`（`filled/not_triggered/filtered`）；
+     - 输出 `is_executed/is_filtered/is_triggered/filtered_reason`；
+     - stop 单未触发样本进入负样本集（`not_triggered`）。
+   - 新增 raw setup 构造逻辑，覆盖四类 baseline 的候选扫描。
+
+2. `cta/model/rb60_model_pipeline.py`
+   - 新增参数：
+     - `synthetic_periods`
+     - `by_signal_type`
+     - `max_walk_forward_windows`
+   - 新增 walk-forward 窗口构建与循环训练逻辑。
+   - 按 signal_type 分组训练 3 类模型（Trade Filter / Regime / MFE-MAE）。
+   - MFE/MAE 模型默认仅使用 `is_executed=1` 样本训练/评估。
+   - 输出 metrics/predictions 包含 `signal_type/window_id` 维度。
+
+### 验证命令
+
+```bash
+python3 -m unittest \
+  cta.tests.test_baseline_skill_suite \
+  cta.tests.test_model_feature_builder \
+  cta.tests.test_models_core \
+  cta.tests.test_rb60_model_pipeline -v
+
+python3 -m cta.strategy.baseline_skill_suite \
+  --symbol RB0 --exchange SHFE --interval 60min \
+  --trade-side-mode both --start 2000-01-01 --end 2019-12-31
+
+python3 -m cta.model.rb60_model_pipeline \
+  --symbol RB0 --exchange SHFE --interval 60min \
+  --start 2000-01-01 --end 2019-12-31 \
+  --trade-side-mode both \
+  --train-end 2012-12-31 --valid-end 2015-12-31 \
+  --max-walk-forward-windows 3 --by-signal-type
+```
+
+### 输出与结果
+
+1. 候选样本（RB0 60min, 2000-2019）：
+   - 总候选：4142
+   - `filled`: 1798
+   - `not_triggered`: 2265
+   - `filtered`: 79
+   - 负样本占比：56.59%
+
+2. 模型结果：
+   - `signal_type_count`: 4
+   - `window_id`: 2（本次数据范围内有效窗口）
+   - metrics 含 `signal_type/window_id/split/model` 四维。
+
+3. 输出目录：
+   - `cta/report/backtest/20260426_baseline_skill_suite_RB0_minute60_both/`
+   - `cta/report/backtest/20260426_RB0_minute60_both_model_pipeline/`
+
+### 风险与后续
+
+1. `filtered` 负样本目前主要来自规则 gate/side mode，后续可细化更多过滤原因标签。  
+2. MFE/MAE 样本外仍有不稳，建议下阶段按 `signal_type + regime` 进一步分桶建模。  
+3. walk-forward 窗口数量受样本时间分布影响，跨品种时建议按品种自适应步长。
+
+---
+
+## 2026-04-26 · main · 按 cta/bug.md code review 回归修复
+
+### 范围
+
+- `cta/strategy/baseline_skill_suite.py`
+- `cta/model/feature/training_feature_builder.py`
+- `cta/model/trade_filter_model.py`
+- `cta/model/regime_classifier_model.py`
+- `cta/model/mfe_mae_model.py`
+- `cta/model/rb60_model_pipeline.py`
+- `cta/config/baseline_skill_suite_config.py`
+- `cta/tests/test_baseline_skill_suite.py`
+- `cta/tests/test_model_feature_builder.py`
+- `cta/tests/test_models_core.py`
+- `cta/tests/test_rb60_model_pipeline.py`
+
+### 核心修复（对应 bug.md）
+
+1. `prepare_master_feature_frame` 先按 `datetime` 去重并与 `prepare_strategy_frame` 行数强校验，修复重复时间戳下特征错位风险。  
+2. `generate_candidate_opportunities` 的 ATR 归一化改为使用 signal bar ATR，消除标签口径不一致。  
+3. 候选负样本（未触发/被过滤）不再统一 `future_mfe_atr=0`，改为按假设触发价计算 horizon 波动。  
+4. `build_training_samples_from_trade_log` 对非法 side（非 long/short）直接跳过，避免按 long 误算。  
+5. `training_feature_builder._iter_feature_files` 在日期窗口无文件时抛 `FileNotFoundError`，不再回退全量文件。  
+6. `merge_candidate_and_generic_features` 改为 `merge_asof + tolerance`，修复秒级偏移导致全 NaN。  
+7. 标签阈值统一为配置常量（`LABEL_MAE_PENALTY=0.7`, `LABEL_THRESHOLD=0.2`），消除 pipeline 与 baseline 口径漂移。  
+8. pipeline 增加 `pred_split` 字段，区分 test/valid/train 回退预测。  
+9. pipeline 在 signal/window 训练前增加 label 多样性兜底，降低单标签子集退化风险。  
+10. TradeFilter/Regime/MFE-MAE 的 Dummy 分支补上 `SimpleImputer`；TradeFilter Dummy 改 `prior`；MFE-MAE Dummy 改原生 `DummyRegressor`。
+
+### 新增回归测试
+
+1. `test_prepare_master_feature_frame_drop_duplicate_datetime`  
+2. `test_generate_candidate_uses_signal_bar_atr_for_label_norm`  
+3. `test_build_training_samples_skip_unknown_side`  
+4. `test_merge_candidate_and_generic_features_with_second_offset`  
+5. `test_iter_feature_files_raise_when_no_file_in_range`  
+6. `test_dummy_models_handle_nan_features`  
+7. `test_run_pipeline_smoke` 断言 `pred_split` 列存在
+
+### 验证命令
+
+```bash
+python3 -m unittest \
+  cta.tests.test_baseline_skill_suite \
+  cta.tests.test_model_feature_builder \
+  cta.tests.test_models_core \
+  cta.tests.test_rb60_model_pipeline -v
+```
+
+### 验证结果
+
+- 21 tests 全部通过（OK）。
+
+---
+
+## 2026-04-26 · main · 第三轮 code review B1-B12 优先级修复
+
+### 范围
+
+- `cta/strategy/baseline_skill_suite.py`
+- `cta/model/feature/training_feature_builder.py`
+- `cta/model/trade_filter_model.py`
+- `cta/model/regime_classifier_model.py`
+- `cta/model/mfe_mae_model.py`
+- `cta/model/rb60_model_pipeline.py`
+- `cta/tests/test_baseline_skill_suite.py`
+- `cta/tests/test_model_feature_builder.py`
+- `cta/tests/test_rb60_model_pipeline.py`
+
+### 核心修复（按优先级 P0 → P2）
+
+**P0（数据/标签/口径硬错）**
+
+1. **B1**：pipeline 在 `train_exec` 为空时不再硬塞 `MfeMaeModel(min_samples=1e9)` 走 dummy。新增 `_train_mfe_mae_or_skip(train_df, feature_columns)` 显式返回 `(None, "skipped_no_exec")`，metrics/predictions/joblib 三处统一按 `None` 跳过，避免假装训练成功污染指标。  
+2. **B2**：`_select_feature_columns` 兜底分支用 `df.get(col, scalar)` 在缺列时拿到的是标量，再 `.astype(str)` 会抛 `AttributeError`；改为先判断列存在再构造 `pd.Series`。  
+3. **B3**：`build_training_feature_table` 截到天会丢跨日 lookback；start_date 改为 `dt.min() - 1day`、end_date 改为 `dt.max() + 1day`，保证夜盘衔接样本能拿到上一交易日的 generic 特征。  
+4. **B4**：`baseline_skill_suite` 中 `bool(np.nan) == True` 的 Python footgun：9 处 `bool(bar.get("bp_valid"/"bp_confirmed"/"tr_valid"/"breakout_pass"))` 改为 `_safe_bool(...)`，统一处理 None/NaN/np.floating/任意可调用 bool。
+
+**P1（健壮性）**
+
+5. **B5**：`WindowMode = Literal[...]` 之前夹在 `from typing` 与 `import numpy` 之间违反 PEP 8；移到全部 import 之后。同时把 `"skipped_no_exec"` 抽成模块级常量 `MFE_MAE_KIND_SKIPPED_NO_EXEC`，避免字符串散落。  
+6. **B6**：walk-forward 已经过滤 `test_df.empty` 窗口，`pred_split` 的 valid/train fallback 分支永远走不到，删除死代码；保留 `if test_df.empty: continue` 防御。  
+7. **B7**：`TradeFilterModel/RegimeClassifierModel/MfeMaeModel.load()` 旧 joblib 缺 `model_kind` 字段时返回 `"unknown"` 难以追溯；改为 `"legacy_no_kind"` 并加注释，便于运维分辨"未知 vs 老格式"。  
+8. **B8**：`run_rb_model_pipeline` 写 report.md 时 `metrics_df.to_string(index=False)` 在宽表下不可读；与 `run_baseline_suite` 对齐改为 try `to_markdown` 失败再 `to_string` 兜底。  
+9. **B9**：`_iter_feature_files` 之前对解析失败的文件名只 `logger.warning` 后静默跳过，命名规范变更时会丢光所有 generic 特征；新增 `parse_failures` 列表，当 `len(parse_failures)/total_files >= 0.5` 时主动 raise `ValueError` 并附样例。
+
+**P2（一致性 / 可读性）**
+
+10. **B10**：`run_rb_model_pipeline` 内 `_ensure_training_columns(feature_df)` 被调用两次（一次在加载后、一次在 walk-forward 切片前），第二次纯属冗余但无副作用；保留并加注释说明幂等。  
+11. **B11**：`_is_numeric_like_column` 的样本量 `head(50)` 在分钟级数据下采样过小，可能误判带空值的数值列为非数值；提升到 `head(200)`。  
+12. **B12**：report.md 字段名 `signal_type_count` 与 `by_signal_type=False` 时实际是 1 个 frame 的语义不符；改名 `signal_frames_count` 并加注释说明含义。
+
+### 新增回归测试
+
+1. `test_safe_bool_handles_nan_none_and_truthy_values`（B4 单元）  
+2. `test_baseline_strategy_treats_nan_bp_valid_as_false`（B4 端到端）  
+3. `test_iter_feature_files_raises_when_majority_filenames_invalid`（B9）  
+4. `test_build_training_feature_table_loads_previous_day_for_lookback`（B3）  
+5. `test_select_feature_columns_fallback_handles_missing_side_and_signal_type`（B2）  
+6. `test_train_mfe_mae_or_skip_returns_none_when_no_executed`（B1 阴性）  
+7. `test_train_mfe_mae_or_skip_returns_model_when_executed_present`（B1 阳性）  
+8. `test_run_pipeline_pred_split_is_test_only`（B6）  
+9. `test_trade_filter_load_legacy_no_kind`（B7）
+
+### 验证命令
+
+```bash
+python3 -m unittest \
+  cta.tests.test_baseline_skill_suite \
+  cta.tests.test_model_feature_builder \
+  cta.tests.test_models_core \
+  cta.tests.test_rb60_model_pipeline -v
+```
+
+### 验证结果
+
+- 40 tests 全部通过（OK），耗时约 33.6s。
+
+### 风险与后续
+
+1. `_train_mfe_mae_or_skip` 当前仅按 `is_executed` 区分，后续如果引入更细的执行口径（例如带止损但未触发等多档状态），需要扩展返回的 `model_kind` 枚举。  
+2. B9 的 50% 阈值是经验值，若后续 feature 目录混入大量 metadata 文件（如 `.crc`、`_SUCCESS`），需要先在 glob 阶段排除，避免误触发 raise。  
+3. `legacy_no_kind` 仅是诊断字段，不影响推理；若长期沿用建议在下一次模型重训时统一刷一遍 joblib。
