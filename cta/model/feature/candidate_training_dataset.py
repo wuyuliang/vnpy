@@ -26,7 +26,7 @@ import argparse
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -56,6 +56,7 @@ from cta.strategy.skill_tight_range_backtest import (
 logger = logging.getLogger(__name__)
 
 MODEL_FEATURE_ROOT: Path = CTA_ROOT / "data" / "model_feature"
+SYMBOLS_RANKING_PATH: Path = CTA_ROOT / "feature" / "symbols_research_ranking.csv"
 
 # baseline candidate_status -> sample_status 映射。
 # 注意：``not_triggered``（市场未触发）与 ``blocked_by_execution``（执行规则
@@ -147,6 +148,79 @@ class CandidateTrainingDatasetResult:
     training_samples_parquet: Path
     training_samples_csv: Path
     summary_csv: Path
+
+
+def _normalize_intervals(raw: Iterable[str]) -> tuple[str, ...]:
+    """Normalize interval tokens into ordered, deduplicated tuple."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for token in raw:
+        if token is None:
+            continue
+        for piece in str(token).split(","):
+            v = piece.strip().lower()
+            if not v:
+                continue
+            if v in seen:
+                continue
+            seen.add(v)
+            out.append(v)
+    if not out:
+        raise ValueError("no valid interval provided; expected one of day/60min/30min/15min/5min/min")
+    return tuple(out)
+
+
+def _load_top_n_symbols_from_ranking(
+    ranking_path: Path,
+    top_n: int,
+) -> list[tuple[str, str | None]]:
+    """Load top-N symbols ordered by research_rank from ranking csv."""
+    n = int(top_n)
+    if n <= 0:
+        return []
+    path = Path(ranking_path).expanduser()
+    if not path.is_absolute():
+        path = (Path.cwd() / path).resolve()
+    if not path.exists():
+        raise FileNotFoundError(f"symbols ranking csv not found: {path}")
+
+    df = pd.read_csv(path, encoding="utf-8-sig")
+    if "symbol" not in df.columns:
+        raise KeyError(f"ranking csv missing symbol column: {path}")
+    df = df.copy()
+    if "research_rank" in df.columns:
+        df["_rank"] = pd.to_numeric(df["research_rank"], errors="coerce")
+    else:
+        df["_rank"] = np.arange(len(df), dtype=float)
+    df["_rank"] = df["_rank"].fillna(np.inf)
+    df = df.sort_values(["_rank"]).reset_index(drop=True)
+
+    picked: list[tuple[str, str | None]] = []
+    seen: set[str] = set()
+    for _, row in df.iterrows():
+        sym = str(row.get("symbol", "")).strip().upper()
+        if not sym or sym in seen:
+            continue
+        seen.add(sym)
+        ex_raw = row.get("exchange", None)
+        ex = str(ex_raw).strip().upper() if pd.notna(ex_raw) and str(ex_raw).strip() else None
+        picked.append((sym, ex))
+        if len(picked) >= n:
+            break
+    if not picked:
+        raise ValueError(f"no valid symbols loaded from ranking csv: {path}")
+    return picked
+
+
+def _resolve_run_exchange(
+    exchange_from_rank: str | None,
+    cli_exchange: str | None,
+) -> str | None:
+    if exchange_from_rank:
+        return str(exchange_from_rank).upper()
+    if cli_exchange:
+        return str(cli_exchange).upper()
+    return None
 
 
 def _to_float_series(df: pd.DataFrame, column: str, fill_value: float = np.nan) -> pd.Series:
@@ -666,11 +740,80 @@ def generate_and_save_candidate_training_dataset(
     )
 
 
-def _parse_args() -> argparse.Namespace:
+def generate_and_save_candidate_training_dataset_multi(
+    symbol: str,
+    exchange: str | None,
+    intervals: Sequence[str],
+    start_date: str,
+    end_date: str,
+    trade_side_mode: str = "both",
+    signal_types: tuple[str, ...] = BASELINE_SIGNAL_TYPES,
+    horizon_bars: int = 20,
+    output_root: Path = MODEL_FEATURE_ROOT,
+    feature_root: Path = FEATURE_ROOT,
+    run_tag: str | None = None,
+    generic_columns: Iterable[str] | None = None,
+) -> list[CandidateTrainingDatasetResult]:
+    """Run candidate dataset generation for multiple intervals."""
+    interval_tuple = _normalize_intervals(intervals)
+    results: list[CandidateTrainingDatasetResult] = []
+    for idx, interval in enumerate(interval_tuple, start=1):
+        logger.info(
+            "[%d/%d] running candidate dataset generation for symbol=%s interval=%s",
+            idx,
+            len(interval_tuple),
+            symbol,
+            interval,
+        )
+        try:
+            result = generate_and_save_candidate_training_dataset(
+                symbol=symbol,
+                exchange=exchange,
+                interval=interval,
+                start_date=start_date,
+                end_date=end_date,
+                trade_side_mode=trade_side_mode,
+                signal_types=signal_types,
+                horizon_bars=horizon_bars,
+                output_root=output_root,
+                feature_root=feature_root,
+                run_tag=run_tag,
+                generic_columns=generic_columns,
+            )
+        except Exception:
+            logger.exception("candidate dataset generation failed for interval=%s", interval)
+            continue
+        results.append(result)
+    return results
+
+
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build candidate-event training dataset")
     parser.add_argument("--symbol", default="RB0")
     parser.add_argument("--exchange", default="SHFE")
-    parser.add_argument("--interval", default="60min")
+    parser.add_argument(
+        "--top-n-symbols",
+        type=int,
+        default=0,
+        help=(
+            "if > 0, ignore --symbol and load top-N symbols from --symbols-ranking-path "
+            "ordered by research_rank"
+        ),
+    )
+    parser.add_argument(
+        "--symbols-ranking-path",
+        default=str(SYMBOLS_RANKING_PATH),
+        help="csv path of symbol research ranking (default cta/feature/symbols_research_ranking.csv)",
+    )
+    parser.add_argument(
+        "--interval",
+        nargs="+",
+        default=["60min"],
+        help=(
+            "one or more intervals (day/60min/30min/15min/5min/min). "
+            "Accepts space-separated and comma-separated tokens; duplicates are deduped."
+        ),
+    )
     parser.add_argument("--start", default="2000-01-01")
     parser.add_argument("--end", default="2019-12-31")
     parser.add_argument("--trade-side-mode", default="both")
@@ -679,29 +822,59 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--output-root", default=str(MODEL_FEATURE_ROOT))
     parser.add_argument("--feature-root", default=str(FEATURE_ROOT))
     parser.add_argument("--signal-types", default=",".join(BASELINE_SIGNAL_TYPES))
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-    args = _parse_args()
+    args = _parse_args(argv)
+    intervals = _normalize_intervals(args.interval)
     signal_types = tuple(s.strip() for s in str(args.signal_types).split(",") if s.strip())
-    result = generate_and_save_candidate_training_dataset(
-        symbol=args.symbol,
-        exchange=args.exchange,
-        interval=args.interval,
-        start_date=args.start,
-        end_date=args.end,
-        trade_side_mode=args.trade_side_mode,
-        signal_types=signal_types,
-        horizon_bars=int(args.horizon_bars),
-        run_tag=args.run_tag,
-        output_root=Path(args.output_root).resolve(),
-        feature_root=Path(args.feature_root).resolve(),
-    )
-    logger.info("candidate_events: %s", result.candidate_events_parquet)
-    logger.info("training_samples: %s", result.training_samples_parquet)
-    logger.info("summary: %s", result.summary_csv)
+    output_root = Path(args.output_root).resolve()
+    feature_root = Path(args.feature_root).resolve()
+
+    top_n = int(getattr(args, "top_n_symbols", 0))
+    if top_n > 0:
+        symbols_to_run = _load_top_n_symbols_from_ranking(
+            Path(args.symbols_ranking_path),
+            top_n=top_n,
+        )
+        logger.info(
+            "top-n symbol mode enabled: top_n=%s ranking_path=%s loaded=%s",
+            top_n,
+            args.symbols_ranking_path,
+            [s for s, _ in symbols_to_run],
+        )
+    else:
+        symbols_to_run = [(str(args.symbol).upper(), str(args.exchange).upper() if args.exchange else None)]
+
+    for sidx, (symbol, exchange_from_rank) in enumerate(symbols_to_run, start=1):
+        run_exchange = _resolve_run_exchange(exchange_from_rank, args.exchange)
+        logger.info(
+            "[%d/%d] run symbol=%s exchange=%s intervals=%s",
+            sidx,
+            len(symbols_to_run),
+            symbol,
+            run_exchange,
+            list(intervals),
+        )
+        results = generate_and_save_candidate_training_dataset_multi(
+            symbol=symbol,
+            exchange=run_exchange,
+            intervals=intervals,
+            start_date=args.start,
+            end_date=args.end,
+            trade_side_mode=args.trade_side_mode,
+            signal_types=signal_types,
+            horizon_bars=int(args.horizon_bars),
+            run_tag=args.run_tag,
+            output_root=output_root,
+            feature_root=feature_root,
+        )
+        for interval, result in zip(intervals, results):
+            logger.info("[%s][%s] candidate_events: %s", symbol, interval, result.candidate_events_parquet)
+            logger.info("[%s][%s] training_samples: %s", symbol, interval, result.training_samples_parquet)
+            logger.info("[%s][%s] summary: %s", symbol, interval, result.summary_csv)
 
 
 if __name__ == "__main__":
@@ -715,4 +888,5 @@ __all__ = [
     "generate_candidate_events_from_baselines",
     "build_and_save_candidate_training_dataset",
     "generate_and_save_candidate_training_dataset",
+    "generate_and_save_candidate_training_dataset_multi",
 ]

@@ -38,8 +38,12 @@ python3 -m cta.feature.run_all_features --interval 60min --symbols RB0
 
 ### Step B：生成候选事件 + 训练样本（候选特征 + 通用特征拼接）
 
+`cta.model.feature.candidate_training_dataset` 现已支持：
+- `--interval` 多值（空格 / 逗号 / 混合写法，自动去重）
+- `--top-n-symbols N`（按 `cta/feature/symbols_research_ranking.csv` 的 `research_rank` 取前 N）
+
 ```bash
-# RB0 60min（2010-2019）
+# 单品种 + 单一 interval（保留旧用法）
 python3 -m cta.model.feature.candidate_training_dataset \
   --symbol RB0 \
   --exchange SHFE \
@@ -48,11 +52,46 @@ python3 -m cta.model.feature.candidate_training_dataset \
   --end 2019-12-31 \
   --trade-side-mode both \
   --run-tag 20260427
+
+# 单品种 + 多 interval（空格分隔）
+python3 -m cta.model.feature.candidate_training_dataset \
+  --symbol RB0 \
+  --exchange SHFE \
+  --interval day 60min 30min 15min \
+  --start 2010-01-01 \
+  --end 2019-12-31 \
+  --trade-side-mode both \
+  --run-tag 20260427
+
+# 单品种 + 多 interval（逗号分隔，混合写法）
+python3 -m cta.model.feature.candidate_training_dataset \
+  --symbol RB0 \
+  --exchange SHFE \
+  --interval day,60min 30min,15min,5min \
+  --start 2010-01-01 \
+  --end 2019-12-31 \
+  --trade-side-mode both \
+  --run-tag 20260427
+
+# topN 品种批量（按 research_rank）
+python3 -m cta.model.feature.candidate_training_dataset \
+  --top-n-symbols 10 \
+  --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
+  --interval 60min \
+  --start 2010-01-01 \
+  --end 2019-12-31 \
+  --trade-side-mode both \
+  --run-tag 20260427
 ```
+
+说明：
+- 多 interval / 多品种是顺序批量执行，单个 interval 失败不会阻断其它 interval。
+- 输出目录按 `interval/symbol/run_tag` 隔离，互不覆盖。
 
 产物示例：
 - `cta/data/model_feature/minute60/RB0/20260427/*_candidate_events.parquet`
 - `cta/data/model_feature/minute60/RB0/20260427/*_training_samples.parquet`
+- `cta/data/model_feature/day/RB0/20260427/*_candidate_events.parquet`
 
 ### Step C：训练三类模型（Trade Filter / Regime / MFE-MAE）
 

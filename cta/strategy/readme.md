@@ -47,7 +47,7 @@
 
 要求：
 可以支持各个interval，参数支持数组，比如interval ['day','60min','30min','15min']  本地测试60min
-参数品种symbol支持加载cta/feature/symbols_research_ranking.csv文件中，topN的品种，N作为参数
+生成特征和模型参数品种symbol支持加载cta/feature/symbols_research_ranking.csv文件中，topN的品种，N作为参数
 	•	模型命令示例：`python3 -m cta.model.model_pipeline --top-n-symbols 10 --symbols-ranking-path cta/feature/symbols_research_ranking.csv --interval 60min ...`
 
 ⸻

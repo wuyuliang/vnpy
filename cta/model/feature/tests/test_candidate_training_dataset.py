@@ -9,12 +9,58 @@ import numpy as np
 import pandas as pd
 
 from cta.model.feature.candidate_training_dataset import (
+    _load_top_n_symbols_from_ranking,
+    _normalize_intervals,
+    _parse_args,
     build_and_save_candidate_training_dataset,
     standardize_candidate_events,
 )
 
 
 class TestCandidateTrainingDataset(unittest.TestCase):
+    def test_normalize_intervals_supports_mixed_tokens_and_dedup(self) -> None:
+        out = _normalize_intervals(["day,60min", " 30min ", "60min", "15min,5min", "min"])
+        self.assertEqual(out, ("day", "60min", "30min", "15min", "5min", "min"))
+
+    def test_normalize_intervals_raises_when_empty(self) -> None:
+        with self.assertRaises(ValueError):
+            _normalize_intervals(["", " , ", "   "])
+
+    def test_parse_args_supports_top_n_symbols_and_multi_intervals(self) -> None:
+        args = _parse_args(
+            [
+                "--top-n-symbols",
+                "3",
+                "--symbols-ranking-path",
+                "cta/feature/symbols_research_ranking.csv",
+                "--interval",
+                "day,60min",
+                "30min,15min",
+                "--trade-side-mode",
+                "both",
+            ]
+        )
+        self.assertEqual(int(args.top_n_symbols), 3)
+        self.assertEqual(
+            tuple(args.interval),
+            ("day,60min", "30min,15min"),
+        )
+        self.assertEqual(str(args.symbols_ranking_path), "cta/feature/symbols_research_ranking.csv")
+
+    def test_load_top_n_symbols_from_ranking_orders_by_research_rank(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="cta_rank_topn_") as td:
+            path = Path(td) / "symbols_research_ranking.csv"
+            pd.DataFrame(
+                {
+                    "symbol": ["CU0", "RB0", "AU0", "RB0"],
+                    "exchange": ["SHFE", "SHFE", "SHFE", "SHFE"],
+                    "research_rank": [3, 1, 2, 99],
+                }
+            ).to_csv(path, index=False, encoding="utf-8-sig")
+
+            out = _load_top_n_symbols_from_ranking(path, top_n=3)
+            self.assertEqual(out, [("RB0", "SHFE"), ("AU0", "SHFE"), ("CU0", "SHFE")])
+
     def test_standardize_candidate_events_maps_status_and_labels(self) -> None:
         candidate = pd.DataFrame(
             {
