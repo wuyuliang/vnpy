@@ -303,6 +303,88 @@ class TestAdapterOrderFilter(unittest.TestCase):
         self.assertEqual(len(eng.orders), 0)
 
 
+class TestAdapterTradeHooks(unittest.TestCase):
+    """on_trade 应该把成交事件转发给 trade_recorder 与 pnl_tracker。"""
+
+    def _new(self):
+        eng = FakeCtaEngine()
+        a = _ScriptedAdapter(eng, "test", "X0.SHFE", {})
+        a.scripted = []
+        a.on_init()
+        return a, eng
+
+    def test_on_trade_records(self) -> None:
+        from datetime import datetime
+        from types import SimpleNamespace
+        a, _eng = self._new()
+        recorded: list = []
+
+        class _Rec:
+            def record(self, t): recorded.append(t)
+            def flush(self): return ""
+
+        a.trade_recorder = _Rec()
+        trade = SimpleNamespace(
+            symbol="X0", exchange=SimpleNamespace(value="SHFE"),
+            direction=SimpleNamespace(value="long"), offset=SimpleNamespace(value="open"),
+            price=100.0, volume=1, datetime=datetime(2024, 1, 2, 9, 30),
+            tradeid="t1", orderid="o1", gateway_name="TEST",
+        )
+        a.on_trade(trade)
+        self.assertEqual(len(recorded), 1)
+
+    def test_on_trade_updates_pnl_tracker(self) -> None:
+        from datetime import datetime
+        from types import SimpleNamespace
+        from cta.live.pnl_tracker import DailyPnlTracker
+        a, _eng = self._new()
+        a.pnl_tracker = DailyPnlTracker(contract_size_resolver=lambda s: 10.0)
+
+        def _t(direction, offset, price):
+            return SimpleNamespace(
+                symbol="X0", exchange=SimpleNamespace(value="SHFE"),
+                direction=SimpleNamespace(value=direction),
+                offset=SimpleNamespace(value=offset),
+                price=price, volume=1, datetime=datetime(2024, 1, 2),
+                tradeid="x", orderid="x", gateway_name="T",
+            )
+
+        a.on_trade(_t("long", "open", 100.0))
+        a.on_trade(_t("short", "close", 105.0))
+        self.assertAlmostEqual(a.pnl_tracker.get_pnl(), 50.0)
+
+    def test_on_trade_recorder_exception_does_not_propagate(self) -> None:
+        from datetime import datetime
+        from types import SimpleNamespace
+        a, eng = self._new()
+
+        class _Bad:
+            def record(self, t): raise RuntimeError("bad")
+            def flush(self): return ""
+
+        a.trade_recorder = _Bad()
+        trade = SimpleNamespace(
+            symbol="X0", exchange=SimpleNamespace(value="SHFE"),
+            direction=SimpleNamespace(value="long"), offset=SimpleNamespace(value="open"),
+            price=100.0, volume=1, datetime=datetime(2024, 1, 2),
+            tradeid="x", orderid="x", gateway_name="T",
+        )
+        a.on_trade(trade)  # 不应抛
+        self.assertTrue(any("trade_recorder" in m for m in eng.logs))
+
+    def test_on_stop_flushes_recorder(self) -> None:
+        a, eng = self._new()
+        flushed = {"called": False, "path": ""}
+
+        class _Rec:
+            def flush(self): flushed["called"] = True; flushed["path"] = "/tmp/fake.parquet"; return flushed["path"]
+            def record(self, t): pass
+
+        a.trade_recorder = _Rec()
+        a.on_stop()
+        self.assertTrue(flushed["called"])
+
+
 class TestAdapterParameters(unittest.TestCase):
     def test_setting_applied(self) -> None:
         class _CustomAdapter(LegacyCtaAdapter):

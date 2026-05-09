@@ -19,7 +19,7 @@ SimNow 公开仿真服务器（2026-05 数据，可能变化）：
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
@@ -70,6 +70,19 @@ class SimRunConfig:
     strategy_name: str
     vt_symbol: str
     setting: dict
+    # —— 历史预热（流式策略需要前置 K 线把特征算稳）——
+    warmup_days: int = 0
+    warmup_interval: str = "1m"   # vnpy Interval value: "1m" / "1h" / "d"
+    # —— 风控集成 ——
+    risk_guard: Any = None        # cta.live.risk.RiskGuard | None
+    kill_switch: Any = None       # cta.live.kill_switch.KillSwitch | None
+    capital: float = 1_000_000.0
+    contract_size_resolver: Callable[[str], float] | None = None
+    commission_resolver: Callable[[str, float, float], float] | None = None
+    # —— 成交流水落盘 ——
+    trade_recorder_dir: str | None = None
+    # —— 关闭 PnL tracker（风控需要时即便用户没显式指定，run_sim 也会挂）——
+    enable_pnl_tracker: bool = True
 
 
 def _default_main_engine_factory():  # pragma: no cover - 实际运行才走到
@@ -136,10 +149,79 @@ def run_sim(
     cta_engine.add_strategy(
         cfg.strategy_class, cfg.strategy_name, cfg.vt_symbol, dict(cfg.setting or {})
     )
+
+    # 取出 strategy 实例（vnpy 真实实现把它放在 cta_engine.strategies dict 中）
+    strategies_attr = getattr(cta_engine, "strategies", None)
+    strategy = None
+    if isinstance(strategies_attr, dict):
+        strategy = strategies_attr.get(cfg.strategy_name)
+    if strategy is not None:
+        _attach_observers(strategy, cfg)
+
     cta_engine.init_strategy(cfg.strategy_name)
+    if strategy is not None and cfg.warmup_days > 0:
+        _warmup_strategy(strategy, cfg)
     cta_engine.start_strategy(cfg.strategy_name)
     logger.info("strategy %s started on %s", cfg.strategy_name, cfg.vt_symbol)
     return me
+
+
+def _attach_observers(strategy: Any, cfg: SimRunConfig) -> None:
+    """把 trade_recorder / pnl_tracker / order_filter 挂到 strategy。
+    对 LegacyCtaAdapter 子类按字段写入；对其他 CtaTemplate 子类做属性注入。"""
+    from cta.live.kill_switch import KillSwitchRule
+    from cta.live.pnl_tracker import DailyPnlTracker
+    from cta.live.risk import RiskGuard, make_risk_filter
+    from cta.live.trade_recorder import TradeRecorder
+
+    if cfg.trade_recorder_dir:
+        strategy.trade_recorder = TradeRecorder(
+            out_dir=cfg.trade_recorder_dir,
+            vt_symbol=cfg.vt_symbol,
+        )
+
+    needs_pnl = cfg.enable_pnl_tracker or (cfg.risk_guard is not None and cfg.kill_switch is None)
+    if needs_pnl or cfg.risk_guard is not None:
+        strategy.pnl_tracker = DailyPnlTracker(
+            contract_size_resolver=cfg.contract_size_resolver,
+            commission_resolver=cfg.commission_resolver,
+        )
+
+    if cfg.risk_guard is not None or cfg.kill_switch is not None:
+        rules = list((cfg.risk_guard.rules if cfg.risk_guard else []) or [])
+        if cfg.kill_switch is not None:
+            rules.append(KillSwitchRule(cfg.kill_switch))
+        merged = RiskGuard(rules=rules)
+        provider = strategy.pnl_tracker.get_pnl if getattr(strategy, "pnl_tracker", None) else None
+        strategy.order_filter = make_risk_filter(
+            merged,
+            capital=cfg.capital,
+            daily_pnl_provider=provider,
+        )
+
+
+def _warmup_strategy(strategy: Any, cfg: SimRunConfig) -> None:
+    """调用 vnpy CtaTemplate.load_bar 预加载历史 K 线。
+
+    interval 字符串映射到 vnpy.trader.constant.Interval；找不到就直接传字符串。"""
+    interval: Any = cfg.warmup_interval
+    try:
+        from vnpy.trader.constant import Interval  # type: ignore
+        mapping = {
+            "1m": Interval.MINUTE, "minute": Interval.MINUTE,
+            "1h": Interval.HOUR, "hour": Interval.HOUR,
+            "d": Interval.DAILY, "day": Interval.DAILY, "daily": Interval.DAILY,
+        }
+        interval = mapping.get(str(cfg.warmup_interval).lower(), interval)
+    except ImportError:  # pragma: no cover
+        pass
+    try:
+        strategy.load_bar(int(cfg.warmup_days), interval=interval)
+    except TypeError:
+        # fake 实现可能签名不同
+        strategy.load_bar(int(cfg.warmup_days), interval)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("warmup load_bar failed: %s", e)
 
 
 __all__ = ["SIMNOW_DEFAULT", "SimnowSetting", "SimRunConfig", "run_sim"]

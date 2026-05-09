@@ -12,6 +12,85 @@
 
 ---
 
+## 2026-05-09 (六) · feature · baseline_skill_suite 增加 topN 品种 + 多 interval 批量候选
+
+### 任务
+
+按 `cta/run.md` 的 Step 3.1 需求扩展 baseline 入口：
+- 支持从 `cta/feature/symbols_research_ranking.csv` 读取 `top-n-symbols`
+- 支持一次传入多个 `interval`（空格/逗号混合写法）
+- 批量生成前 N 品种、多个周期的候选机会（training samples）
+
+### 范围（代码）
+
+- 更新 `cta/strategy/baseline_skill_suite.py`
+  - 新增 `_normalize_intervals()`：支持 `day,60min 30min,...` 混合输入并规范化去重
+  - 新增 `_load_top_n_symbols_from_ranking()`：按 `research_rank` 读取前 N 品种
+  - 新增 `_resolve_run_exchange()`：ranking 与 CLI exchange 的优先级显式化
+  - 新增 `run_baseline_suite_multi()`：单品种多 interval 批量执行（单个失败不阻塞）
+  - CLI 新增参数：
+    - `--top-n-symbols`
+    - `--symbols-ranking-path`
+    - `--interval` 改为支持多值（`nargs="+"` + 逗号混写）
+  - `main()` 扩展为 `topN symbols × multi-interval` 双层批量调度
+
+- 更新 `cta/strategy/tests/test_baseline_skill_suite.py`
+  - 新增 `test_normalize_intervals_supports_mixed_tokens`
+  - 新增 `test_load_top_n_symbols_from_ranking_sorted_by_research_rank`
+  - 新增 `test_run_baseline_suite_multi_dispatches_each_interval`
+
+- 更新 `cta/run.md`
+  - Step 3.1 增加 topN + 多 interval 命令示例
+  - 保留单品种旧用法示例
+
+### 验证
+
+```bash
+python3 -m pytest cta/strategy/tests/test_baseline_skill_suite.py -q
+# 18 passed
+```
+
+### 不在本次范围
+
+- 未改动 `candidate_training_dataset` 与 `model_pipeline` 的既有批量逻辑（它们原本已支持 topN + 多 interval）。
+- 未改动 `cta/data/origin` 原始数据。
+
+## 2026-05-09 (六) · feature · 新增统一运行手册 `cta/run.md`
+
+### 任务
+
+补齐一份可直接执行的端到端命令文档，覆盖：
+- 数据下载与校验
+- 通用特征生成
+- 候选样本构建（含 topN + 多 interval）
+- 三类模型训练与离线评估
+- 规则回测、dry-run 仿真、SimNow 启动示例
+- 实盘运维常用操作（kill switch / 日报 / 连接守护）
+
+### 范围（代码）
+
+- 新增 [`cta/run.md`](run.md)
+  - 给出从 `cd /Users/wuyuliang/code/vnpy` 开始的完整命令序列
+  - 命令均对齐当前代码中的可执行入口：
+    - `cta.data_code.download_all` / `cta.data_code.expand_minute` / `cta.cli validate`
+    - `cta.feature.run_all_features`
+    - `cta.model.feature.candidate_training_dataset`（parquet-only 输出）
+    - `cta.model.model_pipeline`
+    - `cta.strategy.skill_tight_range_backtest`
+    - `cta.strategy.brooks.{backtest.runner,online.runner}`
+    - `cta.sim.sim_runner`、`cta.live.{daily_report,supervisor}`
+  - 明确关键输出目录，补充常见错误排查命令
+
+### 验证
+
+- 手工核对 run.md 中所有 CLI 参数，与当前源码 `argparse` 定义一致。
+- 本次仅新增文档，不涉及策略/模型逻辑改动与数据改写。
+
+### 不在本次范围
+
+- 不新增实盘一键 CLI（当前 `run_sim`、`Supervisor` 仍为库级接口，文档提供脚本化调用示例）。
+- 不改动 `cta/data/` 任何原始行情文件。
+
 ## 2026-05-09 (六) · main · M2 + M3：仿真接入 + 实盘支撑组件
 
 ### 任务

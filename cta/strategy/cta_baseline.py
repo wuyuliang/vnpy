@@ -45,18 +45,25 @@ class _BaselineCtaBase(LegacyCtaAdapter):
 
     def _build_contract(self) -> ContractSpec:
         symbol, _, exchange = self.vt_symbol.partition(".")
-        tick = float(self.tick_size)
+        # 优先从 cta_engine 拿真实合约元数据；返回 0/None/异常时回退 setting 字段值
+        tick = 0.0
+        try:
+            v = self.cta_engine.get_pricetick(self)
+            tick = float(v) if v else 0.0
+        except Exception:  # noqa: BLE001
+            tick = 0.0
         if tick <= 0:
-            try:
-                tick = float(self.cta_engine.get_pricetick(self) or 1.0)
-            except Exception:  # noqa: BLE001
-                tick = 1.0
-        mult = float(self.multiplier)
+            tick = float(self.tick_size or 1.0)
+
+        mult = 0.0
+        try:
+            v = self.cta_engine.get_size(self)
+            mult = float(v) if v else 0.0
+        except Exception:  # noqa: BLE001
+            mult = 0.0
         if mult <= 0:
-            try:
-                mult = float(self.cta_engine.get_size(self) or 1.0)
-            except Exception:  # noqa: BLE001
-                mult = 1.0
+            mult = float(self.multiplier or 1.0)
+
         return ContractSpec(
             symbol=symbol or "",
             exchange=exchange or "",

@@ -75,19 +75,25 @@ class SkillTightRangeBreakoutCta(LegacyCtaAdapter):
 
     def _build_contract(self) -> ContractSpec:
         symbol, _, exchange = self.vt_symbol.partition(".")
-        # 兜底从 cta_engine 取 pricetick / size
-        tick_size = float(self.tick_size)
+        # 优先从 cta_engine 拿真实合约元数据；返回 0/None/异常时回退 setting 字段值
+        tick_size = 0.0
+        try:
+            v = self.cta_engine.get_pricetick(self)
+            tick_size = float(v) if v else 0.0
+        except Exception:  # noqa: BLE001
+            tick_size = 0.0
         if tick_size <= 0:
-            try:
-                tick_size = float(self.cta_engine.get_pricetick(self) or 1.0)
-            except Exception:  # noqa: BLE001
-                tick_size = 1.0
-        multiplier = float(self.multiplier)
+            tick_size = float(self.tick_size or 1.0)
+
+        multiplier = 0.0
+        try:
+            v = self.cta_engine.get_size(self)
+            multiplier = float(v) if v else 0.0
+        except Exception:  # noqa: BLE001
+            multiplier = 0.0
         if multiplier <= 0:
-            try:
-                multiplier = float(self.cta_engine.get_size(self) or 1.0)
-            except Exception:  # noqa: BLE001
-                multiplier = 1.0
+            multiplier = float(self.multiplier or 1.0)
+
         return ContractSpec(
             symbol=symbol or "",
             exchange=exchange or "",

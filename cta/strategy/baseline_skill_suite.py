@@ -33,7 +33,7 @@ import argparse
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
@@ -74,6 +74,8 @@ from cta.strategy.skill_tight_range_breakout import (
 
 logger = logging.getLogger(__name__)
 
+SYMBOLS_RANKING_PATH = Path(__file__).resolve().parents[1] / "feature" / "symbols_research_ranking.csv"
+
 
 @dataclass(frozen=True)
 class BaselineSuiteRunResult:
@@ -81,6 +83,62 @@ class BaselineSuiteRunResult:
     summary_path: Path
     training_samples_path: Path
     report_path: Path
+
+
+def _normalize_intervals(intervals: str | Sequence[str]) -> tuple[str, ...]:
+    """Normalize one-or-many interval args.
+
+    支持：
+    - 单值：``"60min"``
+    - 多值空格：``["day", "60min", "30min"]``
+    - 逗号混合：``["day,60min", "30min,15min"]``
+    """
+    if isinstance(intervals, str):
+        raw_tokens: list[str] = [intervals]
+    else:
+        raw_tokens = [str(x) for x in intervals]
+
+    parts: list[str] = []
+    for tk in raw_tokens:
+        parts.extend([p.strip() for p in str(tk).split(",") if p.strip()])
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for p in parts:
+        canon = normalize_interval(p)
+        if canon not in seen:
+            seen.add(canon)
+            out.append(canon)
+    return tuple(out)
+
+
+def _load_top_n_symbols_from_ranking(ranking_path: Path, top_n: int) -> list[tuple[str, str]]:
+    """Load top-N symbols ordered by ``research_rank`` from ranking csv."""
+    if int(top_n) <= 0:
+        return []
+    if not ranking_path.exists():
+        raise FileNotFoundError(f"symbols ranking csv not found: {ranking_path}")
+
+    df = pd.read_csv(ranking_path, encoding="utf-8-sig")
+    need = {"symbol", "exchange", "research_rank"}
+    miss = need - set(df.columns)
+    if miss:
+        raise ValueError(f"ranking csv missing columns: {sorted(miss)}")
+
+    view = df[["symbol", "exchange", "research_rank"]].copy()
+    view["symbol"] = view["symbol"].astype(str).str.strip().str.upper()
+    view["exchange"] = view["exchange"].astype(str).str.strip().str.upper()
+    view["research_rank"] = pd.to_numeric(view["research_rank"], errors="coerce")
+    view = view.dropna(subset=["symbol", "exchange", "research_rank"])
+    view = view.sort_values("research_rank").drop_duplicates(subset=["symbol", "exchange"], keep="first")
+    view = view.head(int(top_n)).reset_index(drop=True)
+    return [(str(r["symbol"]), str(r["exchange"])) for _, r in view.iterrows()]
+
+
+def _resolve_run_exchange(exchange_from_rank: str | None, cli_exchange: str | None) -> str | None:
+    rank_ex = str(exchange_from_rank).strip().upper() if exchange_from_rank else None
+    cli_ex = str(cli_exchange).strip().upper() if cli_exchange else None
+    return rank_ex or cli_ex
 
 
 def _safe_float(v: Any) -> float:
@@ -1225,11 +1283,79 @@ def run_baseline_suite(
     )
 
 
-def _parse_args() -> argparse.Namespace:
+def run_baseline_suite_multi(
+    symbol: str,
+    exchange: str | None,
+    intervals: Sequence[str] | str,
+    start_date: str,
+    end_date: str,
+    signal_types: tuple[str, ...] = BASELINE_SIGNAL_TYPES,
+    trade_side_mode: str = "both",
+    initial_capital: float = 1_000_000.0,
+    periods_per_year: int | None = None,
+    output_root: Path | None = None,
+) -> list[BaselineSuiteRunResult]:
+    """Run baseline suite across multiple intervals.
+
+    单个 interval 失败不会阻塞其它 interval，便于批量研究。
+    """
+    interval_tuple = _normalize_intervals(intervals)
+    results: list[BaselineSuiteRunResult] = []
+    for idx, interval in enumerate(interval_tuple, start=1):
+        logger.info(
+            "[%d/%d] baseline suite symbol=%s interval=%s",
+            idx,
+            len(interval_tuple),
+            str(symbol).upper(),
+            interval,
+        )
+        try:
+            res = run_baseline_suite(
+                symbol=symbol,
+                exchange=exchange,
+                interval=interval,
+                start_date=start_date,
+                end_date=end_date,
+                signal_types=signal_types,
+                trade_side_mode=trade_side_mode,
+                initial_capital=initial_capital,
+                periods_per_year=periods_per_year,
+                output_root=output_root,
+            )
+        except Exception:
+            logger.exception("baseline suite failed for symbol=%s interval=%s", symbol, interval)
+            continue
+        results.append(res)
+    return results
+
+
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run baseline skill suite and build training samples")
     parser.add_argument("--symbol", default="RB0")
     parser.add_argument("--exchange", default=None)
-    parser.add_argument("--interval", default="60min")
+    parser.add_argument(
+        "--top-n-symbols",
+        type=int,
+        default=0,
+        help=(
+            "if > 0, ignore --symbol and load top-N symbols from --symbols-ranking-path "
+            "ordered by research_rank"
+        ),
+    )
+    parser.add_argument(
+        "--symbols-ranking-path",
+        default=str(SYMBOLS_RANKING_PATH),
+        help="csv path of symbol research ranking (default cta/feature/symbols_research_ranking.csv)",
+    )
+    parser.add_argument(
+        "--interval",
+        nargs="+",
+        default=["60min"],
+        help=(
+            "one or more intervals (day/60min/30min/15min/5min/min). "
+            "Accepts space-separated and comma-separated tokens; duplicates are deduped."
+        ),
+    )
     parser.add_argument("--start", default="2000-01-01")
     parser.add_argument("--end", default="2019-12-31")
     parser.add_argument("--trade-side-mode", default="both", choices=sorted(VALID_SIDE_MODES))
@@ -1237,28 +1363,69 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--initial-capital", type=float, default=1_000_000.0)
     parser.add_argument("--periods-per-year", type=int, default=None)
     parser.add_argument("--output-root", default=None)
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     args = _parse_args()
     signal_types = tuple(s.strip() for s in str(args.signal_types).split(",") if s.strip())
-    result = run_baseline_suite(
-        symbol=args.symbol,
-        exchange=args.exchange,
-        interval=args.interval,
-        start_date=args.start,
-        end_date=args.end,
-        signal_types=signal_types,
-        trade_side_mode=args.trade_side_mode,
-        initial_capital=args.initial_capital,
-        periods_per_year=args.periods_per_year,
-        output_root=Path(args.output_root).resolve() if args.output_root else None,
-    )
-    logger.info("summary: %s", result.summary_path)
-    logger.info("training_samples: %s", result.training_samples_path)
-    logger.info("report: %s", result.report_path)
+    intervals = _normalize_intervals(args.interval)
+    output_root = Path(args.output_root).resolve() if args.output_root else None
+
+    top_n = int(getattr(args, "top_n_symbols", 0))
+    if top_n > 0:
+        symbols_to_run = _load_top_n_symbols_from_ranking(
+            Path(args.symbols_ranking_path),
+            top_n=top_n,
+        )
+        logger.info(
+            "top-n symbol mode enabled: top_n=%s ranking_path=%s loaded=%s",
+            top_n,
+            args.symbols_ranking_path,
+            [s for s, _ in symbols_to_run],
+        )
+    else:
+        symbols_to_run = [(str(args.symbol).upper(), str(args.exchange).upper() if args.exchange else None)]
+
+    all_results: list[BaselineSuiteRunResult] = []
+    for sidx, (symbol, exchange_from_rank) in enumerate(symbols_to_run, start=1):
+        run_exchange = _resolve_run_exchange(exchange_from_rank, args.exchange)
+        logger.info(
+            "[%d/%d] run symbol=%s exchange=%s intervals=%s",
+            sidx,
+            len(symbols_to_run),
+            symbol,
+            run_exchange,
+            list(intervals),
+        )
+        results = run_baseline_suite_multi(
+            symbol=symbol,
+            exchange=run_exchange,
+            intervals=intervals,
+            start_date=args.start,
+            end_date=args.end,
+            signal_types=signal_types,
+            trade_side_mode=args.trade_side_mode,
+            initial_capital=args.initial_capital,
+            periods_per_year=args.periods_per_year,
+            output_root=output_root,
+        )
+        all_results.extend(results)
+        for result in results:
+            logger.info("[%s] summary: %s", symbol, result.summary_path)
+            logger.info("[%s] training_samples: %s", symbol, result.training_samples_path)
+            logger.info("[%s] report: %s", symbol, result.report_path)
+        if len(results) < len(intervals):
+            logger.warning(
+                "[%s] only %d/%d intervals succeeded; see logs for failures",
+                symbol,
+                len(results),
+                len(intervals),
+            )
+
+    if not all_results:
+        raise SystemExit("no baseline suite runs succeeded")
 
 
 if __name__ == "__main__":
@@ -1273,4 +1440,5 @@ __all__ = [
     "generate_candidate_opportunities",
     "build_training_samples_from_trade_log",
     "run_baseline_suite",
+    "run_baseline_suite_multi",
 ]

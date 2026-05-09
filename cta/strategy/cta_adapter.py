@@ -76,6 +76,9 @@ class LegacyCtaAdapter(CtaTemplate):
     history_size: int = 1000
     # Pre-trade hook: ``Callable[[order_dict, adapter], bool]``，返回 False 时跳过 send_order
     order_filter: Callable[[dict, "LegacyCtaAdapter"], bool] | None = None
+    # 实盘 / 仿真观测点（M3）：成交流水记录器与日内已实现 PnL 跟踪器
+    trade_recorder: Any = None  # cta.live.trade_recorder.TradeRecorder | None
+    pnl_tracker: Any = None     # cta.live.pnl_tracker.DailyPnlTracker | None
 
     def __init__(self, cta_engine: Any, strategy_name: str, vt_symbol: str, setting: dict) -> None:
         super().__init__(cta_engine, strategy_name, vt_symbol, setting)
@@ -103,6 +106,27 @@ class LegacyCtaAdapter(CtaTemplate):
     def on_stop(self) -> None:
         self.write_log(f"{self.__class__.__name__} stop")
         self.cancel_all()
+        if self.trade_recorder is not None:
+            try:
+                path = self.trade_recorder.flush()
+                if path:
+                    self.write_log(f"trade_recorder flushed: {path}")
+            except Exception as e:  # noqa: BLE001
+                self.write_log(f"trade_recorder flush error: {e}")
+
+    def on_trade(self, trade: Any) -> None:
+        """实盘 / 仿真成交回报：转给 trade_recorder 与 pnl_tracker。
+        v1 策略的状态由 on_bar 驱动，此处不再调 inner。"""
+        if self.trade_recorder is not None:
+            try:
+                self.trade_recorder.record(trade)
+            except Exception as e:  # noqa: BLE001
+                self.write_log(f"trade_recorder error: {e}")
+        if self.pnl_tracker is not None:
+            try:
+                self.pnl_tracker.on_trade(trade)
+            except Exception as e:  # noqa: BLE001
+                self.write_log(f"pnl_tracker error: {e}")
 
     def on_bar(self, bar: BarData) -> None:
         self._buffer.append(bar)

@@ -4,12 +4,16 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 
 from cta.strategy.baseline_skill_suite import (
     BASELINE_SIGNAL_TYPES,
+    BaselineSuiteRunResult,
+    _load_top_n_symbols_from_ranking,
+    _normalize_intervals,
     _safe_bool,
     build_training_samples_from_trade_log,
     create_baseline_strategy,
@@ -287,6 +291,50 @@ class TestBaselineSkillSuite(unittest.TestCase):
             )
             self.assertTrue(out.summary_path.exists())
             self.assertTrue(out.training_samples_path.exists())
+
+    def test_normalize_intervals_supports_mixed_tokens(self) -> None:
+        got = _normalize_intervals(["day,60min", "30min,15min,5min", "min,day"])
+        self.assertEqual(got, ("day", "minute60", "minute30", "minute15", "minute5", "minute"))
+
+    def test_load_top_n_symbols_from_ranking_sorted_by_research_rank(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="cta_baseline_rank_") as td:
+            p = Path(td) / "ranking.csv"
+            pd.DataFrame(
+                [
+                    {"symbol": "cu0 ", "exchange": " shfe", "research_rank": 3},
+                    {"symbol": "rb0", "exchange": "SHFE", "research_rank": 1},
+                    {"symbol": "i0", "exchange": "dce ", "research_rank": 2},
+                ]
+            ).to_csv(p, index=False, encoding="utf-8-sig")
+            got = _load_top_n_symbols_from_ranking(p, top_n=2)
+        self.assertEqual(got, [("RB0", "SHFE"), ("I0", "DCE")])
+
+    def test_run_baseline_suite_multi_dispatches_each_interval(self) -> None:
+        import cta.strategy.baseline_skill_suite as suite
+
+        seen: list[str] = []
+
+        def _fake_run(**kwargs):
+            interval = str(kwargs.get("interval", ""))
+            seen.append(interval)
+            return BaselineSuiteRunResult(
+                output_dir=Path("/tmp") / f"run_{interval}",
+                summary_path=Path("/tmp") / f"{interval}_summary.csv",
+                training_samples_path=Path("/tmp") / f"{interval}_samples.csv",
+                report_path=Path("/tmp") / f"{interval}_report.md",
+            )
+
+        with patch.object(suite, "run_baseline_suite", side_effect=_fake_run):
+            out = suite.run_baseline_suite_multi(
+                symbol="RB0",
+                exchange="SHFE",
+                intervals=("day,60min", "30min"),
+                start_date="2019-01-01",
+                end_date="2019-01-31",
+            )
+
+        self.assertEqual(seen, ["day", "minute60", "minute30"])
+        self.assertEqual(len(out), 3)
 
     # ---------------- New regression tests (T-D, T-I) ----------------
 
