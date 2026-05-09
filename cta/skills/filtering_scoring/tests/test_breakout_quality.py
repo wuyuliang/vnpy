@@ -67,12 +67,12 @@ class TestBreakoutQuality(unittest.TestCase):
                                msg="默认模式下不得使用 i 之后的 bar")
 
     def test_opt_in_follow_bars_uses_future(self) -> None:
-        """显式 follow_bars>0：读取未来 bar，属 post-hoc 标注模式。"""
+        """显式 follow_bars>0：读取未来 bar，属 post-hoc 标注模式（必须 _allow_future=True）。"""
         df = _breakout_df()
         i = 92
         level = float(df["close"].iloc[:90].max())
         bq_live = score_breakout(df, i, level, atr=1.5, follow_bars=0)
-        bq_label = score_breakout(df, i, level, atr=1.5, follow_bars=2)
+        bq_label = score_breakout(df, i, level, atr=1.5, follow_bars=2, _allow_future=True)
         # 分量字典里 s_follow 在 live 模式下应为 None 或默认值；label 模式下有数值
         # 弱断言：两种模式可以给出不同 score
         self.assertIsInstance(bq_live.score, float)
@@ -97,11 +97,12 @@ class TestBreakoutQuality(unittest.TestCase):
 
 
     def test_follow_bars_partial_window(self) -> None:
-        """follow_bars 超过剩余 bar 数：seen 应衰减为剩余可读 bar，不报错。"""
+        """follow_bars 超过剩余 bar 数：seen 应衰减为剩余可读 bar，不报错。
+        Post-hoc 标注用例 → 显式 _allow_future=True。"""
         df = _breakout_df()
         i = len(df) - 1  # 最后一根 bar，没有 i+1
         level = float(df["close"].iloc[:i].max())
-        bq = score_breakout(df, i, level, atr=1.5, follow_bars=5)
+        bq = score_breakout(df, i, level, atr=1.5, follow_bars=5, _allow_future=True)
         self.assertTrue(0.0 <= bq.score <= 1.0)
         # 没有未来 bar 时 s_follow 应回退为 0（除以 max(seen,1) 不爆）
         self.assertGreaterEqual(bq.components["s_follow"], 0.0)
@@ -154,6 +155,38 @@ class TestBreakoutQuality(unittest.TestCase):
             bq_weak.components["s_follow"],
             "下破时 close 越靠 low s_follow 应越高",
         )
+
+
+    # ---------------- P1-A: follow_bars > 0 必须显式 opt-in ------------------
+    def test_score_breakout_raises_when_follow_bars_positive_without_opt_in(self) -> None:
+        """P1-A: follow_bars > 0 会读 i+1..i+follow_bars 的 bar，构成未来函数。
+        必须强制调用方显式传 ``_allow_future=True``，否则 raise。
+        这样把"label 用法"和"feature 用法"在 API 层硬隔离，避免误用导致 leak。
+        """
+        df = _breakout_df(140)
+        i = 92
+        level = float(df["high"].iloc[i - 1])
+        with self.assertRaises(ValueError) as cm:
+            score_breakout(df, i, level, atr=1.5, follow_bars=3)
+        self.assertIn("_allow_future", str(cm.exception))
+
+    def test_score_breakout_allows_future_when_opt_in_explicit(self) -> None:
+        """P1-A: 显式 ``_allow_future=True`` 的 post-hoc 标注用法仍可用。"""
+        df = _breakout_df(140)
+        i = 92
+        level = float(df["high"].iloc[i - 1])
+        # 显式开 future 模式不会 raise
+        bq = score_breakout(df, i, level, atr=1.5, follow_bars=3, _allow_future=True)
+        self.assertIsNotNone(bq)
+        self.assertTrue(0.0 <= bq.score <= 1.0)
+
+    def test_score_breakout_default_follow_bars_zero_still_works(self) -> None:
+        """P1-A: 默认 follow_bars=0 (live-safe) 走原路径，无需 _allow_future。"""
+        df = _breakout_df(140)
+        i = 92
+        level = float(df["high"].iloc[i - 1])
+        bq = score_breakout(df, i, level, atr=1.5)  # 默认 follow_bars=0
+        self.assertIsNotNone(bq)
 
 
 if __name__ == "__main__":

@@ -49,6 +49,109 @@ class TestEventDrivenBacktest(unittest.TestCase):
         self.assertGreaterEqual(len(out["trade_log"]), 1)
 
 
+def _one_sided_up_bar(prev_close: float, jump_pct: float = 0.08) -> pd.Series:
+    px = prev_close * (1.0 + jump_pct)
+    return pd.Series({"open": px, "high": px, "low": px, "close": px, "volume": 0.0})
+
+
+def _one_sided_down_bar(prev_close: float, jump_pct: float = 0.08) -> pd.Series:
+    px = prev_close * (1.0 - jump_pct)
+    return pd.Series({"open": px, "high": px, "low": px, "close": px, "volume": 0.0})
+
+
+class TestPriceLimitFilter(unittest.TestCase):
+    """涨跌停过滤：一字板时禁止该方向开仓，平仓不受限。"""
+
+    def test_long_open_blocked_on_limit_up(self) -> None:
+        cur = pd.Series({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1000.0})
+        nxt = _one_sided_up_bar(prev_close=100.0, jump_pct=0.08)
+        cfg = EngineConfig(limit_move_pct=0.07)
+        fill = simulate_fill(
+            {"side": "long", "order_type": "market", "lots": 1}, cur, nxt, cfg
+        )
+        self.assertIsNone(fill)
+
+    def test_short_open_blocked_on_limit_down(self) -> None:
+        cur = pd.Series({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1000.0})
+        nxt = _one_sided_down_bar(prev_close=100.0, jump_pct=0.08)
+        cfg = EngineConfig(limit_move_pct=0.07)
+        fill = simulate_fill(
+            {"side": "short", "order_type": "market", "lots": 1}, cur, nxt, cfg
+        )
+        self.assertIsNone(fill)
+
+    def test_flat_close_not_blocked(self) -> None:
+        cur = pd.Series({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1000.0})
+        nxt = _one_sided_up_bar(prev_close=100.0, jump_pct=0.08)
+        cfg = EngineConfig(limit_move_pct=0.07)
+        fill = simulate_fill(
+            {"side": "flat", "order_type": "market", "lots": 1}, cur, nxt, cfg
+        )
+        self.assertIsNotNone(fill)
+
+    def test_default_config_no_filter(self) -> None:
+        """limit_move_pct 默认 None：一字板涨停时仍可成交（向后兼容）。"""
+        cur = pd.Series({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1000.0})
+        nxt = _one_sided_up_bar(prev_close=100.0, jump_pct=0.08)
+        fill = simulate_fill(
+            {"side": "long", "order_type": "market", "lots": 1}, cur, nxt, EngineConfig()
+        )
+        self.assertIsNotNone(fill)
+
+    def test_below_threshold_passes(self) -> None:
+        """跳空但未触及涨跌停阈值时不过滤（涨幅 5% < 7%）。"""
+        cur = pd.Series({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1000.0})
+        nxt = _one_sided_up_bar(prev_close=100.0, jump_pct=0.05)
+        cfg = EngineConfig(limit_move_pct=0.07)
+        fill = simulate_fill(
+            {"side": "long", "order_type": "market", "lots": 1}, cur, nxt, cfg
+        )
+        self.assertIsNotNone(fill)
+
+
+class TestLiquidityCap(unittest.TestCase):
+    """流动性约束：成交手数被截断到 volume * ratio。"""
+
+    def test_lots_truncated_to_cap(self) -> None:
+        cur = pd.Series({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 100.0})
+        nxt = pd.Series({"open": 101.0, "high": 102.0, "low": 100.0, "close": 101.5, "volume": 100.0})
+        cfg = EngineConfig(liquidity_ratio=0.1)  # cap = 10
+        fill = simulate_fill(
+            {"side": "long", "order_type": "market", "lots": 50}, cur, nxt, cfg
+        )
+        self.assertIsNotNone(fill)
+        self.assertEqual(fill["lots"], 10)
+
+    def test_zero_volume_rejected(self) -> None:
+        cur = pd.Series({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 100.0})
+        nxt = pd.Series({"open": 101.0, "high": 102.0, "low": 100.0, "close": 101.5, "volume": 0.0})
+        cfg = EngineConfig(liquidity_ratio=0.1)
+        fill = simulate_fill(
+            {"side": "long", "order_type": "market", "lots": 1}, cur, nxt, cfg
+        )
+        self.assertIsNone(fill)
+
+    def test_default_no_truncation(self) -> None:
+        """liquidity_ratio 默认 None：不截断（向后兼容）。"""
+        cur = pd.Series({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1.0})
+        nxt = pd.Series({"open": 101.0, "high": 102.0, "low": 100.0, "close": 101.5, "volume": 1.0})
+        fill = simulate_fill(
+            {"side": "long", "order_type": "market", "lots": 999}, cur, nxt, EngineConfig()
+        )
+        self.assertIsNotNone(fill)
+        self.assertEqual(fill["lots"], 999)
+
+    def test_below_cap_no_truncation(self) -> None:
+        cur = pd.Series({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 100.0})
+        nxt = pd.Series({"open": 101.0, "high": 102.0, "low": 100.0, "close": 101.5, "volume": 100.0})
+        cfg = EngineConfig(liquidity_ratio=0.1)  # cap = 10
+        fill = simulate_fill(
+            {"side": "long", "order_type": "market", "lots": 5}, cur, nxt, cfg
+        )
+        self.assertIsNotNone(fill)
+        self.assertEqual(fill["lots"], 5)
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -488,8 +488,12 @@ def build_training_samples_from_trade_log(
             "exchange",
             "interval",
             "datetime",
+            # L2 fix：写出 signal_datetime（signal bar 时间），下游 merge_asof 用作
+            # generic 特征 merge key，避免 next-bar lookahead。
+            "signal_datetime",
             "signal_type",
             "side",
+            "signal_i",
             "entry_i",
             "exit_i",
             "holding_bars",
@@ -515,6 +519,10 @@ def build_training_samples_from_trade_log(
         if entry_i < 0 or exit_i < entry_i or entry_i >= len(frame):
             continue
         exit_i = min(exit_i, len(frame) - 1)
+        # L2 fix：决策时刻是 signal_bar = entry_bar 之前 1 根。模型推理时只能看
+        # signal_bar 的特征，训练时也必须从 signal_bar 取，否则就是 next-bar leak。
+        signal_i = max(0, entry_i - 1)
+        signal_row = frame.iloc[signal_i]
         entry_row = frame.iloc[entry_i]
         entry_price = _safe_float(tr.get("entry_price", entry_row.get("close", np.nan)))
         exit_price = _safe_float(tr.get("exit_price", frame.iloc[exit_i].get("close", np.nan)))
@@ -524,6 +532,7 @@ def build_training_samples_from_trade_log(
         seg = frame.iloc[entry_i : exit_i + 1]
         seg_high = seg["high"].astype(float).max()
         seg_low = seg["low"].astype(float).min()
+        # 标签端 mfe/mae 仍按 entry_bar 的 atr14 归一化，与候选 scan 路径口径一致。
         atr_entry = _safe_float(entry_row.get("atr14", np.nan))
 
         if side == "short":
@@ -542,8 +551,12 @@ def build_training_samples_from_trade_log(
             "exchange": str(exchange).upper(),
             "interval": str(interval),
             "datetime": dt_series.iloc[entry_i],
+            # L2 fix：signal_datetime 让下游 merge_asof 拼 generic 特征时能对齐
+            # signal bar，避免 next-bar lookahead leak。
+            "signal_datetime": dt_series.iloc[signal_i],
             "signal_type": str(signal_type),
             "side": side,
+            "signal_i": signal_i,
             "entry_i": entry_i,
             "exit_i": exit_i,
             "holding_bars": int(exit_i - entry_i),
@@ -558,7 +571,8 @@ def build_training_samples_from_trade_log(
             "atr_warmed": atr_warmed_flag,
         }
         for c in feature_columns:
-            sample[f"feature_{c}"] = entry_row[c] if c in frame.columns else np.nan
+            # L2 fix：feature_* 必须从 signal_row 取（决策时刻特征），而不是 entry_row。
+            sample[f"feature_{c}"] = signal_row[c] if c in frame.columns else np.nan
         rows.append(sample)
     out = pd.DataFrame(rows)
     if not out.empty:

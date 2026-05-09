@@ -166,7 +166,8 @@ class TestCandidateTrainingDataset(unittest.TestCase):
 
             self.assertTrue(out.candidate_events_parquet.exists())
             self.assertTrue(out.training_samples_parquet.exists())
-            self.assertTrue(out.summary_csv.exists())
+            self.assertTrue(out.summary_parquet.exists())
+            self.assertEqual(list(out.dataset_dir.glob("*.csv")), [])
 
             merged = pd.read_parquet(out.training_samples_parquet)
             self.assertEqual(len(merged), 2)
@@ -429,6 +430,8 @@ class TestCandidateTrainingDataset(unittest.TestCase):
             )
             ev = pd.read_parquet(out.candidate_events_parquet)
             self.assertEqual(len(ev), 0)
+            self.assertTrue(out.summary_parquet.exists())
+            self.assertEqual(list(out.dataset_dir.glob("*.csv")), [])
             for col in (
                 "candidate_id",
                 "sample_status",

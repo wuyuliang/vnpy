@@ -1,0 +1,40 @@
+﻿rank,feature,importance,feature_meaning,model_kind
+1,feature_atr14,0.0,14周期 ATR 波动率,dummy
+2,feature_atr_lower,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,dummy
+3,feature_atr_ma,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,dummy
+4,feature_atr_upper,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,dummy
+5,feature_atr_value,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,dummy
+6,feature_bp_confirmed,0.0,突破回踩确认标记,dummy
+7,feature_breakout_score,0.0,突破质量分数,dummy
+8,feature_close,0.0,信号时点收盘价,dummy
+9,feature_don_atr20,0.0,Donchian 宽度/ATR20,dummy
+10,feature_don_lower_entry,0.0,Donchian 下轨入场价,dummy
+11,feature_don_lower_exit,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,dummy
+12,feature_don_upper_entry,0.0,Donchian 上轨入场价,dummy
+13,feature_don_upper_exit,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,dummy
+14,feature_high,0.0,信号时点最高价,dummy
+15,feature_low,0.0,信号时点最低价,dummy
+16,feature_open,0.0,信号时点开盘价,dummy
+17,feature_open_interest,0.0,信号时点持仓量,dummy
+18,feature_tr_range_atr,0.0,tight range / ATR 比值,dummy
+19,feature_trend_dir,0.0,趋势方向编码,dummy
+20,feature_trend_score,0.0,趋势强弱分数,dummy
+21,feature_turnover,0.0,信号时点成交额,dummy
+22,feature_volume,0.0,信号时点成交量,dummy
+23,generic_atr_14,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,dummy
+24,generic_bb_width,0.0,布林带宽度,dummy
+25,generic_breakout_mode_score,0.0,"突破模式整体分 [0, 1]",dummy
+26,generic_breakout_quality_score,0.0,"突破质量分 [0, 1]",dummy
+27,generic_compression_score,0.0,"压缩体制分 [0, 1]",dummy
+28,generic_context_score,0.0,"大环境配合分 [0, 1]",dummy
+29,generic_ema_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,dummy
+30,generic_macd_dea,0.0,MACD 信号线,dummy
+31,generic_macd_dif,0.0,MACD 快慢线差,dummy
+32,generic_mfi_14,0.0,资金流量指数,dummy
+33,generic_regime_conf,0.0,首位 - 次位得分差,dummy
+34,generic_rsi_14,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,dummy
+35,generic_setup_quality_score,0.0,"形态质量分 [0, 1]",dummy
+36,generic_sma_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,dummy
+37,generic_stoch_d,0.0,KDJ-D 值,dummy
+38,generic_stoch_k,0.0,KDJ-K 值,dummy
+39,generic_trend_score,0.0,"综合趋势得分 [-1, 1]",dummy

@@ -1,0 +1,2 @@
+﻿total_pnl,total_return,annualized,mdd,sharpe,calmar,winrate,pf,trade_count,symbol,exchange,interval,signal_type
+-96932.709,-0.096932709,-0.005431611414760673,0.09693270900000003,-1.9584457725724227,-0.05603486656666813,0.24363636363636362,0.23847694145439532,275,RB0,SHFE,minute60,tight_range_breakout

@@ -1,0 +1,42 @@
+﻿rank,feature,importance,feature_meaning,model_kind
+1,generic_mfi_14,0.018563420337210184,资金流量指数,hist_gradient_boosting
+2,generic_regime_conf,0.01344173160622201,首位 - 次位得分差,hist_gradient_boosting
+3,feature_turnover,0.011782045131370081,信号时点成交额,hist_gradient_boosting
+4,feature_tr_range_atr,0.009037511507591653,tight range / ATR 比值,hist_gradient_boosting
+5,feature_don_upper_entry,0.008371908077572968,Donchian 上轨入场价,hist_gradient_boosting
+6,generic_bb_width,0.008013173761394063,布林带宽度,hist_gradient_boosting
+7,generic_context_score,0.006167636978160325,"大环境配合分 [0, 1]",hist_gradient_boosting
+8,generic_macd_dif,0.005839157363345911,MACD 快慢线差,hist_gradient_boosting
+9,generic_trend_score,0.005065501428454004,"综合趋势得分 [-1, 1]",hist_gradient_boosting
+10,feature_don_atr20,0.0050568572280641115,Donchian 宽度/ATR20,hist_gradient_boosting
+11,generic_stoch_d,0.004105995185180289,KDJ-D 值,hist_gradient_boosting
+12,generic_macd_dea,0.004080062584010761,MACD 信号线,hist_gradient_boosting
+13,feature_atr14,0.0038337028728998948,14周期 ATR 波动率,hist_gradient_boosting
+14,feature_high,0.0037861597707556927,信号时点最高价,hist_gradient_boosting
+15,feature_trend_score,0.0037515829691962357,趋势强弱分数,hist_gradient_boosting
+16,generic_rsi_14,0.003211320444830449,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+17,feature_atr_lower,0.003081657438982662,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+18,generic_setup_quality_score,0.002800720926312487,"形态质量分 [0, 1]",hist_gradient_boosting
+19,feature_volume,0.0020832522939545997,信号时点成交量,hist_gradient_boosting
+20,feature_close,0.001702907476801056,信号时点收盘价,hist_gradient_boosting
+21,feature_don_lower_entry,0.0015084129680293195,Donchian 下轨入场价,hist_gradient_boosting
+22,generic_breakout_quality_score,0.001486802467054682,"突破质量分 [0, 1]",hist_gradient_boosting
+23,generic_compression_score,0.0013701057617916772,"压缩体制分 [0, 1]",hist_gradient_boosting
+24,generic_stoch_k,0.0011194239504859205,KDJ-K 值,hist_gradient_boosting
+25,generic_breakout_mode_score,0.0009422178424939679,"突破模式整体分 [0, 1]",hist_gradient_boosting
+26,feature_open_interest,0.0007390791333324135,信号时点持仓量,hist_gradient_boosting
+27,feature_trend_dir,0.0005921277267048423,趋势方向编码,hist_gradient_boosting
+28,feature_bp_confirmed,0.0005791614261200969,突破回踩确认标记,hist_gradient_boosting
+29,feature_don_lower_exit,0.0004235658191027077,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+30,feature_atr_ma,0.00032415751461937575,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+31,feature_don_upper_exit,0.0003111912140346673,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+32,feature_open,0.00028093651267010095,信号时点开盘价,hist_gradient_boosting
+33,feature_low,0.00017720610799187853,信号时点最低价,hist_gradient_boosting
+34,feature_atr_upper,7.347570331365609e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+35,generic_ema_20,1.72884007796729e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+36,feature_atr_value,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+37,feature_bp_bars_since_breakout,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+38,feature_bp_breakout_level,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+39,feature_breakout_score,0.0,突破质量分数,hist_gradient_boosting
+40,generic_atr_14,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+41,generic_sma_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting

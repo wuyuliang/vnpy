@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 
 FEATURE_ROOT: Path = CTA_ROOT / "data" / "feature"
 
-# 通用特征候选池：若调用方不指定 generic_columns，则从这批里选择存在列。
+# 18 列窄白名单：仅在显式传 generic_columns=DEFAULT_GENERIC_COLUMNS 时使用，
+# 用于复现历史行为或减少特征维度。新代码默认走 ``_auto_detect_generic_columns``。
 DEFAULT_GENERIC_COLUMNS: tuple[str, ...] = (
     "sma_20",
     "ema_20",
@@ -40,6 +41,59 @@ DEFAULT_GENERIC_COLUMNS: tuple[str, ...] = (
     "regime_label",
     "regime_conf",
 )
+
+# OHLCV / 元数据列：merge 时绝不能当作特征搬运到 generic_* 前缀下。
+_GENERIC_NON_FEATURE_COLUMNS: frozenset[str] = frozenset(
+    {
+        "datetime",
+        "signal_datetime",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "turnover",
+        "open_interest",
+        "amount",
+        "ts_code",
+        "symbol",
+        "exchange",
+        "interval",
+        "trade_date",
+        "_merge_key",
+    }
+)
+
+
+def _auto_detect_generic_columns(generic_df: pd.DataFrame) -> tuple[str, ...]:
+    """Return all numeric / boolean feature columns from generic_df.
+
+    G1 fix：旧实现只用 18 列窄白名单，磁盘上每个 parquet 实际有 ~400 列。这里
+    自动取所有数值 / 布尔列（排除 OHLCV / 元数据 / object 字符串列），让候选
+    样本能拼到全部预先算好的通用特征 —— 这才是 ``cta/data/feature`` 的设计本意。
+
+    保留稳健性：
+    - 排除 OHLCV / 元数据 ``_GENERIC_NON_FEATURE_COLUMNS``
+    - 排除 object / string dtype 列（避免 imputer 强转 NaN）
+    - 排除全 NaN 列（空特征对模型没价值，反而拖慢训练）
+    """
+    cols: list[str] = []
+    for c in generic_df.columns:
+        name = str(c)
+        if name in _GENERIC_NON_FEATURE_COLUMNS:
+            continue
+        s = generic_df[c]
+        # 只保留 numeric / boolean dtype
+        if not (pd.api.types.is_numeric_dtype(s) or pd.api.types.is_bool_dtype(s)):
+            continue
+        # 全 NaN 列没有信息量
+        try:
+            if s.isna().all():
+                continue
+        except Exception:
+            continue
+        cols.append(name)
+    return tuple(cols)
 
 
 def _iter_feature_files(
@@ -128,7 +182,18 @@ def merge_candidate_and_generic_features(
     generic_df: pd.DataFrame,
     generic_columns: Iterable[str] | None = None,
 ) -> pd.DataFrame:
-    """Merge candidate opportunities with selected generic feature columns."""
+    """Merge candidate opportunities with selected generic feature columns.
+
+    L1 fix（next-bar lookahead leak）:
+        candidate ``datetime`` 是 entry_bar 时间（i+1），但模型决策时刻是 signal
+        bar (i)。merge_asof 必须按 ``signal_datetime`` 拼 generic 特征，否则会
+        命中 i+1 时刻的 sma_20 / rsi_14 / setup_quality_score 等 → next-bar
+        穿越。candidate ``signal_datetime`` 由 ``generate_candidate_opportunities``
+        和 ``build_training_samples_from_trade_log`` 显式写出。
+
+        若输入没有 ``signal_datetime``（旧数据 / 第三方 frame），fallback 到
+        ``datetime`` 并打 warning，保持向后兼容。
+    """
     if "datetime" not in candidate_df.columns:
         raise KeyError("candidate_df missing datetime")
     if "datetime" not in generic_df.columns:
@@ -137,12 +202,33 @@ def merge_candidate_and_generic_features(
     out = candidate_df.copy()
     out["datetime"] = pd.to_datetime(out["datetime"], errors="coerce")
     out = out.dropna(subset=["datetime"]).copy()
-    out = out.sort_values("datetime").reset_index(drop=True)
 
-    cols_pool = tuple(generic_columns) if generic_columns is not None else DEFAULT_GENERIC_COLUMNS
+    # L1：优先用 signal_datetime 做 merge key，避免 next-bar leak。
+    if "signal_datetime" in out.columns:
+        out["signal_datetime"] = pd.to_datetime(out["signal_datetime"], errors="coerce")
+        # signal_datetime 缺失时回退到 datetime（保守做法，不会比旧版更糟）。
+        out["_merge_key"] = out["signal_datetime"].fillna(out["datetime"])
+        merge_key_col = "_merge_key"
+    else:
+        logger.warning(
+            "candidate_df missing signal_datetime; fallback to datetime — this can "
+            "introduce next-bar lookahead leak when datetime represents entry bar"
+        )
+        merge_key_col = "datetime"
+
+    out = out.sort_values(merge_key_col).reset_index(drop=True)
+
+    # G1 fix：generic_columns=None 时自动取磁盘 parquet 上所有数值列（排除 OHLCV /
+    # 元数据 / object）。旧 18 列窄白名单仅在调用方显式传 generic_columns 时使用。
+    if generic_columns is None:
+        cols_pool: tuple[str, ...] = _auto_detect_generic_columns(generic_df)
+    else:
+        cols_pool = tuple(generic_columns)
     cols = [c for c in cols_pool if c in generic_df.columns]
     if not cols:
         logger.warning("no generic columns matched, returning candidate table only")
+        if "_merge_key" in out.columns:
+            out = out.drop(columns=["_merge_key"])
         return out.sort_values("datetime").reset_index(drop=True)
 
     gf = generic_df[["datetime", *cols]].copy()
@@ -166,10 +252,18 @@ def merge_candidate_and_generic_features(
     merged = pd.merge_asof(
         out,
         gf,
-        on="datetime",
+        left_on=merge_key_col,
+        right_on="datetime",
         direction="backward",
         tolerance=tolerance,
+        suffixes=("", "_gen"),
     )
+    # left_on != right_on 时 merge_asof 会同时保留 left 的 datetime 和 right 的
+    # datetime（带 _gen 后缀）。删 right 副本 + 临时 merge key，保留 left 原列。
+    if "datetime_gen" in merged.columns:
+        merged = merged.drop(columns=["datetime_gen"])
+    if "_merge_key" in merged.columns:
+        merged = merged.drop(columns=["_merge_key"])
     merged = merged.sort_values("datetime").reset_index(drop=True)
     return merged
 

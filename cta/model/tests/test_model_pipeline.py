@@ -457,29 +457,245 @@ class TestModelPipeline(unittest.TestCase):
             v2 = _feature_meaning("feature_xyz", features_doc_path=doc)
             self.assertEqual(v2, "第二版含义")
 
-    # ---------------- D4: FEATURES.md 改动后 _feature_meaning 必须随时刷新 -----
-    def test_feature_meaning_refreshes_when_features_doc_mtime_changes(self) -> None:
-        """D4: 旧实现 ``@lru_cache(maxsize=8)`` 直接以 path 字符串为键，
-        长跑进程里 FEATURES.md 改动后取到的依旧是老映射。修复后缓存键带上
-        mtime —— 文件改动后映射立刻失效。
+    # ---------------- G1: pipeline 默认 auto 模式拼上磁盘所有 generic 特征 ----
+    def test_pipeline_includes_extra_generic_features_under_auto_mode(self) -> None:
+        """G1: 给一个临时 feature_root，里面 generic parquet 含 30 个数值列。
+        pipeline 默认 generic_mode='auto' 后，feature_table 里出现的 generic_*
+        列数应等于 30（旧实现仅拿 18 列白名单的子集，会漏 12+ 个）。
         """
-        import os
-        import time as _time
+        with tempfile.TemporaryDirectory(prefix="cta_generic_auto_") as td:
+            feat_root = Path(td) / "feature"
+            (feat_root / "minute60" / "GAUTO0").mkdir(parents=True, exist_ok=True)
 
-        from cta.model.model_pipeline import _feature_meaning
+            # 构造 generic parquet：5 OHLCV + 30 数值特征 + 2 字符串元数据
+            for date_str in ("2018-01-02", "2018-06-01", "2019-01-02", "2019-06-01", "2019-12-30"):
+                rng = np.random.default_rng(int(date_str.replace("-", "")) % 10_000)
+                row = {"datetime": pd.to_datetime([f"{date_str} 09:00:00"])}
+                for col in ("open", "high", "low", "close", "volume"):
+                    row[col] = [3500.0 + rng.normal()]
+                for i in range(30):
+                    row[f"feat_extra_{i}"] = [float(rng.normal())]
+                row["regime_label_text"] = ["trend_up"]
+                pd.DataFrame(row).to_parquet(
+                    feat_root / "minute60" / "GAUTO0" / f"{date_str}.parquet",
+                    index=False,
+                )
 
-        with tempfile.TemporaryDirectory(prefix="cta_features_doc_") as td:
-            doc = Path(td) / "FEATURES.md"
-            doc.write_text("| `feature_xyz` | 第一版含义 |\n", encoding="utf-8")
-            v1 = _feature_meaning("feature_xyz", features_doc_path=doc)
-            self.assertEqual(v1, "第一版含义")
+            with tempfile.TemporaryDirectory(prefix="cta_generic_auto_out_") as td2:
+                out = run_model_pipeline(
+                    symbol="GAUTO0",
+                    exchange="SHFE",
+                    interval="60min",
+                    start_date="2018-01-01",
+                    end_date="2019-12-31",
+                    output_root=Path(td2),
+                    train_end="2018-12-31",
+                    valid_end="2019-06-30",
+                    feature_root=feat_root,
+                    synthetic_periods=240,
+                    by_signal_type=False,
+                    max_walk_forward_windows=1,
+                    generic_mode="auto",
+                )
+                feat_table = pd.read_csv(out.feature_table_path)
+                generic_cols = [c for c in feat_table.columns if c.startswith("generic_")]
+                # 30 个数值特征都应该被拼进来
+                self.assertGreaterEqual(len(generic_cols), 30)
+                # OHLCV / 字符串列必须排除
+                for blocked in ("generic_open", "generic_high", "generic_low",
+                                "generic_close", "generic_volume",
+                                "generic_regime_label_text"):
+                    self.assertNotIn(blocked, feat_table.columns)
 
-            # 制造一个明显比上次大的 mtime（避免 1s 粒度文件系统看不到差异）。
-            doc.write_text("| `feature_xyz` | 第二版含义 |\n", encoding="utf-8")
-            future_ts = _time.time() + 5
-            os.utime(doc, (future_ts, future_ts))
-            v2 = _feature_meaning("feature_xyz", features_doc_path=doc)
-            self.assertEqual(v2, "第二版含义")
+    def test_pipeline_whitelist_mode_caps_generic_at_18_columns(self) -> None:
+        """G1: 显式传 generic_mode='whitelist' 时仍走 18 列窄白名单（向后兼容）。"""
+        with tempfile.TemporaryDirectory(prefix="cta_generic_whitelist_") as td:
+            feat_root = Path(td) / "feature"
+            (feat_root / "minute60" / "GWHITE0").mkdir(parents=True, exist_ok=True)
+            for date_str in ("2018-01-02", "2018-06-01", "2019-01-02", "2019-06-01", "2019-12-30"):
+                row = {"datetime": pd.to_datetime([f"{date_str} 09:00:00"])}
+                for col in ("open", "high", "low", "close", "volume"):
+                    row[col] = [3500.0]
+                # 写入 18 个白名单列 + 30 个额外列
+                for w in (
+                    "sma_20", "ema_20", "macd_dif", "macd_dea", "rsi_14",
+                    "atr_14", "bb_width", "stoch_k", "stoch_d", "mfi_14",
+                    "trend_score", "compression_score", "breakout_mode_score",
+                    "setup_quality_score", "breakout_quality_score",
+                    "context_score", "regime_label", "regime_conf",
+                ):
+                    row[w] = [1.0]
+                for i in range(30):
+                    row[f"feat_extra_{i}"] = [1.0]
+                pd.DataFrame(row).to_parquet(
+                    feat_root / "minute60" / "GWHITE0" / f"{date_str}.parquet",
+                    index=False,
+                )
+
+            with tempfile.TemporaryDirectory(prefix="cta_generic_whitelist_out_") as td2:
+                out = run_model_pipeline(
+                    symbol="GWHITE0",
+                    exchange="SHFE",
+                    interval="60min",
+                    start_date="2018-01-01",
+                    end_date="2019-12-31",
+                    output_root=Path(td2),
+                    train_end="2018-12-31",
+                    valid_end="2019-06-30",
+                    feature_root=feat_root,
+                    synthetic_periods=240,
+                    by_signal_type=False,
+                    max_walk_forward_windows=1,
+                    generic_mode="whitelist",
+                )
+                feat_table = pd.read_csv(out.feature_table_path)
+                generic_cols = [c for c in feat_table.columns if c.startswith("generic_")]
+                # whitelist 模式下应严格不超过 18 列
+                self.assertLessEqual(len(generic_cols), 18)
+                # extra_* 列绝不应在
+                for c in feat_table.columns:
+                    self.assertFalse(c.startswith("generic_feat_extra_"))
+
+    # ---------------- P1-B: _select_feature_columns fallback 不再写 entry_price
+    def test_select_feature_fallback_does_not_emit_entry_price(self) -> None:
+        """P1-B: 旧 fallback 在没有 feature_*/generic_* 列时会写
+        ``feature_entry_price = entry_price``。entry_price 是 entry bar 内
+        实际成交价，决策时刻 (signal bar 收盘) 不可见 → 是潜在 lookahead leak。
+        修复后 fallback 改用 ``feature_trigger = trigger``（决策时刻可见的突破触发价），
+        不再泄漏 entry_price。
+        """
+        df = pd.DataFrame(
+            {
+                "datetime": pd.date_range("2020-01-01", periods=3, freq="D"),
+                "side": ["long", "short", "long"],
+                "signal_type": ["donchian_breakout"] * 3,
+                "trigger": [101.0, 102.0, 103.0],
+                "entry_price": [101.5, 101.5, 103.5],
+            }
+        )
+        out_df, feature_cols = _select_feature_columns(df)
+        self.assertNotIn("feature_entry_price", out_df.columns)
+        self.assertNotIn("feature_entry_price", feature_cols)
+
+    def test_select_feature_fallback_uses_trigger_when_present(self) -> None:
+        """P1-B: candidate 表有 trigger 列时，fallback 应写 feature_trigger
+        而不是 feature_entry_price，让模型只看决策时刻可见的信息。
+        """
+        df = pd.DataFrame(
+            {
+                "datetime": pd.date_range("2020-01-01", periods=3, freq="D"),
+                "side": ["long", "short", "long"],
+                "signal_type": ["donchian_breakout"] * 3,
+                "trigger": [101.0, 102.0, 103.0],
+                "entry_price": [101.5, 101.5, 103.5],  # 不应被使用
+            }
+        )
+        out_df, feature_cols = _select_feature_columns(df)
+        self.assertIn("feature_trigger", feature_cols)
+        # 用 trigger 不是 entry_price 的取值
+        for i, expected in enumerate([101.0, 102.0, 103.0]):
+            self.assertAlmostEqual(float(out_df["feature_trigger"].iloc[i]), expected)
+
+    # ---------------- F1: 每个模型 joblib 旁边生成全特征清单 -------------------
+    def test_pipeline_writes_feature_manifest_per_saved_model(self) -> None:
+        """F1: 模型部署时下游需要严格按"训练用过的特征清单"做 schema 校验。
+        在每个 ``models/<signal_type>/window_xx/<model>.joblib`` 旁边生成一份
+        ``<model>_features.csv``，列：rank / feature / importance / feature_meaning。
+        清单按 importance 降序、所有特征都列出（不只 top10）。
+        """
+        with tempfile.TemporaryDirectory(prefix="cta_feat_manifest_") as td:
+            out = run_model_pipeline(
+                symbol="MANIFEST0",
+                exchange="SHFE",
+                interval="60min",
+                start_date="2018-01-01",
+                end_date="2019-12-31",
+                output_root=Path(td),
+                train_end="2018-12-31",
+                valid_end="2019-06-30",
+                synthetic_periods=240,
+                by_signal_type=False,
+                max_walk_forward_windows=1,
+            )
+            models_dir = out.report_path.parent / "models"
+            self.assertTrue(models_dir.exists())
+
+            joblib_files = list(models_dir.rglob("*.joblib"))
+            self.assertGreater(len(joblib_files), 0)
+
+            for joblib_path in joblib_files:
+                manifest_path = joblib_path.with_name(joblib_path.stem + "_features.csv")
+                self.assertTrue(
+                    manifest_path.exists(),
+                    f"missing feature manifest beside {joblib_path}: {manifest_path}",
+                )
+                df = pd.read_csv(manifest_path)
+                for col in ("rank", "feature", "importance", "feature_meaning"):
+                    self.assertIn(col, df.columns)
+                self.assertGreater(len(df), 0)
+                self.assertEqual(int(df["rank"].iloc[0]), 1)
+                self.assertEqual(int(df["rank"].iloc[-1]), len(df))
+                imp = df["importance"].astype(float).to_numpy()
+                self.assertTrue(
+                    all(imp[i] >= imp[i + 1] for i in range(len(imp) - 1)),
+                    f"importance not non-increasing in {manifest_path}: {imp}",
+                )
+                self.assertEqual(df["feature"].nunique(), len(df))
+
+    def test_feature_manifest_lists_all_training_features_not_just_top10(self) -> None:
+        """F1: 清单必须列**所有**用于训练的特征（部署 schema 校验需要全集）。
+        断言：清单行数 == top10_feature_importance 文件里同 (signal,window,model)
+        条件下出现过的所有特征 ⊆ 清单 feature 列；并且清单不止 top10 行。
+        """
+        with tempfile.TemporaryDirectory(prefix="cta_feat_manifest_full_") as td:
+            out = run_model_pipeline(
+                symbol="MANIFEST1",
+                exchange="SHFE",
+                interval="60min",
+                start_date="2018-01-01",
+                end_date="2019-12-31",
+                output_root=Path(td),
+                train_end="2018-12-31",
+                valid_end="2019-06-30",
+                synthetic_periods=240,
+                by_signal_type=False,
+                max_walk_forward_windows=1,
+            )
+            models_dir = out.report_path.parent / "models"
+            joblib_files = list(models_dir.rglob("trade_filter.joblib"))
+            self.assertGreater(len(joblib_files), 0)
+            df = pd.read_csv(joblib_files[0].with_name("trade_filter_features.csv"))
+
+            # 1) top10 文件里 trade_filter 的所有特征必须 ⊆ 全量清单
+            top10 = pd.read_csv(out.top_feature_importance_path)
+            top10_trade = set(top10.loc[top10["model"] == "trade_filter", "feature"].astype(str))
+            self.assertTrue(top10_trade.issubset(set(df["feature"].astype(str))))
+            # 2) 全量清单行数 >= top10 行数（在合成数据下 feature 数可能少于 10）
+            self.assertGreaterEqual(len(df), len(top10_trade))
+
+    def test_feature_manifest_no_orphan_csv_without_joblib(self) -> None:
+        """F1: 不能存在没有对应 joblib 的孤儿 manifest（mfe_mae 被 skip 时的边缘场景）。"""
+        with tempfile.TemporaryDirectory(prefix="cta_feat_manifest_skip_") as td:
+            out = run_model_pipeline(
+                symbol="MANIFEST2",
+                exchange="SHFE",
+                interval="60min",
+                start_date="2018-01-01",
+                end_date="2019-12-31",
+                output_root=Path(td),
+                train_end="2018-12-31",
+                valid_end="2019-06-30",
+                synthetic_periods=240,
+                by_signal_type=False,
+                max_walk_forward_windows=1,
+            )
+            models_dir = out.report_path.parent / "models"
+            for csv_path in models_dir.rglob("*_features.csv"):
+                stem = csv_path.stem.replace("_features", "")
+                self.assertTrue(
+                    csv_path.with_name(stem + ".joblib").exists(),
+                    f"orphan feature manifest without joblib: {csv_path}",
+                )
 
     # ---------------- D3: warmup 行的 future_mfe/mae 必须保留 NaN -------------
     def test_ensure_training_columns_keeps_nan_for_atr_warmup_rows(self) -> None:

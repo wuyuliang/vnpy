@@ -1,0 +1,121 @@
+﻿signal_type,window_id,model,model_kind,rank,feature,importance,feature_meaning
+atr_breakout,0,trade_filter,hist_gradient_boosting,1,feature_volume,0.03093693290575979,信号时点成交量
+atr_breakout,0,trade_filter,hist_gradient_boosting,2,feature_high,0.02929727960490876,信号时点最高价
+atr_breakout,0,trade_filter,hist_gradient_boosting,3,generic_stoch_d,0.024785384609010475,KDJ-D 值
+atr_breakout,0,trade_filter,hist_gradient_boosting,4,generic_stoch_k,0.023835566493482802,KDJ-K 值
+atr_breakout,0,trade_filter,hist_gradient_boosting,5,feature_atr14,0.023288670130343598,14周期 ATR 波动率
+atr_breakout,0,trade_filter,hist_gradient_boosting,6,generic_macd_dea,0.021801277748775678,MACD 信号线
+atr_breakout,0,trade_filter,hist_gradient_boosting,7,feature_tr_range_atr,0.021559939012769164,tight range / ATR 比值
+atr_breakout,0,trade_filter,hist_gradient_boosting,8,feature_atr_ma,0.01836453128495789,未在 FEATURES.md 登记（自定义/衍生特征）
+atr_breakout,0,trade_filter,hist_gradient_boosting,9,generic_rsi_14,0.017859066464480655,未在 FEATURES.md 登记（自定义/衍生特征）
+atr_breakout,0,trade_filter,hist_gradient_boosting,10,feature_don_atr20,0.015121477283085105,Donchian 宽度/ATR20
+atr_breakout,0,regime_classifier,random_forest,1,feature_trend_score,0.22690161266371883,趋势强弱分数
+atr_breakout,0,regime_classifier,random_forest,2,generic_rsi_14,0.1925313912272828,未在 FEATURES.md 登记（自定义/衍生特征）
+atr_breakout,0,regime_classifier,random_forest,3,generic_macd_dif,0.10741597564641393,MACD 快慢线差
+atr_breakout,0,regime_classifier,random_forest,4,generic_mfi_14,0.09539895593512757,资金流量指数
+atr_breakout,0,regime_classifier,random_forest,5,generic_stoch_k,0.08268818808838091,KDJ-K 值
+atr_breakout,0,regime_classifier,random_forest,6,generic_trend_score,0.0777512149975984,"综合趋势得分 [-1, 1]"
+atr_breakout,0,regime_classifier,random_forest,7,generic_setup_quality_score,0.07119215648503119,"形态质量分 [0, 1]"
+atr_breakout,0,regime_classifier,random_forest,8,generic_stoch_d,0.04230032273817394,KDJ-D 值
+atr_breakout,0,regime_classifier,random_forest,9,generic_macd_dea,0.03935330212715739,MACD 信号线
+atr_breakout,0,regime_classifier,random_forest,10,feature_trend_dir,0.023662368751843132,趋势方向编码
+atr_breakout,0,mfe_mae,random_forest,1,feature_breakout_score,0.1732001689259567,突破质量分数
+atr_breakout,0,mfe_mae,random_forest,2,generic_bb_width,0.0568134858852541,布林带宽度
+atr_breakout,0,mfe_mae,random_forest,3,feature_tr_range_atr,0.053604592235236226,tight range / ATR 比值
+atr_breakout,0,mfe_mae,random_forest,4,generic_mfi_14,0.053215363698464774,资金流量指数
+atr_breakout,0,mfe_mae,random_forest,5,generic_context_score,0.052413029414480866,"大环境配合分 [0, 1]"
+atr_breakout,0,mfe_mae,random_forest,6,generic_macd_dea,0.050858791406773615,MACD 信号线
+atr_breakout,0,mfe_mae,random_forest,7,feature_trend_score,0.04229853975022865,趋势强弱分数
+atr_breakout,0,mfe_mae,random_forest,8,generic_regime_conf,0.039724002992098564,首位 - 次位得分差
+atr_breakout,0,mfe_mae,random_forest,9,feature_volume,0.037922873764478233,信号时点成交量
+atr_breakout,0,mfe_mae,random_forest,10,generic_rsi_14,0.03650857189920929,未在 FEATURES.md 登记（自定义/衍生特征）
+breakout_pullback_continuation,0,trade_filter,hist_gradient_boosting,1,feature_tr_range_atr,0.036859151144865376,tight range / ATR 比值
+breakout_pullback_continuation,0,trade_filter,hist_gradient_boosting,2,feature_turnover,0.032341918056203754,信号时点成交额
+breakout_pullback_continuation,0,trade_filter,hist_gradient_boosting,3,generic_setup_quality_score,0.023236737522451773,"形态质量分 [0, 1]"
+breakout_pullback_continuation,0,trade_filter,hist_gradient_boosting,4,generic_stoch_k,0.020210163067305904,KDJ-K 值
+breakout_pullback_continuation,0,trade_filter,hist_gradient_boosting,5,feature_bp_bars_since_breakout,0.012587155444298262,未在 FEATURES.md 登记（自定义/衍生特征）
+breakout_pullback_continuation,0,trade_filter,hist_gradient_boosting,6,generic_mfi_14,0.0100357814643528,资金流量指数
+breakout_pullback_continuation,0,trade_filter,hist_gradient_boosting,7,generic_context_score,0.009744438315866836,"大环境配合分 [0, 1]"
+breakout_pullback_continuation,0,trade_filter,hist_gradient_boosting,8,feature_trend_score,0.009529466672323758,趋势强弱分数
+breakout_pullback_continuation,0,trade_filter,hist_gradient_boosting,9,generic_regime_conf,0.008519665662522824,首位 - 次位得分差
+breakout_pullback_continuation,0,trade_filter,hist_gradient_boosting,10,generic_stoch_d,0.00751552180123601,KDJ-D 值
+breakout_pullback_continuation,0,regime_classifier,random_forest,1,feature_trend_score,0.18816860659275383,趋势强弱分数
+breakout_pullback_continuation,0,regime_classifier,random_forest,2,generic_rsi_14,0.17153043327133313,未在 FEATURES.md 登记（自定义/衍生特征）
+breakout_pullback_continuation,0,regime_classifier,random_forest,3,generic_macd_dif,0.1356939603426828,MACD 快慢线差
+breakout_pullback_continuation,0,regime_classifier,random_forest,4,generic_macd_dea,0.11538795963474453,MACD 信号线
+breakout_pullback_continuation,0,regime_classifier,random_forest,5,generic_trend_score,0.10438135122079384,"综合趋势得分 [-1, 1]"
+breakout_pullback_continuation,0,regime_classifier,random_forest,6,generic_stoch_k,0.09860515724278476,KDJ-K 值
+breakout_pullback_continuation,0,regime_classifier,random_forest,7,generic_mfi_14,0.07036035350243267,资金流量指数
+breakout_pullback_continuation,0,regime_classifier,random_forest,8,generic_stoch_d,0.049621375383407454,KDJ-D 值
+breakout_pullback_continuation,0,regime_classifier,random_forest,9,feature_trend_dir,0.03464070549298632,趋势方向编码
+breakout_pullback_continuation,0,regime_classifier,random_forest,10,generic_setup_quality_score,0.011728532750510914,"形态质量分 [0, 1]"
+breakout_pullback_continuation,0,mfe_mae,random_forest,1,generic_setup_quality_score,0.15146770809760035,"形态质量分 [0, 1]"
+breakout_pullback_continuation,0,mfe_mae,random_forest,2,generic_context_score,0.1016695248589605,"大环境配合分 [0, 1]"
+breakout_pullback_continuation,0,mfe_mae,random_forest,3,generic_breakout_quality_score,0.06130314844025103,"突破质量分 [0, 1]"
+breakout_pullback_continuation,0,mfe_mae,random_forest,4,generic_bb_width,0.05896911551386932,布林带宽度
+breakout_pullback_continuation,0,mfe_mae,random_forest,5,generic_mfi_14,0.05759119490091021,资金流量指数
+breakout_pullback_continuation,0,mfe_mae,random_forest,6,feature_tr_range_atr,0.047782815978853185,tight range / ATR 比值
+breakout_pullback_continuation,0,mfe_mae,random_forest,7,feature_volume,0.041201192778294954,信号时点成交量
+breakout_pullback_continuation,0,mfe_mae,random_forest,8,generic_rsi_14,0.037761574404875584,未在 FEATURES.md 登记（自定义/衍生特征）
+breakout_pullback_continuation,0,mfe_mae,random_forest,9,feature_trend_score,0.03328261643865146,趋势强弱分数
+breakout_pullback_continuation,0,mfe_mae,random_forest,10,feature_turnover,0.03225499597237323,信号时点成交额
+donchian_breakout,0,trade_filter,hist_gradient_boosting,1,generic_macd_dea,0.0851503559868068,MACD 信号线
+donchian_breakout,0,trade_filter,hist_gradient_boosting,2,generic_breakout_quality_score,0.04338686457495385,"突破质量分 [0, 1]"
+donchian_breakout,0,trade_filter,hist_gradient_boosting,3,feature_turnover,0.037592513725986786,信号时点成交额
+donchian_breakout,0,trade_filter,hist_gradient_boosting,4,generic_mfi_14,0.03271386811713021,资金流量指数
+donchian_breakout,0,trade_filter,hist_gradient_boosting,5,feature_volume,0.023908091841654693,信号时点成交量
+donchian_breakout,0,trade_filter,hist_gradient_boosting,6,feature_atr14,0.02324689127023416,14周期 ATR 波动率
+donchian_breakout,0,trade_filter,hist_gradient_boosting,7,generic_stoch_d,0.020674134694784112,KDJ-D 值
+donchian_breakout,0,trade_filter,hist_gradient_boosting,8,feature_trend_score,0.020168109499248226,趋势强弱分数
+donchian_breakout,0,trade_filter,hist_gradient_boosting,9,generic_macd_dif,0.018376345474954,MACD 快慢线差
+donchian_breakout,0,trade_filter,hist_gradient_boosting,10,feature_don_upper_entry,0.015174361276411327,Donchian 上轨入场价
+donchian_breakout,0,regime_classifier,random_forest,1,feature_trend_score,0.20382859020785538,趋势强弱分数
+donchian_breakout,0,regime_classifier,random_forest,2,generic_rsi_14,0.18685859147948528,未在 FEATURES.md 登记（自定义/衍生特征）
+donchian_breakout,0,regime_classifier,random_forest,3,generic_macd_dif,0.12918088614265097,MACD 快慢线差
+donchian_breakout,0,regime_classifier,random_forest,4,generic_macd_dea,0.1014843480295349,MACD 信号线
+donchian_breakout,0,regime_classifier,random_forest,5,generic_trend_score,0.0966420811177462,"综合趋势得分 [-1, 1]"
+donchian_breakout,0,regime_classifier,random_forest,6,generic_stoch_k,0.07827143008383326,KDJ-K 值
+donchian_breakout,0,regime_classifier,random_forest,7,generic_setup_quality_score,0.06364067972418692,"形态质量分 [0, 1]"
+donchian_breakout,0,regime_classifier,random_forest,8,generic_mfi_14,0.04764388951606431,资金流量指数
+donchian_breakout,0,regime_classifier,random_forest,9,generic_stoch_d,0.04398822641636777,KDJ-D 值
+donchian_breakout,0,regime_classifier,random_forest,10,feature_trend_dir,0.02680359310443179,趋势方向编码
+donchian_breakout,0,mfe_mae,random_forest,1,generic_context_score,0.06483306885442987,"大环境配合分 [0, 1]"
+donchian_breakout,0,mfe_mae,random_forest,2,generic_bb_width,0.05494990852276389,布林带宽度
+donchian_breakout,0,mfe_mae,random_forest,3,generic_macd_dea,0.05255924936634941,MACD 信号线
+donchian_breakout,0,mfe_mae,random_forest,4,generic_rsi_14,0.04842415368865606,未在 FEATURES.md 登记（自定义/衍生特征）
+donchian_breakout,0,mfe_mae,random_forest,5,generic_regime_conf,0.04795429937409851,首位 - 次位得分差
+donchian_breakout,0,mfe_mae,random_forest,6,generic_mfi_14,0.04683597742593072,资金流量指数
+donchian_breakout,0,mfe_mae,random_forest,7,feature_don_lower_entry,0.046809763779613434,Donchian 下轨入场价
+donchian_breakout,0,mfe_mae,random_forest,8,feature_volume,0.043119656272661185,信号时点成交量
+donchian_breakout,0,mfe_mae,random_forest,9,feature_tr_range_atr,0.03982301019108332,tight range / ATR 比值
+donchian_breakout,0,mfe_mae,random_forest,10,generic_setup_quality_score,0.039676669819446786,"形态质量分 [0, 1]"
+tight_range_breakout,0,trade_filter,hist_gradient_boosting,1,feature_breakout_score,0.07393340050562718,突破质量分数
+tight_range_breakout,0,trade_filter,hist_gradient_boosting,2,feature_open_interest,0.048010639070182326,信号时点持仓量
+tight_range_breakout,0,trade_filter,hist_gradient_boosting,3,generic_macd_dea,0.038024943099004206,MACD 信号线
+tight_range_breakout,0,trade_filter,hist_gradient_boosting,4,generic_stoch_k,0.02603923595903605,KDJ-K 值
+tight_range_breakout,0,trade_filter,hist_gradient_boosting,5,feature_atr14,0.02596982990730708,14周期 ATR 波动率
+tight_range_breakout,0,trade_filter,hist_gradient_boosting,6,generic_stoch_d,0.02490719932221408,KDJ-D 值
+tight_range_breakout,0,trade_filter,hist_gradient_boosting,7,generic_setup_quality_score,0.02412937288042305,"形态质量分 [0, 1]"
+tight_range_breakout,0,trade_filter,hist_gradient_boosting,8,generic_bb_width,0.023744049627720403,布林带宽度
+tight_range_breakout,0,trade_filter,hist_gradient_boosting,9,generic_macd_dif,0.018715700845557254,MACD 快慢线差
+tight_range_breakout,0,trade_filter,hist_gradient_boosting,10,generic_mfi_14,0.01568417214934596,资金流量指数
+tight_range_breakout,0,regime_classifier,random_forest,1,feature_trend_score,0.5175441595695902,趋势强弱分数
+tight_range_breakout,0,regime_classifier,random_forest,2,generic_rsi_14,0.08816188033594179,未在 FEATURES.md 登记（自定义/衍生特征）
+tight_range_breakout,0,regime_classifier,random_forest,3,generic_macd_dif,0.08508195892548848,MACD 快慢线差
+tight_range_breakout,0,regime_classifier,random_forest,4,generic_trend_score,0.08102384054052367,"综合趋势得分 [-1, 1]"
+tight_range_breakout,0,regime_classifier,random_forest,5,generic_macd_dea,0.05932893509321771,MACD 信号线
+tight_range_breakout,0,regime_classifier,random_forest,6,feature_trend_dir,0.024897797239800564,趋势方向编码
+tight_range_breakout,0,regime_classifier,random_forest,7,generic_setup_quality_score,0.020157098087981558,"形态质量分 [0, 1]"
+tight_range_breakout,0,regime_classifier,random_forest,8,generic_stoch_d,0.013018739007354159,KDJ-D 值
+tight_range_breakout,0,regime_classifier,random_forest,9,generic_mfi_14,0.010080320756567,资金流量指数
+tight_range_breakout,0,regime_classifier,random_forest,10,generic_compression_score,0.009808199131720792,"压缩体制分 [0, 1]"
+tight_range_breakout,0,mfe_mae,random_forest,1,generic_context_score,0.16116862602389603,"大环境配合分 [0, 1]"
+tight_range_breakout,0,mfe_mae,random_forest,2,generic_breakout_quality_score,0.13853183577309347,"突破质量分 [0, 1]"
+tight_range_breakout,0,mfe_mae,random_forest,3,feature_turnover,0.04346440032804013,信号时点成交额
+tight_range_breakout,0,mfe_mae,random_forest,4,feature_breakout_score,0.03757558800478681,突破质量分数
+tight_range_breakout,0,mfe_mae,random_forest,5,generic_mfi_14,0.03648788052466952,资金流量指数
+tight_range_breakout,0,mfe_mae,random_forest,6,generic_bb_width,0.0364251988200313,布林带宽度
+tight_range_breakout,0,mfe_mae,random_forest,7,generic_macd_dea,0.036258592982353434,MACD 信号线
+tight_range_breakout,0,mfe_mae,random_forest,8,generic_regime_conf,0.035743559032746945,首位 - 次位得分差
+tight_range_breakout,0,mfe_mae,random_forest,9,generic_stoch_d,0.033061862448069204,KDJ-D 值
+tight_range_breakout,0,mfe_mae,random_forest,10,feature_tr_range_atr,0.029649176245129423,tight range / ATR 比值

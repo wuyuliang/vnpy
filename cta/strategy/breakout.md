@@ -148,12 +148,34 @@ python3 -m cta.strategy.baseline_skill_suite \
 实际产出按 `run_baseline_suite` 的两条分支区分：
 
 **主路径（候选事件扫描，`generate_candidate_opportunities` 产出）**
-- 基础列：`symbol`, `exchange`, `interval`, `datetime`, `signal_type`, `side`
+- 基础列：`symbol`, `exchange`, `interval`, `signal_type`, `side`
+- 时间列：`signal_datetime`（signal bar 时间 = 决策时刻）、`datetime`（entry bar 时间 = 成交时刻 / 标签 anchor）
 - 决策列：`trigger`（触发价）、`candidate_status`（filled/filtered/not_triggered）、`is_executed`、`is_filtered`、`filtered_reason`
 - 标签列：`future_mfe_atr`、`future_mae_atr`、`future_pnl_atr`、`atr_warmed`、`label_class`、`regime_label`
-- 特征列：`feature_close / feature_volume / feature_atr14 / feature_don_upper_entry / feature_breakout_score / feature_bp_breakout_level / ...`（按 `TRAINING_FEATURE_COLUMNS` 自动派生 `feature_*`）
+- 特征列：`feature_close / feature_volume / feature_atr14 / feature_don_upper_entry / feature_breakout_score / feature_bp_breakout_level / ...`（按 `TRAINING_FEATURE_COLUMNS` 自动派生 `feature_*`，**全部从 signal bar 取**，因果可推理）
 
 **Fallback 路径（candidate 扫描为空时退到 `build_training_samples_from_trade_log`）**
-- 基础列同上 + `entry_i`、`exit_i`、`holding_bars`、`entry_price`、`exit_price`
+- 基础列同上 + `signal_i`、`entry_i`、`exit_i`、`holding_bars`、`entry_price`、`exit_price`
+- 时间列：与主路径一致，`signal_datetime` / `datetime` 双时间戳。
 - 标签列：`label_gross_pnl`、`label_cost`、`label_net_pnl`、`label_win`、`label_mfe_atr`、`label_mae_atr`、`atr_warmed`
+- L2 修复后特征列同样从 `signal_row = frame.iloc[entry_i - 1]` 取，避免 next-bar 穿越。
 - 注：D6 修复后 fallback 路径也写 `atr_warmed`（0/1），下游 `_ensure_training_columns` 不再误把 warmup 行带进训练。
+
+> **⚠️ 时间口径硬性要求**：下游 `merge_candidate_and_generic_features` 拼 generic
+> 特征**必须**用 `signal_datetime` 做 merge_asof key。用 `datetime` 会让 generic 特征
+> 拿到 entry_bar (i+1) 时刻的值，构成 next-bar lookahead leak。详见
+> `cta/model/feature/candidate_vs_executed_samples.md` § 4.4。
+
+### 16.4 模型部署：`<model>_features.csv` 清单
+
+`run_model_pipeline` 在每个 `models/<signal_type>/window_xx/<model>.joblib` 旁边
+都会同步写一份 `<model>_features.csv`：列 `rank / feature / importance /
+feature_meaning / model_kind`，按 importance 降序，行数 = 训练用过的**全部**特征。
+
+部署侧推理流程必须以此为权威 schema：
+```python
+manifest = pd.read_csv("models/<signal>/<window>/trade_filter_features.csv")
+features = manifest["feature"].astype(str).tolist()
+prob = TradeFilterModel.load(...).predict_proba(df_runtime, feature_columns=features)
+```
+列顺序 / 缺列 / 多列三种最常见的部署 bug 都会在 schema 校验阶段提前暴露。

@@ -417,6 +417,66 @@ class TestBaselineSkillSuite(unittest.TestCase):
         self.assertTrue((candidate["atr_warmed"].astype(int) == 0).all())
 
 
+    # ---------------- L2: trade_log 路径必须用 signal bar 取特征 + 写 signal_datetime
+    def test_build_training_samples_from_trade_log_uses_signal_bar_features(self) -> None:
+        """L2: 旧实现 ``sample[feature_*] = entry_row[c]`` 把 entry_bar (i+1) 的
+        特征当成 "决策时刻特征"，模型推理时其实只看 signal_bar (i) → 训练里多看
+        1 根 bar，构成 next-bar 穿越。修复后特征必须取自 signal_row (entry_i-1)，
+        同时写出 ``signal_datetime`` 字段供下游 merge_asof 用。
+        """
+        # 在 atr14 列里塞独特数值，让来源可追踪
+        frame = pd.DataFrame(
+            {
+                "datetime": pd.date_range("2018-01-01", periods=4, freq="D"),
+                "open": [100.0, 101.0, 102.0, 103.0],
+                "high": [102.0, 103.0, 104.0, 105.0],
+                "low": [99.0, 100.0, 101.0, 102.0],
+                "close": [101.0, 102.0, 103.0, 104.0],
+                # 4 根 bar 的 atr14 各不相同，方便断言来源
+                "atr14": [11.0, 22.0, 33.0, 44.0],
+                "volume": [100, 100, 100, 100],
+            }
+        )
+        # signal i=1（atr14=22.0）→ entry i=2（atr14=33.0）。
+        # 旧实现：feature_atr14 == 33.0（entry_bar）；
+        # 修复后：feature_atr14 == 22.0（signal_bar）。
+        trade_log = pd.DataFrame(
+            [
+                {
+                    "side": "long",
+                    "entry_i": 2,
+                    "exit_i": 3,
+                    "entry_price": 102.0,
+                    "exit_price": 103.0,
+                    "gross_pnl": 1.0,
+                    "cost": 0.0,
+                    "net_pnl": 1.0,
+                }
+            ]
+        )
+        out = build_training_samples_from_trade_log(
+            trade_log=trade_log,
+            frame=frame,
+            symbol="RB0",
+            exchange="SHFE",
+            interval="day",
+            signal_type="donchian_breakout",
+        )
+        self.assertEqual(len(out), 1)
+        # 必须取 signal bar (i=1) 的 atr14
+        self.assertAlmostEqual(float(out.iloc[0]["feature_atr14"]), 22.0)
+        # 必须写出 signal_datetime
+        self.assertIn("signal_datetime", out.columns)
+        self.assertEqual(
+            pd.Timestamp(out.iloc[0]["signal_datetime"]),
+            pd.Timestamp("2018-01-02"),
+        )
+        # datetime 仍是 entry_bar 时间（i=2 → 2018-01-03），便于成交时点对账
+        self.assertEqual(
+            pd.Timestamp(out.iloc[0]["datetime"]),
+            pd.Timestamp("2018-01-03"),
+        )
+
     # ---------------- D6: trade_log 路径产物必须写出 atr_warmed ---------------
     def test_build_training_samples_from_trade_log_writes_atr_warmed_flag(self) -> None:
         """D6: 旧实现的 fallback 路径只算 mfe_atr/mae_atr 但没写 atr_warmed 列，

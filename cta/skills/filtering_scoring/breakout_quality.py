@@ -47,6 +47,7 @@ def score_breakout(
     weights: dict[str, float] | None = None,
     interval: str = "day",
     follow_bars: int = 0,
+    _allow_future: bool = False,
 ) -> BreakoutQuality:
     """
     Score breakout bar quality (0-1).
@@ -62,6 +63,12 @@ def score_breakout(
         live 回测中使用（会产生未来函数）。
         默认 0：live-safe；用「本 bar 收盘相对 range 的位置」作为同 bar
         proxy 代替 s_follow，不触达未来 bar。
+    _allow_future : bool, default False
+        P1-A 加固：当 ``follow_bars > 0`` 时必须显式传 ``_allow_future=True``，
+        否则 raise ``ValueError``。这样把 "label / post-hoc 标注用法" 与
+        "feature / live 用法" 在 API 层硬隔离，避免误用导致 lookahead leak。
+        设计成 ``_`` 前缀的"私有"参数：调用方必须**主动**输入它才能开门，
+        默认调用习惯不会触发；同时函数 docstring 明确文档化它的语义。
     """
     need = {"open", "high", "low", "close", "volume"}
     miss = need - set(df.columns)
@@ -71,6 +78,13 @@ def score_breakout(
     i = int(breakout_bar_idx)
     if i < 0 or i >= len(df):
         raise IndexError(f"breakout_bar_idx 越界: {i}")
+    # P1-A 加固：lookahead 守门 —— follow_bars > 0 必须显式 opt-in。
+    if int(follow_bars) > 0 and not bool(_allow_future):
+        raise ValueError(
+            "score_breakout(follow_bars>0) 会读取 i+1..i+follow_bars 的 bar，"
+            "构成 lookahead 未来函数；live / feature 路径必须用 follow_bars=0。"
+            "若确实在做 post-hoc 标注 / label 生成，请显式传 _allow_future=True。"
+        )
     atr_v = max(float(atr), 1e-9)
 
     row = df.iloc[i]

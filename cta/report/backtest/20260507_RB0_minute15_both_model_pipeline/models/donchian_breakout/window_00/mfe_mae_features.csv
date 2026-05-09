@@ -1,0 +1,42 @@
+﻿rank,feature,importance,feature_meaning,model_kind
+1,generic_context_score,0.06483306885442987,"大环境配合分 [0, 1]",random_forest
+2,generic_bb_width,0.05494990852276389,布林带宽度,random_forest
+3,generic_macd_dea,0.05255924936634941,MACD 信号线,random_forest
+4,generic_rsi_14,0.04842415368865606,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+5,generic_regime_conf,0.04795429937409851,首位 - 次位得分差,random_forest
+6,generic_mfi_14,0.04683597742593072,资金流量指数,random_forest
+7,feature_don_lower_entry,0.046809763779613434,Donchian 下轨入场价,random_forest
+8,feature_volume,0.043119656272661185,信号时点成交量,random_forest
+9,feature_tr_range_atr,0.03982301019108332,tight range / ATR 比值,random_forest
+10,generic_setup_quality_score,0.039676669819446786,"形态质量分 [0, 1]",random_forest
+11,feature_open_interest,0.03870009290893012,信号时点持仓量,random_forest
+12,generic_stoch_k,0.036340136058923236,KDJ-K 值,random_forest
+13,feature_trend_score,0.035291744809419046,趋势强弱分数,random_forest
+14,generic_trend_score,0.03471086063055195,"综合趋势得分 [-1, 1]",random_forest
+15,feature_turnover,0.03300054149871442,信号时点成交额,random_forest
+16,generic_stoch_d,0.031187107293808525,KDJ-D 值,random_forest
+17,generic_breakout_quality_score,0.03088532209903378,"突破质量分 [0, 1]",random_forest
+18,feature_don_upper_entry,0.025927409507485566,Donchian 上轨入场价,random_forest
+19,feature_don_atr20,0.02565860690957967,Donchian 宽度/ATR20,random_forest
+20,generic_breakout_mode_score,0.020029409540306287,"突破模式整体分 [0, 1]",random_forest
+21,generic_macd_dif,0.019151278841325323,MACD 快慢线差,random_forest
+22,feature_don_lower_exit,0.016722732392429596,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+23,feature_open,0.015529958110484812,信号时点开盘价,random_forest
+24,feature_atr_upper,0.014825890452574592,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+25,feature_don_upper_exit,0.013586290037093907,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+26,feature_atr14,0.01246203782116374,14周期 ATR 波动率,random_forest
+27,generic_compression_score,0.01229141739740348,"压缩体制分 [0, 1]",random_forest
+28,feature_low,0.01174800873335039,信号时点最低价,random_forest
+29,feature_atr_value,0.011728682880265958,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+30,generic_atr_14,0.010814411256609518,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+31,feature_atr_lower,0.010486652604612751,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+32,generic_ema_20,0.010233803431597197,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+33,feature_close,0.009756924095014281,信号时点收盘价,random_forest
+34,feature_high,0.008104470174029424,信号时点最高价,random_forest
+35,generic_sma_20,0.006962361931231816,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+36,feature_bp_breakout_level,0.005221438925588821,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+37,feature_breakout_score,0.0045555559858360024,突破质量分数,random_forest
+38,feature_atr_ma,0.004542267171684976,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+39,feature_bp_confirmed,0.003262568513807429,突破回踩确认标记,random_forest
+40,feature_trend_dir,0.001060211815147242,趋势方向编码,random_forest
+41,feature_bp_bars_since_breakout,0.0002360488769628394,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest

@@ -187,6 +187,49 @@ execution_window_closed
 - 被挡掉的机会后来其实很差吗
 - 如果很差，说明当前风控起到了作用
 
+### 4.4 时间口径：`signal_datetime` vs `datetime`（防止 next-bar 穿越）
+
+候选样本表里有两个时间戳字段，**必须严格区分用途**：
+
+| 字段 | 含义 | 用途 |
+|---|---|---|
+| `signal_datetime` | signal bar 时间（i 时刻），即 baseline 规则计算 trigger 的那根 bar 收盘时刻 | **决策时刻**；模型推理时只能看 ≤ signal_datetime 的所有信息；下游 merge_asof 拼 generic 特征**必须**用此字段做 key |
+| `datetime` | entry bar 时间（i+1 时刻），即假设触发后实际成交的那根 bar 时刻 | **成交时刻 / 标签 anchor**；mfe/mae 从这里向后看 horizon_bars |
+
+**为什么这条边界关键**：generic 特征（`sma_20 / rsi_14 / setup_quality_score / breakout_quality_score / context_score / regime_label / regime_conf` 等）按 bar 落盘，每根 bar 一行，每行特征值都是基于 close[..此行] 计算。如果用 `datetime`（= entry bar 时间）做 merge_asof key，会拿到 i+1 时刻的 generic 特征 —— 这一行特征里已经包含了 i+1 这根 bar 的 OHLCV 信息，相对于决策时刻 (i) 是**未来 1 根 bar 的信息**，构成 next-bar lookahead leak。
+
+**实现位置**：
+- 写：`cta/strategy/baseline_skill_suite.py::generate_candidate_opportunities` 与 `build_training_samples_from_trade_log` 都显式写出 `signal_datetime`。
+- 拼：`cta/model/feature/training_feature_builder.py::merge_candidate_and_generic_features` 优先用 `signal_datetime` 作 merge_asof key；无则 fallback 到 `datetime` 并打 warning（向后兼容旧数据）。
+
+**自查检查清单**：
+1. 自定义产生 candidate_df 的代码必须写出 `signal_datetime`，否则 generic 特征会泄漏。
+2. parquet round-trip 后类型可能变成 `object`，确保 `pd.to_datetime` 能正确解析。
+3. 跨日 / 夜盘衔接的 candidate，`signal_datetime` 与 `datetime` 可能跨日 → `_iter_feature_files` 已多读前一天 lookback（B3 修复），不会丢失 generic 特征文件。
+
+### 4.5 通用特征拼接（`generic_*`）
+
+候选样本最终用于训练的特征集 = **候选特征（`feature_*`）+ 通用特征（`generic_*`）**。
+通用特征源自 `cta/data/feature/<interval>/<symbol>/*.parquet`，每个 parquet 含约
+400 列预先算好的特征（趋势 / 动量 / 波动 / pa_* / 综合评分 / regime 等）。
+
+`merge_candidate_and_generic_features` 决定哪些 generic 列被拼到候选样本上：
+
+| `generic_columns` 入参 | 行为 |
+|---|---|
+| `None`（默认 → "auto" 模式） | 自动取磁盘 parquet 上**所有数值 / 布尔列**（排除 OHLCV / 元数据 / object 字符串列 / 全 NaN 列），统一加 `generic_` 前缀 |
+| 显式传 `DEFAULT_GENERIC_COLUMNS`（"whitelist" 模式） | 仅 18 列窄白名单（历史口径） |
+| 显式传 `tuple[str, ...]` | 严格按用户白名单 |
+
+`run_model_pipeline` 通过 `generic_mode='auto'|'whitelist'` 参数 + CLI
+`--generic-mode` 控制；默认 `auto`。
+
+**自查清单**：
+- generic 特征 parquet 必须先生成（`python3 -m cta.feature.run_all_features`）。
+- 加载失败时 pipeline 会 fallback 到"仅候选特征"，并 logger.warning。
+- 列名冲突：若候选自身有 `feature_xyz`，generic parquet 又有同名 `xyz`，merge 后会同时存在 `feature_xyz` + `generic_xyz`，**不会覆盖**。
+- 维度爆炸保护：模型用 `HistGradientBoostingClassifier` / `RandomForest` 都能扛 400 列，但训练耗时会显著增加；资源紧张时切到 `--generic-mode whitelist`。
+
 ---
 
 ## 5. 推荐的数据表结构

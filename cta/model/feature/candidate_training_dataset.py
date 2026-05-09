@@ -144,10 +144,8 @@ class CandidateTrainingDatasetResult:
 
     dataset_dir: Path
     candidate_events_parquet: Path
-    candidate_events_csv: Path
     training_samples_parquet: Path
-    training_samples_csv: Path
-    summary_csv: Path
+    summary_parquet: Path
 
 
 def _normalize_intervals(raw: Iterable[str]) -> tuple[str, ...]:
@@ -627,15 +625,11 @@ def build_and_save_candidate_training_dataset(
         merged = standardize_candidate_events(merged_raw)
 
     candidate_events_parquet = dataset_dir / f"{tag}_{sym}_{interval_norm}_candidate_events.parquet"
-    candidate_events_csv = dataset_dir / f"{tag}_{sym}_{interval_norm}_candidate_events.csv"
     training_samples_parquet = dataset_dir / f"{tag}_{sym}_{interval_norm}_training_samples.parquet"
-    training_samples_csv = dataset_dir / f"{tag}_{sym}_{interval_norm}_training_samples.csv"
-    summary_csv = dataset_dir / f"{tag}_{sym}_{interval_norm}_dataset_summary.csv"
+    summary_parquet = dataset_dir / f"{tag}_{sym}_{interval_norm}_dataset_summary.parquet"
 
     standardized.to_parquet(candidate_events_parquet, index=False)
-    standardized.to_csv(candidate_events_csv, index=False, encoding="utf-8-sig")
     merged.to_parquet(training_samples_parquet, index=False)
-    merged.to_csv(training_samples_csv, index=False, encoding="utf-8-sig")
 
     if standardized.empty:
         summary_rows: list[dict[str, object]] = [
@@ -691,16 +685,14 @@ def build_and_save_candidate_training_dataset(
                 "training_samples_parquet": str(training_samples_parquet),
             }
         ]
-    pd.DataFrame(summary_rows).to_csv(summary_csv, index=False, encoding="utf-8-sig")
+    pd.DataFrame(summary_rows).to_parquet(summary_parquet, index=False)
 
     logger.info("candidate dataset saved: %s", dataset_dir)
     return CandidateTrainingDatasetResult(
         dataset_dir=dataset_dir,
         candidate_events_parquet=candidate_events_parquet,
-        candidate_events_csv=candidate_events_csv,
         training_samples_parquet=training_samples_parquet,
-        training_samples_csv=training_samples_csv,
-        summary_csv=summary_csv,
+        summary_parquet=summary_parquet,
     )
 
 
@@ -874,7 +866,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         for interval, result in zip(intervals, results):
             logger.info("[%s][%s] candidate_events: %s", symbol, interval, result.candidate_events_parquet)
             logger.info("[%s][%s] training_samples: %s", symbol, interval, result.training_samples_parquet)
-            logger.info("[%s][%s] summary: %s", symbol, interval, result.summary_csv)
+            logger.info("[%s][%s] summary: %s", symbol, interval, result.summary_parquet)
 
 
 if __name__ == "__main__":

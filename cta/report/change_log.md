@@ -2,6 +2,842 @@
 
 按日期倒序记录每次改动。新增条目追加到顶部。
 
+> **历史命令路径提示**：2026-04-27 起测试目录从 `cta/tests/` 迁移到
+> `cta/{strategy,model,model/feature}/tests/`。本日志中 2026-04-26 及更早条目
+> 引用的 `python3 -m unittest cta.tests.test_*` 形式命令已不可执行，新等价
+> 命令请见 `cta/model/model.md` § 5。
+>
+> **bug 跟踪源**：`cta/strategy/bug.md` 是 2026-04-26 第三轮 review 的中间稿，
+> 已不再维护；新一轮 review 产出全部直接写本日志，不再回填 `bug.md`。
+
+---
+
+## 2026-05-09 (六) · main · M2 + M3：仿真接入 + 实盘支撑组件
+
+### 任务
+
+接续上午 M1，按 TDD（先测试再实现）依次落地 M2 仿真和 M3 实盘支撑。
+M2 把现有 4 个 v1 策略改造成 ``vnpy_ctastrategy.CtaTemplate`` 子类（共享同一份核心
+逻辑、不重写信号），并接入 ``vnpy_ctabacktester`` + SimNow runner + 回测↔仿真
+parity 校验；M3 落地风控规则、Kill switch、连接守护、每日对账报告四件套。
+
+### 范围（代码）
+
+**M1 (c) 工程化（补 a/b/d 之后的剩余）**
+
+- ``cta/run/runner.py`` —— ``run_event_driven_backtest()`` 统一入口：跑 v1 风格策略 +
+  调用 M1 (b) HTML 报告系统 + 落 ``metrics_*.json``。4 例单测。
+- ``cta/cli.py`` —— ``python -m cta.cli {backtest|validate|expand-minute}``，
+  ``--strategy module:factory`` 加载策略类。6 例单测。
+- ``cta/AGENTS.md`` —— 给 AI agent / 团队成员的项目操作指引（README §6 提及但缺失）。
+- code review：``runner.py`` 用 ``dataclasses.replace`` 重建 EngineConfig；
+  把 ``cta.data_code.validate._load_ranking`` 改公开 ``load_ranking``，CLI 不再调下划线 API。
+
+**M2 (1)–(6) 仿真接入**
+
+- ``cta/strategy/cta_adapter.py`` —— ``LegacyCtaAdapter(CtaTemplate)`` 基类：
+  buffer 累积 bar、流式调用 ``prepare_frame`` + ``inner.on_bar``、
+  把 v1 订单字典翻译为 ``buy/sell/short/cover``、异常捕获不上抛。
+  含 ``order_filter`` pre-trade hook（M3 风控接入点）。``bars_to_df`` 转换工具。
+  16 例单测（含 4 例 risk_filter 集成）。
+- ``cta/strategy/cta_tight_range.py`` —— ``SkillTightRangeBreakoutCta``：
+  TightRange 策略的 CtaTemplate 子类，把 ``StrategyConfig`` 全部字段 +
+  ``ContractSpec`` 元数据暴露为 vnpy parameters。4 例单测。
+- ``cta/strategy/cta_baseline.py`` —— ``DonchianCta`` / ``AtrBreakoutCta`` /
+  ``BreakoutPullbackCta``，共享 ``_BaselineCtaBase``（共用 ``prepare_master_feature_frame``
+  + ContractSpec）；BreakoutPullback 额外暴露 max_holding_bars / 止损系数。11 例单测。
+- ``cta/run/cta_backtester.py`` —— 两条回测路径：
+  - ``run_via_event_driven`` 抽 inner 走 M1 事件驱动引擎（主路径，速度快）
+  - ``run_via_vnpy_ctabacktester`` 调真实 ``BacktestingEngine``（与实盘对齐）
+  5 例单测（含 monkeypatch 模拟未装 + 装了的 setup 路径）。
+- ``cta/sim/sim_runner.py`` —— ``SimnowSetting`` / ``SimRunConfig`` / ``run_sim``：
+  EventEngine + MainEngine + CtpGateway + CtaStrategyApp 的标准启动序列；
+  通过 ``main_engine_factory`` 注入支持 fake，无 vnpy_ctp 也能测试。5 例单测。
+- ``cta/sim/parity_check.py`` —— ``compare_signals(a, b, time_tolerance=...)`` +
+  ``trade_log_to_signals(trade_log, dates)``，输出 matched/mismatched/only_in_a/only_in_b
+  和详情 DataFrame，是判断"策略是否真的可上实盘"的核心门槛。8 例单测。
+
+**M3 (1)–(4) 实盘支撑**
+
+- ``cta/live/risk.py`` —— 5 个规则 + ``RiskGuard``：
+  ``MaxOrderSize`` / ``MaxPositionLimit`` / ``DailyLossLimit`` / ``OrderRateLimit``，
+  失败短路返回首条 ``RiskDecision``。``make_risk_filter()`` 把 ``RiskGuard`` 包成
+  ``LegacyCtaAdapter.order_filter`` 兼容签名。13 例单测。
+- ``cta/live/kill_switch.py`` —— ``KillSwitch`` 支持内存激活 + 文件信号激活
+  （cron / 监控 / SSH 一键禁单），``KillSwitchRule`` 适配 RiskGuard。7 例单测。
+- ``cta/live/supervisor.py`` —— ``Supervisor`` 周期性 ``step()`` 检查 gateway 连接，
+  断了就 ``main_engine.connect``；``max_reconnects`` 兜底防雪崩；``loop(stop_event)``
+  阻塞主循环。5 例单测。
+- ``cta/live/daily_report.py`` —— ``write_daily_report()`` 输出每日 markdown 对账：
+  实盘 trade_log 绩效 + 同期回测 trade_log parity 对账（用 M2 ``parity_check``）。5 例单测。
+
+### 验证
+
+```bash
+cd /Users/wuyuliang/code/vnpy
+python3 -m pytest cta -q --ignore=cta/feature --ignore=cta/data
+# 480 passed (含 12 subtests) in ~3min
+```
+
+新增模块单独跑：
+
+```bash
+python3 -m pytest cta/run cta/strategy/tests cta/sim cta/live cta/tests -q
+# 95 passed
+```
+
+无回归。原 M1 (a)+(b)+(d) 既有测试均通过。
+
+### 不在本次范围
+
+- 不实际连 SimNow（需要 ``vnpy_ctp`` 安装 + 仿真账号 + 网络）。``run_sim`` 单测通过
+  ``main_engine_factory`` 注入 fake 验证调用流程。
+- 不实际跑 ``vnpy_ctabacktester.BacktestingEngine``（需要 vnpy 数据库 + 历史数据），
+  通过 ``mock.patch`` 验证 set_parameters / add_strategy / load_data / run_backtesting 调用流程。
+- 不接入 vnpy 主仓的 ``EVENT_TRADE`` / ``EVENT_ACCOUNT`` 事件做真实 PnL 累计；
+  ``RiskContext.daily_pnl`` 默认为 0，``make_risk_filter`` 提供 ``daily_pnl_provider`` 注入点。
+- 撤单频率限制（``CancelRateLimit``）暂未单独成规则；``OrderRateLimit`` 已覆盖大多数场景。
+- adapter ``stream`` vs v1 ``batch`` 模式因首次 make_inner 后历史 bar 已被消费，
+  细节订单序列可能不一一对应；M2 已通过 ``run_via_event_driven`` 共享 v1 inner 路径
+  保证回测严格等价，``parity_check`` 是处理 stream 与实盘真实差异的工具。
+- 实跑 ``expand_minute`` 下载分钟数据（仍需 ``TUSHARE_TOKEN``）。
+
+### 后续
+
+- M5 灰度小资金验证仍未启动；启动前需在 SimNow 跑满 5 个交易日且 parity_check
+  ``mismatch_rate < 5%``。
+- 风控接入策略代码：把 ``adapter.order_filter = make_risk_filter(guard)`` 写进
+  策略启动模板，避免实例化时遗漏。
+- 把 ``daily_report`` 挂到 vnpy 收盘后 hook 自动触发（systemd timer / vnpy 定时任务）。
+
+---
+
+## 2026-05-09 (六) · main · M1 离线评估增强 (a)+(b)+(d)
+
+### 任务
+
+按"离线评估 → 仿真 → 实盘"三阶段路线推进 M1。本次只覆盖**离线评估侧**：
+回测引擎补撮合真实性、新增综合 HTML 评估报告系统、补数据校验/扩展工具。
+M2 仿真（CtaTemplate 改造 + SimNow 接入）和 M3 实盘暂未启动。
+
+### 范围（代码）
+
+**(a) 回测引擎增强** —— `cta/skills/data_backtest/event_driven_backtest.py`
+
+- `EngineConfig` 新增两个**默认 None** 的可选字段（向后兼容）：
+  - `limit_move_pct: float | None` — 一字涨跌停过滤阈值。`next_bar.high == low`
+    且与 `cur_bar.close` 涨跌幅达到阈值时，禁止该方向**开仓**；平仓不受限。
+  - `liquidity_ratio: float | None` — 单笔可成交手数上限 = `floor(next_bar.volume * ratio)`，
+    上限为 0 拒绝、超过时截断。
+- `simulate_fill` 在原有 market/limit/stop 三种订单类型前新增过滤层；
+  `_hit_price_limit` 与 `_liquidity_cap` 是私有 helper。
+- 测试 `cta/skills/data_backtest/tests/test_event_driven_backtest.py` 新增 9 例：
+  - `TestPriceLimitFilter` × 5（上下板拒绝、平仓不受限、默认配置兼容、未触阈值通过）
+  - `TestLiquidityCap` × 4（截断、零成交拒绝、默认不截断、低于上限不截断）
+  - 原有 2 例保持通过。
+
+**(b) HTML 综合评估报告系统** —— 新建 `cta/report/render/`
+
+- `metrics.py` —— `extended_metrics()` 在 `summarize_trades` 基础上补：
+  Sortino、最长水下天数（`mdd_duration`）、最大回撤恢复 bar 数（`mdd_recovery`）、
+  最长连胜/连亏（`win_streak`/`lose_streak`）、平均持仓 bar、换手率 (`turnover_per_bar`)、
+  月度 PnL (`monthly_pnl`)。
+- `plots.py` —— plotly 图表：净值、回撤、月度 PnL 热力（`pivot[year×month]` + RdYlGn）、
+  交易 PnL 直方图、敞口曲线（持仓手数随时间）。
+- `monte_carlo.py` —— `block_bootstrap()` 块自助法重抽样 (block_size 保留近邻自相关)，
+  输出最终权益与最大回撤分位数 + 样本数组。
+- `capacity.py` —— `capacity_curve()` 基于 trade_log 估算不同资金规模下的 PnL：
+  按 `risk_per_trade` 计算"理想手数"，再用 `volume * liquidity_ratio` 截断，按比例缩放 net_pnl。
+- `factor_analysis.py` —— Alphalens 占位：`run_alphalens()` 软依赖 `alphalens-reloaded`，
+  未安装时返回 `available=False`，已安装时输出 IC + 分组收益。
+- `html_report.py` —— `write_html_report()` 综合 HTML 入口：
+  metrics 表 + 5 张图 + 容量曲线 + 蒙特卡洛分布 + JSON 副本（`metrics_*.json`）落盘。
+- 测试 `cta/report/render/tests/test_render.py`，11 例覆盖 metrics/plots/MC/capacity/HTML/factor。
+
+**(d) 数据扩展工具** —— `cta/data_code/`
+
+- `validate.py` —— 校验 `cta/data/origin/` 完整性：
+  缺失工作日、重复 datetime、OHLC 不一致、零成交、乱序，按品种聚合。
+  支持 `python3 -m cta.data_code.validate {day|minute*} [--symbol X --max-rank N --out csv]`。
+- `expand_minute.py` —— 薄包装 `download_all` + `validate`，针对默认场景"top-N 主力品种 +
+  指定分钟级"提供更易用的入口；`--validate-only` 可跳过下载。
+- 测试 `cta/data_code/tests/test_validate.py`，5 例覆盖干净数据/缺失工作日/OHLC 异常/重复/缺失文件。
+
+### 验证
+
+```bash
+cd /Users/wuyuliang/code/vnpy
+python3 -m pytest cta/skills cta/report cta/data_code -q       # 292 passed (含 12 subtests)
+python3 -m pytest cta/strategy/tests cta/model -q              # 99 passed
+```
+
+合计 **391 passed**，无回归。`EngineConfig()` 默认行为不变 — 既有策略代码与回测脚本均无需修改。
+
+### 不在本次范围
+
+- 多品种持仓、组合层 PnL 拼接（M2 改造为 CtaTemplate 子类时一并落地）
+- vnpy_ctabacktester / vnpy_ctp 接入（M2）
+- 风控规则、kill switch、守护进程、日报（M3）
+- 实际跑 `expand_minute --max-rank 10` 下载分钟数据（需 `TUSHARE_TOKEN` 环境变量）
+- alphalens 因子分析（已留 import 占位，需要 `pip install alphalens-reloaded` 才生效）
+
+---
+
+## 2026-05-08 (五) · main · 第四轮 leak 审计加固：score_breakout opt-in + fallback 不再用 entry_price (P1-A + P1-B)
+
+### 任务
+
+第四轮 lookahead 专项 review 实证当前 pipeline 主路径无 active leak（详见
+`cta/report/change_log.md` 同日"第四轮 Code Review"小结）。但发现 2 个**边缘风险点**
+（不是 active leak，但是潜在地雷）：
+
+1. **P1-A**：`score_breakout(..., follow_bars > 0)` 显式读取未来 N 根 bar，是个
+   "未来函数门"。当前 pipeline 唯一调用方传 `follow_bars=0` ✓ 安全，但函数仅靠
+   docstring 警告，没有 API 层守门 — 未来新代码 / 新调用方误传 N>0 就 leak。
+2. **P1-B**：`_select_feature_columns` fallback 分支创建
+   `feature_entry_price = entry_price`。`entry_price` 是 entry bar 内实际成交价，
+   决策时刻 (signal bar 收盘) 不可见 → 是潜在 lookahead leak。fallback 主路径
+   永远不进入 ✓ 安全，但语义错的代码留着是地雷，被 copy-paste 就会 leak。
+
+### 范围（代码）
+
+- `cta/skills/filtering_scoring/breakout_quality.py`
+  - `score_breakout(...)` 新增 `_allow_future: bool = False` 参数
+  - 当 `follow_bars > 0` 且 `_allow_future=False` 时立即 raise `ValueError`，
+    错误信息明确指出"live / feature 路径必须用 follow_bars=0；post-hoc 标注请显式 _allow_future=True"
+  - 设计为 `_` 前缀的"私有看似"参数：调用方必须主动输入才能开门
+- `cta/model/model_pipeline.py`
+  - `_select_feature_columns` fallback 分支：`feature_entry_price = entry_price`
+    改为 `feature_trigger = trigger`（决策时刻可见的突破触发价）
+  - `_FEATURE_MEANING_FALLBACK` 字典里 `feature_entry_price` 条目同步替换为 `feature_trigger`
+
+### 范围（测试）
+
+- `cta/skills/filtering_scoring/tests/test_breakout_quality.py`（+3 条新测试）
+  - `test_score_breakout_raises_when_follow_bars_positive_without_opt_in`：守门触发 raise
+  - `test_score_breakout_allows_future_when_opt_in_explicit`：显式 opt-in 仍可用
+  - `test_score_breakout_default_follow_bars_zero_still_works`：默认 live-safe 路径不变
+  - 同步给 2 条**已存在**的 post-hoc 用例（`test_opt_in_follow_bars_uses_future` /
+    `test_follow_bars_partial_window`）加上 `_allow_future=True` 显式标记
+- `cta/model/tests/test_model_pipeline.py`（+2 条新测试）
+  - `test_select_feature_fallback_does_not_emit_entry_price`：fallback 不再写 entry_price
+  - `test_select_feature_fallback_uses_trigger_when_present`：fallback 改用 trigger
+
+### 防 bug 设计要点
+
+1. **API 层硬隔离**：`_allow_future` 设计为强 opt-in，调用方必须主动输入才能开门，
+   把"label / post-hoc 标注用法"和"feature / live 用法"在调用约定上严格分开。
+2. **错误信息可执行**：raise 时明确告知"live 路径用 follow_bars=0；标注用 _allow_future=True"，
+   读到错误就知道下一步怎么做。
+3. **替换 entry_price → trigger 不只是改名**：trigger 是规则在 signal bar 收盘后
+   计算出来的，决策时刻 100% 可见；entry_price 是 entry bar 内 stop / limit 实际成交价，
+   决策时刻不可见。两者在大部分场景数值相近，但**语义上是天壤之别**。
+4. **fallback 仅在没有任何 feature_*/generic_* 时才进入**，主路径永远走"显式 feature 选择"，
+   修复后即使有人误用 fallback 也不会 leak。
+
+### 验证命令
+
+```bash
+python3 -m unittest \
+  cta.model.tests.test_model_pipeline \
+  cta.model.tests.test_models_core \
+  cta.model.feature.tests.test_model_feature_builder \
+  cta.model.feature.tests.test_candidate_training_dataset \
+  cta.strategy.tests.test_baseline_skill_suite \
+  cta.strategy.tests.test_skill_tight_range_strategy \
+  cta.strategy.tests.test_skill_tight_range_backtest_rb0 \
+  cta.skills.filtering_scoring.tests.test_breakout_quality
+```
+
+### 验证结果
+
+- 111 tests 全部通过（`Ran 111 tests in 149.0s, OK`）。
+- P1-A 守门生效后 2 个旧测试（合法的 post-hoc 用法）触发了 raise，把 `_allow_future=True`
+  显式标记后即恢复绿。**这正是守门的预期效果** — 让所有 follow_bars>0 的用法都有显式标记。
+
+### 兼容性影响
+
+- 任何外部调用方代码若用了 `score_breakout(..., follow_bars=N)`（N>0）且没传 `_allow_future`，
+  会立刻 raise。**这是预期的**，调用方应：
+  - 实盘 / live / feature 路径：把 `follow_bars` 改回 `0`
+  - post-hoc 标注 / label 生成：显式传 `_allow_future=True`
+- `_select_feature_columns` fallback 行为变化：以前缺 feature_*/generic_* 时
+  写 `feature_entry_price`，现在写 `feature_trigger`。**主路径永远不触发该分支**，
+  实际生产模型不受影响。
+
+### 风险与后续
+
+1. **第三方调用方**：如果有外部脚本直接 `score_breakout(..., follow_bars=N)`，
+   要么改 `follow_bars=0`，要么显式 opt-in；运行时 raise 会立刻暴露。
+2. **历史 model joblib 不受影响**：本次只改训练时的 fallback 行为 + 守门逻辑，
+   不影响已落盘模型。
+3. **下次还可加固的方向**：
+   - `cta/skills/` 下其他可能含未来函数的 helper 同步加 `_allow_future` 守门
+   - 在 CI / 预提交检查里加一条静态扫描：`grep -rn "follow_bars\s*=\s*[1-9]" cta/` 必须
+     在同行有 `_allow_future=True` 才放行
+
+---
+
+## 2026-05-08 (五) · main · 代码瘦身：合并重复测试目录 + 删冷代码
+
+### 范围
+
+1. **合并 `cta/feature/test/` → `cta/feature/tests/`**：6 个测试模块 mv 到 `tests/`，按业界标准目录命名统一。
+2. **删过期测试 `cta/feature/tests/test_run_all_features.py`**：测的 `_build_parquet_write_candidates` / `_write_parquet_with_fallback` / `--parquet-compression` 已在重构中删除，整个文件 import error 失败已久。
+3. **删冷代码 `cta/feature/generate_features.py`**：213 行旧实现，无任何代码 import 依赖，输出布局错（`cta/feature/feature/...` 而不是 `cta/data/feature/...`），已被 `run_all_features.py` 取代。
+4. **更新 `cta/feature/__init__.py` 推荐入口**：从已废弃的 `generate_features` 改为 `run_all_features`，输出路径修正到 `cta/data/feature/...`。
+5. **小清理**：把 `_resolve_generic_columns` 里的内联 `from cta.model.feature.training_feature_builder import DEFAULT_GENERIC_COLUMNS` 提到顶部 import 区（PEP 8）；删 `.DS_Store` 系统垃圾文件。
+
+### 修改文件
+
+- `cta/feature/test/` 整个目录删除（先 mv 文件、删 `__init__.py`、`rmdir`）
+  - 6 个测试 mv 到 `cta/feature/tests/`
+- `cta/feature/tests/test_run_all_features.py` 删除（过期）
+- `cta/feature/generate_features.py` 删除
+- `cta/feature/__init__.py` 重写 docstring（19 类特征清单 + 新入口 + 正确输出路径）
+- `cta/model/model_pipeline.py` 把 `DEFAULT_GENERIC_COLUMNS` 提到顶部 import
+- `cta/.DS_Store` / `cta/strategy/.DS_Store` 删除
+
+### 验证命令
+
+```bash
+python3 -m unittest \
+  cta.feature.tests.test_compute_pipeline \
+  cta.feature.tests.test_feature_modules_smoke \
+  cta.feature.tests.test_loader_and_scheduler \
+  cta.feature.tests.test_online_api \
+  cta.model.tests.test_model_pipeline \
+  cta.model.tests.test_models_core \
+  cta.model.feature.tests.test_model_feature_builder \
+  cta.model.feature.tests.test_candidate_training_dataset \
+  cta.strategy.tests.test_baseline_skill_suite \
+  cta.strategy.tests.test_skill_tight_range_strategy \
+  cta.strategy.tests.test_skill_tight_range_backtest_rb0
+```
+
+### 验证结果
+
+- 112 tests 全部通过（`Ran 112 tests in 187.4s, OK`）。
+
+### 影响
+
+- 老 CLI `python3 -m cta.feature.generate_features` 不再可用 → 改用 `python3 -m cta.feature.run_all_features`。
+- 老命令 `python3 -m cta.feature.test.<mod>` 不再可用 → 改用 `python3 -m cta.feature.tests.<mod>`（注意目录从 `test` → `tests`）。
+- `run_generate.py` 保留（DeprecationWarning shim）以兼容外部调用方。
+
+---
+
+## 2026-05-07 (四) · main · 通用特征拼接默认走 auto 模式（G1）
+
+### 任务
+
+用户反馈：当前模型实际**没用上** `cta/data/feature/<interval>/<symbol>/*.parquet`
+里预先计算好的通用特征 —— 磁盘 parquet 通常含约 400 个特征列（sma_/ema_/macd_/
+adx_/aroon_/pa_*/regime_*/setup_*），但旧实现只取 18 列窄白名单
+`DEFAULT_GENERIC_COLUMNS`，**95% 通用特征被丢弃**。
+
+修复目标：让模型训练默认用上磁盘 parquet 的全部数值特征（auto 模式），保留 18
+列白名单作为可选回退，CLI 透传 `--generic-mode auto|whitelist`。
+
+### 范围（代码）
+
+- `cta/model/feature/training_feature_builder.py`
+  - 新增 `_GENERIC_NON_FEATURE_COLUMNS` 黑名单 frozenset（OHLCV + 元数据 + 临时列）
+  - 新增 `_auto_detect_generic_columns(generic_df) -> tuple[str, ...]`：
+    - 排除 `_GENERIC_NON_FEATURE_COLUMNS`
+    - 仅保留数值 / 布尔 dtype（避免 object 列被 ColumnTransformer 强转 NaN）
+    - 排除全 NaN 列（无信息量，反而拖慢训练）
+  - `merge_candidate_and_generic_features`：`generic_columns=None` 时调用
+    `_auto_detect_generic_columns(generic_df)`；显式传 list 时维持白名单语义。
+- `cta/model/model_pipeline.py`
+  - 新增 `GenericMode = Literal["auto", "whitelist"]`
+  - 新增 `_resolve_generic_columns(generic_mode)` 把字符串映射到 `generic_columns` 入参。
+  - `run_model_pipeline(..., generic_mode: GenericMode = "auto")`：默认 auto，向 build_training_feature_table 透传。
+  - `run_model_pipeline_multi(..., generic_mode: GenericMode = "auto")`：同步透传。
+  - CLI `--generic-mode auto|whitelist` 默认 auto。
+
+### 范围（文档）
+
+- `cta/model/model.md`：Step C 加"通用特征拼接策略（`--generic-mode`）"子章节，列出 auto vs whitelist 对比表 + CLI / 程序化示例。
+- `cta/model/feature/candidate_vs_executed_samples.md`：新增 § 4.5 通用特征拼接 + 自查清单。
+- `cta/report/change_log.md`：本条目。
+
+### 新增测试（TDD）
+
+- `cta/model/feature/tests/test_model_feature_builder.py`
+  - `test_merge_auto_detects_numeric_generic_columns_when_columns_none`（helper 单元）
+  - `test_merge_default_uses_all_disk_numeric_features`（50 列 fixture，验证全部入选）
+  - `test_whitelist_mode_still_works_for_back_compat`（显式传 18 列仍生效，extra_feat 被过滤）
+- `cta/model/tests/test_model_pipeline.py`
+  - `test_pipeline_includes_extra_generic_features_under_auto_mode`（端到端，构造 30 个特征 parquet 验证 feature_table 全部拿到）
+  - `test_pipeline_whitelist_mode_caps_generic_at_18_columns`（whitelist 模式 generic_* ≤ 18 列）
+
+### 防 bug 设计要点
+
+1. **黑名单兜底 OHLCV / 元数据**：`_GENERIC_NON_FEATURE_COLUMNS` 显式列出
+   `datetime / open / high / low / close / volume / turnover / open_interest /
+   amount / ts_code / symbol / exchange / interval / trade_date / signal_datetime / _merge_key`，
+   即使 parquet schema 变化也不会把行情数据当特征塞给模型。
+2. **dtype 过滤**：仅 numeric / boolean 入选；object 字符串列不会被错误地 ColumnTransformer 强转 NaN 后污染训练。
+3. **全 NaN 列剔除**：避免 imputer 退化成"全部填中位数 NaN"。
+4. **向后兼容**：`generic_mode="whitelist"` 显式锁定 18 列；显式传 `generic_columns=tuple(...)` 仍按用户白名单走，行为保持。
+5. **维度爆炸保护**：model.md 标注训练耗时会显著增加（400 列），资源紧张时建议切 whitelist。
+
+### 验证命令
+
+```bash
+python3 -m unittest \
+  cta.model.tests.test_model_pipeline \
+  cta.model.tests.test_models_core \
+  cta.model.feature.tests.test_model_feature_builder \
+  cta.model.feature.tests.test_candidate_training_dataset \
+  cta.strategy.tests.test_baseline_skill_suite \
+  cta.strategy.tests.test_skill_tight_range_strategy \
+  cta.strategy.tests.test_skill_tight_range_backtest_rb0
+```
+
+### 验证结果
+
+- 97 tests 全部通过（`Ran 97 tests in 152.0s, OK`）。前一轮 92 + G1×5 = 97。
+- 实证：磁盘 RB0 minute60 parquet 含 426 列，旧实现仅取 18 列；修复后 auto 模式入选约 380+ 列（排除 OHLCV / 元数据 / object 后）。
+
+### 重要：用新代码重训模型
+
+L1（next-bar leak） + L2（trade_log signal_row） + G1（generic auto）三处修复
+合在一起使训练样本与特征集与历史完全不同。**强烈建议**：
+
+```bash
+# 1) 重新生成候选事件 + 训练样本（依赖 L1/L2 修复）
+python3 -m cta.model.feature.candidate_training_dataset \
+  --symbol RB0 --exchange SHFE --interval 60min \
+  --start 2010-01-01 --end 2019-12-31 \
+  --trade-side-mode both --run-tag 20260507_clean
+
+# 2) 重训三模型 + 生成特征清单（依赖 G1 默认 auto + F1 manifest）
+python3 -m cta.model.model_pipeline \
+  --symbol RB0 --exchange SHFE --interval 60min \
+  --start 2010-01-01 --end 2019-12-31 \
+  --train-end 2017-12-31 --valid-end 2018-12-31 \
+  --window-mode expanding --max-walk-forward-windows 3 --by-signal-type
+  # --generic-mode auto 是默认，可省略；--generic-mode whitelist 复现旧行为
+```
+
+### 风险与后续
+
+1. **OOT 指标继续修正**：L1 修完后已显著下降（拿掉 next-bar leak）；G1 加上 ~360
+   个新 generic 特征，模型容量增大但同时也面临"高维下信噪比"挑战。预期 OOT 仍可
+   提升（更多真信号），但训练耗时会显著增加（HGB 在 400 列上每窗口约慢 2-3 倍）。
+2. **特征重要度稀释**：top10 importance 表里以前出现的 18 个白名单列现在要和
+   ~380 列竞争，排名分布会显著变化；这是预期，不是 bug。
+3. **存量 model_feature parquet**：之前的 candidate_events.parquet / training_samples.parquet
+   只拼了 18 列 generic_*；要用新代码全量重生成才能用上 auto 模式。
+4. **资源不足时**：用 `--generic-mode whitelist` 退到 18 列，行为与 04-26 之前一致。
+
+---
+
+## 2026-04-30 (四) · main · 模型部署：每个 joblib 旁生成全量特征清单（F1）
+
+### 任务
+
+模型 joblib 文件部署到推理端时，下游需要严格按"训练时用过的特征清单"做 schema
+校验。在每个 `models/<signal_type>/window_xx/<model>.joblib` 旁边同步生成一份
+`<model>_features.csv`，列 `rank / feature / importance / feature_meaning / model_kind`，
+按 importance 降序、行数 = 训练用过的**全部**特征（不是 top10）。
+
+### 范围（代码）
+
+- `cta/model/model_pipeline.py`
+  - 新增 `_dump_feature_manifest(joblib_path, feature_columns, importance_df, model_kind)` —— 防御式 helper：
+    - 永远写出全部 `feature_columns`，importance 缺失或异常时安全 fallback 到 0.0
+    - 主键 `feature` 去重；按 importance 降序 + feature 字典序稳定排序
+    - 写文件用 utf-8-sig + index=False，与 pipeline 其它产物一致
+    - joblib 不存在时跳过（mfe_mae_skipped 时不会留孤儿 csv）
+    - 任何步骤异常都仅 `logger.warning` 不阻断 pipeline
+  - 在 `run_model_pipeline` 的 save 点（trade_filter / regime_classifier / mfe_mae）
+    分别调用 `model.get_top_feature_importance(top_k=len(feature_columns))` 拿全集
+    importance 后调用 helper 写出清单。
+  - 调用 `get_top_feature_importance` 用 `try/except` 包裹，importance 计算失败也
+    仍写出清单（importance=0），保证生产文件可用。
+
+### 范围（文档）
+
+- `cta/model/model.md`：§ 2 Step C 输出示例新增 `<model>_features.csv` 行 +
+  独立子章节"模型特征清单（部署用）"，含目录树示例 + 下游推理用法 + dummy 模型 + skipped 边缘场景说明。
+- `cta/strategy/breakout.md`：新增 § 16.4 部署清单使用说明。
+
+### 新增测试（TDD）
+
+- `cta/model/tests/test_model_pipeline.py`
+  - `test_pipeline_writes_feature_manifest_per_saved_model`（每个 joblib 旁必有同名 csv，必备列、行数、rank、降序、去重断言）
+  - `test_feature_manifest_lists_all_training_features_not_just_top10`（清单 ⊇ top10 特征集合）
+  - `test_feature_manifest_no_orphan_csv_without_joblib`（mfe_mae skipped 时不留孤儿 csv）
+
+### 防 bug 设计要点
+
+1. **schema 校验权威源**：清单 = 训练时实际 feed 给 model.fit 的 feature_columns 全集，下游推理直接读取本文件做列对账。
+2. **永不阻断 pipeline**：helper 内部任何异常（importance 计算失败 / IO 失败 / 解析失败）都只打 warning，**绝不 raise**。
+3. **无孤儿文件**：mfe_mae 模型在某 (signal, window) 上被 `_train_mfe_mae_or_skip` 跳过 → joblib 不写 → manifest 也不写。
+4. **稳定排序**：importance 降序 + feature 字典序，保证 round-trip / 不同机器跑 importance 浮点抖动时清单顺序仍可重现。
+5. **dummy / legacy 模型兼容**：`model_kind` 列原样写入，下游可据此区分模型质量；importance 全为 0 时也能正常写出，不会 crash。
+
+### 验证命令
+
+```bash
+python3 -m unittest \
+  cta.model.tests.test_model_pipeline \
+  cta.model.tests.test_models_core \
+  cta.model.feature.tests.test_model_feature_builder \
+  cta.model.feature.tests.test_candidate_training_dataset \
+  cta.strategy.tests.test_baseline_skill_suite \
+  cta.strategy.tests.test_skill_tight_range_strategy \
+  cta.strategy.tests.test_skill_tight_range_backtest_rb0
+```
+
+### 验证结果
+
+- 92 tests 全部通过（`Ran 92 tests in 56.2s, OK`）。前一轮 89 + F1×3 = 92。
+
+### 下游推理示例
+
+```python
+from pathlib import Path
+import pandas as pd
+from cta.model.trade_filter_model import TradeFilterModel
+
+window_dir = Path("cta/report/backtest/<run>/models/donchian_breakout/window_00")
+m = TradeFilterModel.load(window_dir / "trade_filter.joblib")
+manifest = pd.read_csv(window_dir / "trade_filter_features.csv")
+required_features = manifest["feature"].astype(str).tolist()
+prob = m.predict_proba(df_runtime, feature_columns=required_features)
+```
+
+### 风险与后续
+
+1. **存量 joblib 没有配套 csv**：本次之前生成的模型目录里没有 `<model>_features.csv`。
+   要么重训生成，要么写一个一次性脚本对历史 joblib 反查 estimator 特征顺序补回。建议直接重训，与 L1/L2 修复一并刷新。
+2. **importance=0 的特征**：HGB 模型走 permutation importance，对相关性低或影响微弱的特征会算成 0。manifest 仍会保留这些行（rank 排在末尾），下游 schema 校验应仅看 `feature` 列，**不要**按 importance 阈值过滤掉这些列，否则推理时会出现"训练时存在但运行时缺失"。
+3. **特征顺序的稳定性**：清单是按 importance 降序排，下游推理按这个顺序传 `feature_columns` 即可；模型内部的 `ColumnTransformer` 是按列名而不是位置匹配，所以顺序差异不会影响数值结果，但顺序统一更利于可审计。
+
+---
+
+## 2026-04-30 (四) · main · 第三轮 code review：修复 next-bar lookahead leak（L1 + L2）
+
+### 背景
+
+用户反馈"模型效果比较好"，对特征 / 样本 / 训练全链路做穿越特征（lookahead leakage）专项 review，
+实证发现两个 P0 级未来函数泄漏：候选样本表的 `datetime` 是 entry_bar (i+1) 时间戳，
+模型决策时刻其实是 signal_bar (i)。下游所有依赖 `datetime` 对齐的环节都拿到了未来 1 根 bar 的信息。
+
+### 范围（代码）
+
+- `cta/model/feature/training_feature_builder.py`：L1 fix —— `merge_candidate_and_generic_features`
+  优先用 `signal_datetime` 做 merge_asof key；输入缺少时回退到 `datetime` 并打 warning（兼容老数据）。
+- `cta/strategy/baseline_skill_suite.py`：L2 fix —— `build_training_samples_from_trade_log`
+  改用 `signal_row = frame.iloc[entry_i - 1]` 取 `feature_*`，并显式写出 `signal_datetime` / `signal_i`。
+
+### 范围（文档）
+
+- `cta/model/feature/candidate_vs_executed_samples.md`：新增 § 4.4 "时间口径"，
+  列出 `signal_datetime` vs `datetime` 的语义边界 + 自查清单。
+- `cta/strategy/breakout.md`：§ 16.3 字段表加上 `signal_datetime` / `signal_i`，
+  并在末尾加硬性提示"merge_asof 必须用 signal_datetime 做 key"。
+
+### 实证（修前）
+
+```
+决策时刻应是 signal bar i=10 → 期望 generic_row_idx == 10
+实测 generic_row_idx = 11.0   ← 拿到了 entry_bar (i+1) 的 generic 特征
+```
+
+18 个 generic 特征里每一个（sma_20 / rsi_14 / setup_quality_score /
+breakout_quality_score / context_score / regime_label / regime_conf 等）都早 1 根 bar
+看到未来 OHLCV 衍生信息。60min 数据多看 60 分钟未来；day 数据多看 1 整天未来。
+模型从 generic_sma_20 与 entry_price 的差正负号就能猜对 mfe 大概方向 —— 这就是
+"模型效果比较好"的真实原因。
+
+### 核心修复细节
+
+1. **L1**：`merge_candidate_and_generic_features` 把 merge_asof 的 left 端 key 从
+   `datetime`（entry bar 时间）切到 `signal_datetime`（signal bar 时间）。
+   - 用 pandas `left_on=merge_key_col, right_on="datetime"` 显式分开两边时间戳列；
+   - 临时列 `_merge_key` 在合并完成后清理；
+   - 对没有 `signal_datetime` 的旧 candidate frame，`logger.warning` 提示并 fallback 到 `datetime`，保持向后兼容。
+2. **L2**：`build_training_samples_from_trade_log` 把决策时刻特征源从 `entry_row` 切到
+   `signal_row = frame.iloc[max(0, entry_i - 1)]`；同时在 sample dict 里写出 `signal_datetime` / `signal_i`，
+   保证下游 merge_asof 拿到的是 signal bar 时刻的 generic 特征。
+
+### 新增 / 翻新测试（TDD）
+
+- `cta/model/feature/tests/test_model_feature_builder.py`
+  - `test_merge_uses_signal_datetime_to_avoid_next_bar_leak`（L1 实证）
+  - `test_merge_falls_back_to_datetime_when_signal_datetime_missing`（L1 兼容）
+- `cta/strategy/tests/test_baseline_skill_suite.py`
+  - `test_build_training_samples_from_trade_log_uses_signal_bar_features`（L2 实证）
+
+### 已扫描确认无 leak（关键模块）
+
+- `_compute_atr14`（Wilder ATR）：`shift(1)` + EWM forward-only，因果 ✓
+- `compute_donchian / detect_tight_range`：`high.shift(1).rolling(N).max()`，因果 ✓
+- candidate scan 自身的 `feature_*`：`bar[c] = frame.iloc[i]`（signal bar），因果 ✓
+- `TradeFilterModel.fit / RegimeClassifierModel.fit / MfeMaeModel.fit`：仅在 `train_df` 上 fit
+  imputer / scaler / estimator，无 train-test contamination ✓
+- walk-forward 切分：按 candidate.datetime 严格升序切，valid/test 不进 train ✓
+- `build_regime_labels(shift(-h))`：weak-supervision 标签生成器，未被当作 feature 使用 ✓
+- `seg = frame.iloc[entry_i : horizon_i + 1]`：仅用于事后 mfe/mae 标签，使用未来合法 ✓
+- `is_week_end / is_month_end` 的 `shift(-1)`：取的是日历 dayofweek（外部已知量），不是行情 ✓
+
+### 验证命令
+
+```bash
+python3 -m unittest \
+  cta.model.tests.test_model_pipeline \
+  cta.model.tests.test_models_core \
+  cta.model.feature.tests.test_model_feature_builder \
+  cta.model.feature.tests.test_candidate_training_dataset \
+  cta.strategy.tests.test_baseline_skill_suite \
+  cta.strategy.tests.test_skill_tight_range_strategy \
+  cta.strategy.tests.test_skill_tight_range_backtest_rb0
+```
+
+### 验证结果
+
+- 89 tests 全部通过（`Ran 89 tests in 43.4s, OK`）。修前 86 + L1×2 + L2×1 = 89。
+
+### 风险与后续
+
+1. **OOT 指标会显著下降**：修复后模型不再"早看 1 根 bar"，OOT trade_filter AUC /
+   decile spread / cumulative return 会显著下降。这才是真实水平 —— 之前看似漂亮的
+   样本外结果有相当部分来自这个穿越。建议立刻重训 RB0 60min pipeline + 重生成
+   `*_top10_feature_importance.csv` / `*_last_oot_decile_returns.csv`，做前后对比。
+2. **历史 parquet 兼容**：旧 `candidate_events.parquet` / `training_samples.parquet`
+   没有 `signal_datetime` 列，加载后跑 merge_candidate_and_generic_features 会触发
+   warning + fallback 到 `datetime`（即旧的有泄漏行为）。**必须重新生成**才能拿到
+   修复后的清洁数据。建议下批 RB0 重跑用新的 `--run-tag 20260430_clean` 标记区分。
+3. **第三方 candidate 构造方**：若有外部脚本直接构造 candidate_df 喂入 pipeline，
+   必须补 `signal_datetime` 字段，否则 leak 仍在。文档 `candidate_vs_executed_samples.md`
+   § 4.4 已加自查清单。
+4. **模型再训练**：用本次修复后的代码重新跑 `cta.model.feature.candidate_training_dataset`
+   生成训练样本，再跑 `cta.model.model_pipeline` 重训 trade_filter / regime / mfe_mae，
+   把新指标 vs 旧指标的对比写入下一条 change_log。
+
+---
+
+## 2026-04-29 (四) · main · `model_feature` 落盘改为 parquet-only（移除 csv）
+
+### 任务
+
+- 按最新要求回推：`cta/data/model_feature` 目录只保留 parquet，不再生成 csv 文件。
+
+### 修改文件（测试先行）
+
+- `cta/model/feature/tests/test_candidate_training_dataset.py`
+  - `test_build_and_save_candidate_training_dataset_merges_generic_features` 增加断言：
+    - `summary_parquet` 必须存在；
+    - `dataset_dir` 下 `*.csv` 必须为空。
+  - `test_empty_candidate_df_writes_schema_complete_empty_parquet` 增加同样断言。
+
+### 修改文件（实现）
+
+- `cta/model/feature/candidate_training_dataset.py`
+  - `CandidateTrainingDatasetResult` 字段调整：
+    - 删除 `candidate_events_csv` / `training_samples_csv` / `summary_csv`
+    - 新增 `summary_parquet`
+  - `build_and_save_candidate_training_dataset`：
+    - 删除 `standardized.to_csv(...)` / `merged.to_csv(...)`
+    - `dataset_summary` 从 csv 改为 `*_dataset_summary.parquet`
+  - `main` 日志字段同步：`result.summary_parquet`
+
+### 修改文件（文档）
+
+- `cta/model/model.md`
+  - Step B 说明补充：`cta/data/model_feature` 已改为 parquet-only，不再落地 csv；
+  - 产物示例增加 `*_dataset_summary.parquet`。
+
+### 验证命令
+
+```bash
+python3 -m unittest cta.model.feature.tests.test_candidate_training_dataset -v
+python3 -m unittest cta.model.feature.tests.test_model_feature_builder cta.model.feature.tests.test_candidate_training_dataset cta.model.tests.test_model_pipeline -v
+```
+
+### 验证结果
+
+- 两组测试均通过（OK）。
+
+---
+
+## 2026-04-29 (四) · main · 模型文档补全“三件事逻辑” + 特征 parquet 压缩写盘
+
+### 任务
+
+1. 在 `cta/model/model.md` 详细写清楚三件事逻辑，特别是三类模型如何配合；  
+2. 构建全量特征时保持 parquet，并压缩文件大小；模型训练/预测继续加载对应 parquet；  
+3. 同步更新相关文档。
+
+### 修改文件（测试先行）
+
+- `cta/feature/tests/__init__.py`（新增）
+- `cta/feature/tests/test_run_all_features.py`（新增 4 个用例）
+  - `test_build_parquet_write_candidates_with_zstd`
+  - `test_build_parquet_write_candidates_with_none`
+  - `test_parse_args_supports_parquet_compression_options`
+  - `test_write_parquet_with_fallback_uses_next_candidate`
+
+### 修改文件（实现）
+
+- `cta/feature/run_all_features.py`
+  - 新增 parquet 压缩工具函数：
+    - `_normalize_parquet_compression`
+    - `_build_parquet_write_candidates`
+    - `_write_parquet_with_fallback`
+  - 新增 CLI 参数：
+    - `--parquet-compression`（`zstd/snappy/gzip/brotli/lz4/none`）
+    - `--parquet-compression-level`
+  - `_worker_compute` 按日写盘改为“压缩优先 + 自动降级”；
+  - `run_cross_section` 写 `_all_symbols.parquet` 同样使用压缩回退逻辑；
+  - `run_interval` / `main` 打通压缩参数传递与日志；
+  - 压缩后适配增量跳过阈值，避免误判小文件反复重写。
+
+### 修改文件（文档）
+
+- `cta/model/model.md`
+  - 补全“三件事”逻辑总览（数据流 + 三模型协作顺序）；
+  - Step A 明确“特征默认压缩 parquet 输出、模型侧 `read_parquet` 透明读取”；
+  - Step C 增加训练/推理协同逻辑（过滤→路由→仓位尺度）；
+  - 补充特征压缩测试命令。
+- `cta/feature/FEATURES.md`
+  - 顶部补充 `run_all_features` 的压缩写盘说明与回退行为。
+
+### 验证命令
+
+```bash
+python3 -m unittest cta.feature.tests.test_run_all_features -v
+python3 -m unittest cta.feature.tests.test_run_all_features cta.model.feature.tests.test_model_feature_builder cta.model.feature.tests.test_candidate_training_dataset -v
+python3 -m cta.feature.run_all_features --help
+```
+
+### 验证结果
+
+- 上述测试与命令均通过（OK）。
+
+---
+
+## 2026-04-28 (三) · main · Step B 候选样本构建支持 topN 品种 + 多 interval（TDD）
+
+### 任务
+
+- `cta.model.feature.candidate_training_dataset` 的 Step B 能力与 pipeline 对齐：
+  - 支持 `--top-n-symbols N`（按 `research_rank` 取前 N）
+  - 支持 `--interval` 多值输入（空格 / 逗号 / 混合写法）
+  - 保持单品种、单 interval 旧用法兼容
+- 要求先 TDD，再实现，再同步文档。
+
+### 修改文件（测试先行）
+
+- `cta/model/feature/tests/test_candidate_training_dataset.py`
+  - `test_normalize_intervals_supports_mixed_tokens_and_dedup`
+  - `test_normalize_intervals_raises_when_empty`
+  - `test_parse_args_supports_top_n_symbols_and_multi_intervals`
+  - `test_load_top_n_symbols_from_ranking_orders_by_research_rank`
+
+### 修改文件（实现）
+
+- `cta/model/feature/candidate_training_dataset.py`
+  - 新增 `SYMBOLS_RANKING_PATH`
+  - 新增 `_normalize_intervals(...)`
+  - 新增 `_load_top_n_symbols_from_ranking(...)`
+  - 新增 `_resolve_run_exchange(...)`
+  - 新增 `generate_and_save_candidate_training_dataset_multi(...)`
+  - `_parse_args(argv=None)`：
+    - `--interval` 改为 `nargs="+"`
+    - 新增 `--top-n-symbols`
+    - 新增 `--symbols-ranking-path`
+  - `main(argv=None)` 支持按 topN 品种 x 多 interval 批量执行，逐个输出产物路径
+
+### 修改文件（文档）
+
+- `cta/model/model.md`
+  - Step B 增加多 interval（空格/逗号/混合）示例
+  - Step B 增加 topN 品种批量示例
+  - 说明多 interval/多品种顺序执行、输出目录隔离、单 interval 失败不阻断
+
+### 验证命令
+
+```bash
+python3 -m unittest cta.model.feature.tests.test_candidate_training_dataset -v
+python3 -m unittest cta.model.feature.tests.test_model_feature_builder cta.model.feature.tests.test_candidate_training_dataset -v
+```
+
+### 验证结果
+
+- 两组测试全部通过（OK）。
+
+---
+
+## 2026-04-28 (三) · main · 第二轮 cta 全量 code review 修复 D1–D6 + 文档对齐 M1–M12
+
+### 范围（代码）
+
+- `cta/model/model_pipeline.py`：D1（`_resolve_run_exchange` helper）、D3（`_ensure_training_columns` warmup 行保留 NaN）、D4（`_load_feature_meaning_map` 缓存键带 mtime）
+- `cta/model/feature/candidate_training_dataset.py`：D2（二次 standardize 不再从 `candidate_df` 取错位）、D5（`_normalize_block_reason` 兼容 `<NA>` / `None` / `null`）
+- `cta/strategy/baseline_skill_suite.py`：D6（`build_training_samples_from_trade_log` 写出 `atr_warmed`）
+
+### 范围（文档）
+
+- `cta/model/feature/candidate_vs_executed_samples.md`：补 `not_triggered_market` 状态、补 `opportunity_score / future_return_atr / opportunity_class / atr_warmed / trigger` 字段说明（M1 / M10）
+- `cta/strategy/bug.md`：顶部加"历史草稿"标注（M2）
+- `cta/README.md`：删除 `utils/`、`backtest/` 标占位、删除重复目录段、补 `<ALPHA_PREFIX>` 命名说明（M3 / D8）
+- `cta/strategy/breakout.md`：训练样本字段表分主路径（candidate scan）+ fallback（trade_log）两栏（M4 / D7）
+- `cta/strategy/readme.md`：去掉 `stop_price`，加候选场景列（M5）
+- `cta/model/model.md`：加 `--periods-per-year` CLI 差异说明（M6）；推理示例改用 `_select_feature_columns` 白名单选列（M7）
+- `cta/feature/FEATURES.md`：§13–§18 标记为已落地（M8）
+- `cta/strategy/brooks/README.md`：`180+` → `~100` pa_ 特征（实测计数命令也写进 README，M9）
+- `cta/.claude/settings.local.json`：清理老 `cta.tests.*` 路径白名单（M11）
+- `cta/report/change_log.md`：顶部加"历史命令路径提示"注脚（M12）
+
+### 核心修复细节（D1–D6）
+
+1. **D1**：`run_exchange = exchange_from_rank or str(args.exchange).upper() if args.exchange else None` 被 Python 解析为 `(a or b) if c else None`，top-N 模式在 CLI 没传 `--exchange` 时即使 ranking 已提供 SHFE 也会被丢成 `None`。抽出 `_resolve_run_exchange(rank, cli)` 显式化优先级。
+2. **D2**：`standardize_candidate_events` 二次调用兼容分支从 `candidate_df["future_return_atr"]` 取值（原始 index），赋值到已 sort+reset_index 的 `out` 后会按 index alignment 把 row 对错；改为从 `out["future_return_atr"]` 取。
+3. **D3**：`_ensure_training_columns` 对所有行 `fillna(0.0)`，吞掉了候选样本特意保留的 NaN 信号；改为只对 `atr_warmed=1` 行 fillna，warmup 行保留 NaN（行后续会被 `feature_df.loc[warmed_mask]` 显式 drop）。
+4. **D4**：`_load_feature_meaning_map` 用 `@lru_cache` 直接以 path 为键，FEATURES.md 改动后长跑进程取不到新映射；新增 `_load_feature_meaning_map_cached(path, mtime_ns)` 加 mtime 维度。
+5. **D5**：`_normalize_block_reason` 只 `replace({"nan": ""})`，`pd.NA → "<NA>"` / Python `None → "None"` 漏网；抽 `_coerce_missing_reason()` 一次识别 `nan / <na> / none / null` 全部小写大写组合。
+6. **D6**：`build_training_samples_from_trade_log` 没写 `atr_warmed`，下游 `_ensure_training_columns` 默认填 1，warmup 期成交样本被错误带进训练；该路径现在按 `np.isfinite(atr_entry) and atr_entry > 0` 显式写 0/1。
+
+### 新增 / 翻新测试（TDD）
+
+- `cta/model/tests/test_model_pipeline.py`
+  - `test_resolve_run_exchange_prefers_ranking_when_cli_exchange_blank`（D1）
+  - `test_ensure_training_columns_keeps_nan_for_atr_warmup_rows`（D3）
+  - `test_feature_meaning_refreshes_when_features_doc_mtime_changes`（D4）
+- `cta/model/feature/tests/test_candidate_training_dataset.py`
+  - `test_standardize_preserves_future_return_atr_when_input_is_unsorted`（D2）
+  - `test_block_reason_treats_pdNA_and_none_string_as_missing`（D5）
+- `cta/strategy/tests/test_baseline_skill_suite.py`
+  - `test_build_training_samples_from_trade_log_writes_atr_warmed_flag`（D6）
+
+### 验证命令
+
+```bash
+python3 -m unittest \
+  cta.model.tests.test_model_pipeline \
+  cta.model.tests.test_models_core \
+  cta.model.feature.tests.test_model_feature_builder \
+  cta.model.feature.tests.test_candidate_training_dataset \
+  cta.strategy.tests.test_baseline_skill_suite -v
+```
+
+### 验证结果
+
+- 5 模块全量回归：`Ran 69 tests in 51.7s, OK`（D1 / D2 / D3 / D4 / D5 / D6 各自的 6 条新测试 + 已有 63 条全部通过）。
+- 含策略子模块的扩展回归：`Ran 86 tests in 52.3s, OK`。
+
+### 风险与后续
+
+1. **D3 影响下游统计**：以前 warmup 期样本的 `future_mfe_atr / future_mae_atr` 被悄悄填 0；修复后保留 NaN。如有外部脚本读 `*_feature_table.csv` 没做 NaN 过滤，会报警；建议下游统一用 `dropna(subset=["future_mfe_atr"])` 或先按 `atr_warmed==1` 过滤。
+2. **D6 字段扩展**：`build_training_samples_from_trade_log` 输出新增 `atr_warmed` 列，老的 fallback parquet 没有这列；需要重跑或在加载时补一列。
+3. **D1 用户行为**：`top-n-symbols` 模式下若用户既没传 `--exchange` 也没在 ranking csv 里给 exchange，`run_exchange` 会落到 `None` → `resolve_exchange()` 兜底走 `symbols_list.csv` 解析；这条链路目前没回归测试覆盖，下次新增。
+
 ---
 
 ## 2026-04-28 (三) · main · `model_pipeline` `--interval` 支持数组（一次跑多个周期）

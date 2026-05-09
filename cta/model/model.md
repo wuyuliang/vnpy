@@ -87,10 +87,12 @@ python3 -m cta.model.feature.candidate_training_dataset \
 说明：
 - 多 interval / 多品种是顺序批量执行，单个 interval 失败不会阻断其它 interval。
 - 输出目录按 `interval/symbol/run_tag` 隔离，互不覆盖。
+- `cta/data/model_feature` 已改为 parquet-only，不再落地 csv。
 
 产物示例：
 - `cta/data/model_feature/minute60/RB0/20260427/*_candidate_events.parquet`
 - `cta/data/model_feature/minute60/RB0/20260427/*_training_samples.parquet`
+- `cta/data/model_feature/minute60/RB0/20260427/*_dataset_summary.parquet`
 - `cta/data/model_feature/day/RB0/20260427/*_candidate_events.parquet`
 
 ### Step C：训练三类模型（Trade Filter / Regime / MFE-MAE）
@@ -98,6 +100,33 @@ python3 -m cta.model.feature.candidate_training_dataset \
 训练口径说明：
 - `Trade Filter` / `Regime Classifier`：使用全量候选样本训练（包含已成交 + 未成交样本）。
 - `MFE/MAE`：仅在 `is_executed==1` 样本上训练。
+
+#### 通用特征拼接策略（`--generic-mode`）
+
+模型训练特征 = **候选特征 (`feature_*`) + 通用特征 (`generic_*`)**。
+通用特征来自 `cta/data/feature/<interval>/<symbol>/*.parquet`，每个 parquet 通常含
+约 400 个预先计算好的列（趋势 / 动量 / 波动 / pa_* / 综合评分 / regime 等）。
+
+| 模式 | 行为 | 适用场景 |
+|---|---|---|
+| `auto`（默认） | 自动取磁盘 parquet 上**所有**数值 / 布尔列（排除 OHLCV / 元数据 / object）作为 `generic_*` 输入 | 想充分利用 `cta/feature/` 的全部产出，让模型自动选择有用特征 |
+| `whitelist` | 仅用 18 列窄白名单 `DEFAULT_GENERIC_COLUMNS`（`sma_20 / ema_20 / macd_dif / ... / regime_conf`） | 复现 2026-04 之前的历史结果；或资源受限时减少特征维度 |
+
+CLI:
+```bash
+# 默认 auto
+python3 -m cta.model.model_pipeline --symbol RB0 --interval 60min --start 2018-01-01 --end 2019-12-31
+
+# 锁定 18 列白名单
+python3 -m cta.model.model_pipeline --symbol RB0 --interval 60min --generic-mode whitelist
+```
+
+程序化：
+```python
+from cta.model.model_pipeline import run_model_pipeline
+run_model_pipeline(symbol="RB0", interval="60min", generic_mode="auto")  # 默认
+run_model_pipeline(symbol="RB0", interval="60min", generic_mode="whitelist")
+```
 
 `--interval` 既支持单值，也支持**多值数组**（空格 / 逗号分隔皆可，重复值会去重）。
 传多个 interval 时，pipeline 会按顺序依次跑每个周期，输出各自的模型目录与报告，
@@ -156,8 +185,47 @@ python3 -m cta.model.model_pipeline \
 - `*_top10_feature_importance.csv`（每个 signal/window/model 的 Top10 特征重要性，含 `feature_meaning`）
 - `*_last_oot_decile_returns.csv`（最后 OOT 集合按模型分十档收益，仅统计已成交样本）
 - `models/<signal_type>/window_xx/*.joblib`
+- `models/<signal_type>/window_xx/<model>_features.csv`（**每个模型的全量特征清单**，按 importance 降序）
 
 训练日志会同步打印每个模型的 Top10 特征重要性（便于快速复盘）。
+
+#### 模型特征清单（部署用）
+
+每个保存的 joblib 模型旁边都会生成一份配套的 `<model>_features.csv`，作为
+**模型部署时下游 schema 校验**的权威清单。例如：
+
+```text
+models/donchian_breakout/window_00/
+├── trade_filter.joblib
+├── trade_filter_features.csv         ← rank/feature/importance/feature_meaning/model_kind
+├── regime_classifier.joblib
+├── regime_classifier_features.csv
+├── mfe_mae.joblib
+└── mfe_mae_features.csv
+```
+
+清单约定：
+- 列：`rank`（1..N）/ `feature` / `importance` / `feature_meaning` / `model_kind`
+- 排序：`importance` 降序、`feature` 字典序（同分时稳定）
+- **行数 = 训练用过的全部特征数**（不是 top10）
+- importance 来源：模型原生 `feature_importances_`（RF / HGB+permutation 退化）
+- model_kind = `dummy` / `hist_gradient_boosting` / `random_forest` / `legacy_no_kind`
+
+下游推理建议：
+```python
+from cta.model.trade_filter_model import TradeFilterModel
+import pandas as pd
+
+m = TradeFilterModel.load(Path("models/donchian_breakout/window_00/trade_filter.joblib"))
+manifest = pd.read_csv("models/donchian_breakout/window_00/trade_filter_features.csv")
+required_features = manifest["feature"].astype(str).tolist()
+
+# 严格按训练时的特征清单 + 顺序做推理（避免列漏 / 列错位 / 列穿越）
+prob = m.predict_proba(df_runtime, feature_columns=required_features)
+```
+
+mfe_mae 模型在该 signal/window 没有成交样本（`_train_mfe_mae_or_skip` 返回 None）
+时 joblib 不写出，对应 `mfe_mae_features.csv` 也不会写出（无孤儿文件）。
 
 ---
 

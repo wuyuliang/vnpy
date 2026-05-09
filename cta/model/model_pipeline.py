@@ -19,7 +19,11 @@ from cta.config.baseline_skill_suite_config import (
     LABEL_THRESHOLD,
 )
 from cta.config.skill_tight_range_breakout_config import BacktestConfig
-from cta.model.feature.training_feature_builder import FEATURE_ROOT, build_training_feature_table
+from cta.model.feature.training_feature_builder import (
+    DEFAULT_GENERIC_COLUMNS,
+    FEATURE_ROOT,
+    build_training_feature_table,
+)
 from cta.model.mfe_mae_model import MfeMaeModel, evaluate_mfe_mae_model
 from cta.model.regime_classifier_model import RegimeClassifierModel, evaluate_regime_model
 from cta.model.trade_filter_model import TradeFilterModel, evaluate_trade_filter_model
@@ -62,7 +66,7 @@ _FEATURE_MEANING_FALLBACK: dict[str, str] = {
     "feature_bp_confirmed": "突破回踩确认标记",
     "feature_side_code": "方向编码（long=1, short=-1）",
     "feature_signal_code": "信号类型编码",
-    "feature_entry_price": "入场价格",
+    "feature_trigger": "突破/触发价（决策时刻可见）",
     "feature_fallback": "兜底常数特征（无可用特征时）",
 }
 
@@ -267,6 +271,72 @@ def _tag_top_feature_importance(
             "feature_meaning",
         ]
     ]
+
+
+def _dump_feature_manifest(
+    *,
+    joblib_path: Path,
+    feature_columns: Sequence[str],
+    importance_df: pd.DataFrame | None,
+    model_kind: str,
+) -> Path | None:
+    """Persist a per-model feature manifest beside the joblib model.
+
+    部署时下游需要严格按"训练用过的特征清单"做 schema 校验。每个
+    ``<model>.joblib`` 旁边写一份 ``<model>_features.csv``，列：
+    ``rank / feature / importance / feature_meaning``，按 importance 降序。
+
+    防御式实现：
+    1. 永远写出全部 ``feature_columns``（不只 top-k），哪怕 importance 缺失也把缺失行
+       置为 0.0 后排在末尾；下游能拿到完整 schema 是关键。
+    2. ``importance_df`` 为 None / 空 / 列缺失时也不抛异常，全部置 0.0。
+    3. 写文件用 utf-8-sig + index=False，与 pipeline 其它产物保持一致。
+    4. 返回写出的 path 便于日志追踪；joblib 不存在时返回 None（孤儿保护）。
+    """
+    if not joblib_path.exists():
+        logger.warning(
+            "skip feature manifest: joblib not found at %s (mfe_mae skipped or save failed)",
+            joblib_path,
+        )
+        return None
+
+    feats = [str(c) for c in feature_columns if str(c).strip()]
+    if not feats:
+        logger.warning("skip feature manifest for %s: empty feature_columns", joblib_path)
+        return None
+
+    # 准备 importance 映射，缺失全部置 0.0
+    imp_map: dict[str, float] = {f: 0.0 for f in feats}
+    try:
+        if importance_df is not None and not importance_df.empty and {"feature", "importance"}.issubset(
+            set(importance_df.columns)
+        ):
+            for _, r in importance_df.iterrows():
+                fname = str(r["feature"])
+                if fname not in imp_map:
+                    continue
+                v = pd.to_numeric(r["importance"], errors="coerce")
+                imp_map[fname] = float(v) if pd.notna(v) else 0.0
+    except Exception as exc:  # 任何异常都不能阻断 pipeline
+        logger.warning("feature manifest importance parse failed for %s: %s", joblib_path, exc)
+
+    df = pd.DataFrame({"feature": feats, "importance": [imp_map[f] for f in feats]})
+    # 主键去重（保险），按 importance 降序 + feature 字典序
+    df = df.drop_duplicates(subset=["feature"], keep="first")
+    df = df.sort_values(["importance", "feature"], ascending=[False, True]).reset_index(drop=True)
+    df["rank"] = np.arange(1, len(df) + 1, dtype=int)
+    df["feature_meaning"] = df["feature"].astype(str).map(_feature_meaning)
+    df["model_kind"] = str(model_kind)
+    df = df[["rank", "feature", "importance", "feature_meaning", "model_kind"]]
+
+    manifest_path = joblib_path.with_name(joblib_path.stem + "_features.csv")
+    try:
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(manifest_path, index=False, encoding="utf-8-sig")
+    except Exception as exc:
+        logger.warning("failed writing feature manifest %s: %s", manifest_path, exc)
+        return None
+    return manifest_path
 
 
 def _log_top_feature_importance(top_df: pd.DataFrame) -> None:
@@ -493,11 +563,15 @@ def _select_feature_columns(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
             st_series = pd.Series(["unknown"] * len(out), index=out.index)
         out["feature_signal_code"] = pd.Categorical(st_series.astype(str)).codes.astype(float)
 
-        if "entry_price" in out.columns:
-            out["feature_entry_price"] = pd.to_numeric(out["entry_price"], errors="coerce")
+        # P1-B 加固：fallback 不再写 ``feature_entry_price = entry_price``。
+        # entry_price 是 entry bar (i+1) 内 stop / limit 实际成交价，决策时刻
+        # (signal bar 收盘) 不可见 → 是潜在 lookahead leak。改用 trigger
+        # （决策时刻可见的突破触发价）。trigger 缺失时退到 NaN（imputer 兜底）。
+        if "trigger" in out.columns:
+            out["feature_trigger"] = pd.to_numeric(out["trigger"], errors="coerce")
         else:
-            out["feature_entry_price"] = np.nan
-        feature_cols = ["feature_side_code", "feature_signal_code", "feature_entry_price"]
+            out["feature_trigger"] = np.nan
+        feature_cols = ["feature_side_code", "feature_signal_code", "feature_trigger"]
 
     for c in feature_cols:
         if pd.api.types.is_bool_dtype(out[c]):
@@ -830,6 +904,26 @@ def _build_last_oot_decile_table(
     return out[out_cols]
 
 
+GenericMode = Literal["auto", "whitelist"]
+
+
+def _resolve_generic_columns(generic_mode: str) -> Iterable[str] | None:
+    """Translate ``generic_mode`` to the ``generic_columns`` arg of merge helpers.
+
+    - ``"auto"`` (默认): None → 由 merge_candidate_and_generic_features 自动取
+      磁盘 parquet 上所有数值列（排除 OHLCV / 元数据），把 cta/data/feature 里
+      预先算好的 ~400 个特征全部带进训练。
+    - ``"whitelist"``: 锁定 18 列窄白名单 ``DEFAULT_GENERIC_COLUMNS``，复现
+      历史行为或减少特征维度。
+    """
+    mode = str(generic_mode).strip().lower()
+    if mode == "auto":
+        return None
+    if mode == "whitelist":
+        return DEFAULT_GENERIC_COLUMNS
+    raise ValueError(f"invalid generic_mode={generic_mode!r}, expected 'auto' or 'whitelist'")
+
+
 def run_model_pipeline(
     symbol: str = "RB0",
     exchange: str | None = "SHFE",
@@ -845,8 +939,14 @@ def run_model_pipeline(
     by_signal_type: bool = True,
     max_walk_forward_windows: int = 3,
     window_mode: WindowMode = "expanding",
+    generic_mode: GenericMode = "auto",
 ) -> ModelPipelineResult:
-    """Run full candidate->feature->model pipeline."""
+    """Run full candidate->feature->model pipeline.
+
+    G1: ``generic_mode`` 控制 generic 特征拼接策略：
+      - ``"auto"`` (默认): 拼上磁盘 parquet 上**所有数值列**（~400 个特征）
+      - ``"whitelist"``: 仅 18 列 ``DEFAULT_GENERIC_COLUMNS`` 历史白名单
+    """
     run_date = pd.Timestamp.now().strftime("%Y%m%d")
     sym = str(symbol).upper()
     interval_norm = normalize_interval(interval)
@@ -872,6 +972,8 @@ def run_model_pipeline(
         symbol=sym,
         interval=interval_norm,
         feature_root=feature_root,
+        # G1: 透传 generic 拼接策略；默认 "auto" 把所有 generic 数值列带进训练。
+        generic_columns=_resolve_generic_columns(generic_mode),
     )
     # B10 note: _ensure_training_columns 是幂等的；这里第二次调用是为了把
     # generic 特征 merge 后可能出现的 dtype/NaN 漂移再统一收敛一次，确保
@@ -1010,10 +1112,66 @@ def run_model_pipeline(
                 top_feature_parts.append(mfe_top)
 
             signal_dir = model_root / _safe_name(signal_type_key) / f"window_{win.window_id:02d}"
-            trade_model.save(signal_dir / "trade_filter.joblib")
-            regime_model.save(signal_dir / "regime_classifier.joblib")
+            trade_joblib = signal_dir / "trade_filter.joblib"
+            regime_joblib = signal_dir / "regime_classifier.joblib"
+            mfe_mae_joblib = signal_dir / "mfe_mae.joblib"
+
+            trade_model.save(trade_joblib)
+            regime_model.save(regime_joblib)
             if mfe_mae_model is not None:
-                mfe_mae_model.save(signal_dir / "mfe_mae.joblib")
+                mfe_mae_model.save(mfe_mae_joblib)
+
+            # F1: 模型部署需要每个 joblib 旁边配一份全量特征清单（按 importance
+            # 降序），下游可据此严格做 schema 校验。get_top_feature_importance
+            # 传 top_k=len(feature_columns) 即返回全集。
+            n_feat = len(feature_columns)
+            try:
+                trade_full = trade_model.get_top_feature_importance(
+                    train_df,
+                    feature_columns=feature_columns,
+                    label_column="label_class",
+                    top_k=n_feat,
+                )
+            except Exception as exc:
+                logger.warning("trade_filter full importance failed: %s", exc)
+                trade_full = None
+            _dump_feature_manifest(
+                joblib_path=trade_joblib,
+                feature_columns=feature_columns,
+                importance_df=trade_full,
+                model_kind=trade_model.model_kind,
+            )
+
+            try:
+                regime_full = regime_model.get_top_feature_importance(
+                    feature_columns=feature_columns,
+                    top_k=n_feat,
+                )
+            except Exception as exc:
+                logger.warning("regime_classifier full importance failed: %s", exc)
+                regime_full = None
+            _dump_feature_manifest(
+                joblib_path=regime_joblib,
+                feature_columns=feature_columns,
+                importance_df=regime_full,
+                model_kind=regime_model.model_kind,
+            )
+
+            if mfe_mae_model is not None:
+                try:
+                    mfe_full = mfe_mae_model.get_top_feature_importance(
+                        feature_columns=feature_columns,
+                        top_k=n_feat,
+                    )
+                except Exception as exc:
+                    logger.warning("mfe_mae full importance failed: %s", exc)
+                    mfe_full = None
+                _dump_feature_manifest(
+                    joblib_path=mfe_mae_joblib,
+                    feature_columns=feature_columns,
+                    importance_df=mfe_full,
+                    model_kind=mfe_mae_kind,
+                )
 
             for split_name, split_df in (("train", train_df), ("valid", valid_df), ("test", test_df)):
                 if split_df.empty:
@@ -1294,6 +1452,7 @@ def run_model_pipeline_multi(
     by_signal_type: bool = True,
     max_walk_forward_windows: int = 3,
     window_mode: WindowMode = "expanding",
+    generic_mode: GenericMode = "auto",
 ) -> list[ModelPipelineResult]:
     """Run ``run_model_pipeline`` for each interval and return the result list.
 
@@ -1326,6 +1485,7 @@ def run_model_pipeline_multi(
                 by_signal_type=by_signal_type,
                 max_walk_forward_windows=max_walk_forward_windows,
                 window_mode=window_mode,
+                generic_mode=generic_mode,
             )
         except Exception:
             logger.exception("model pipeline failed for interval=%s", interval)
@@ -1381,6 +1541,16 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--by-signal-type", dest="by_signal_type", action="store_true")
     parser.add_argument("--no-by-signal-type", dest="by_signal_type", action="store_false")
     parser.set_defaults(by_signal_type=True)
+    parser.add_argument(
+        "--generic-mode",
+        default="auto",
+        choices=("auto", "whitelist"),
+        help=(
+            "generic 特征拼接策略：'auto' (默认) 自动取磁盘 parquet 上所有数值列；"
+            "'whitelist' 仅 18 列 DEFAULT_GENERIC_COLUMNS。auto 模式下模型可用上 "
+            "cta/data/feature 里预先算好的全部 ~400 个通用特征。"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -1430,6 +1600,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             by_signal_type=bool(args.by_signal_type),
             max_walk_forward_windows=int(args.max_walk_forward_windows),
             window_mode=str(args.window_mode),
+            generic_mode=str(args.generic_mode),
         )
         for interval, result in zip(intervals, results):
             logger.info("[%s][%s] report: %s", symbol, interval, result.report_path)
