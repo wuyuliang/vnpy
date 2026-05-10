@@ -1,0 +1,4 @@
+nohup python3 -m cta.strategy.baseline_skill_suite --top-n-symbols 18 --symbols-ranking-path cta/feature/symbols_research_ranking.csv --interval 60min --start 2010-01-01 --end 2025-12-31 --trade-side-mode both > 1candidate.out &
+nohup python3 -m cta.model.feature.candidate_training_dataset --top-n-symbols 18 --symbols-ranking-path cta/feature/symbols_research_ranking.csv --interval 60min --start 2010-01-01 --end 2025-12-31 --trade-side-mode both --run-tag $(date +%Y%m%d) > 2feature.out &
+nohup python3 -m cta.model.model_pipeline --top-n-symbols 18 --symbols-ranking-path cta/feature/symbols_research_ranking.csv --interval 60min --start 2010-01-01 --end 2025-12-31 --train-end 2020-12-31 --valid-end 2023-12-31 --window-mode expanding --max-walk-forward-windows 3 --by-signal-type --generic-mode auto --pool > 3model.out &
+

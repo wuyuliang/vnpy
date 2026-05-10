@@ -1,0 +1,439 @@
+﻿rank,feature,importance,feature_meaning,model_kind
+1,generic_pa_dist_swing_high,0.1291373526143101,距最近 Swing High,hist_gradient_boosting
+2,generic_pa_dist_swing_low,0.0945173445120265,距最近 Swing Low,hist_gradient_boosting
+3,generic_pa_swing_high_idx,0.05008856259155836,最近 swing high 索引,hist_gradient_boosting
+4,generic_pa_swing_low_idx,0.03042988901195154,最近 swing low 索引,hist_gradient_boosting
+5,generic_vol_zscore_20,0.00763288052251702,成交量 Z-Score,hist_gradient_boosting
+6,generic_context_score,0.006513971239257048,"大环境配合分 [0, 1]",hist_gradient_boosting
+7,generic_dow,0.006366012385999653,星期几,hist_gradient_boosting
+8,generic_pa_follow_through_3,0.004609887338551166,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+9,generic_price_pos_3,0.004402366774397796,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+10,generic_oi_acceleration_5,0.0037623147382617552,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+11,generic_oi_ma_5,0.0035514851901697155,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+12,generic_htf_trend_score_day,0.0033803634493416355,日线视角趋势得分,hist_gradient_boosting
+13,generic_pa_shadow_pressure_10,0.0032995296988398795,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+14,generic_transition_risk,0.0032040418766099052,过渡风险分,hist_gradient_boosting
+15,generic_hurst_20,0.0030650645511859365,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+16,generic_macd_hist,0.0027568563328989417,MACD 柱状图,hist_gradient_boosting
+17,generic_days_to_month_end,0.0026164608715013213,距月末天数,hist_gradient_boosting
+18,generic_pa_leg_accel_10,0.00253042728909599,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+19,generic_oi_concentration_20,0.002522391185244851,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+20,generic_obv_ma_20,0.002461884050366588,OBV 移动平均,hist_gradient_boosting
+21,generic_hurst_60,0.002421230819120009,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+22,generic_doy,0.0023621418202152875,年内天序,hist_gradient_boosting
+23,generic_macd_dif,0.0023432333405658166,MACD 快慢线差,hist_gradient_boosting
+24,feature_bp_confirmed,0.0020832417453850636,突破回踩确认标记,hist_gradient_boosting
+25,generic_range_ratio_60,0.0020336069863050588,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+26,generic_pa_shadow_pressure_5,0.0019612820516456964,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+27,generic_pa_channel_width_atr,0.0019253559403117348,通道宽度 / ATR,hist_gradient_boosting
+28,generic_rsi_3,0.0018837572850827211,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+29,generic_chaikin_osc,0.0017986691266598613,佳庆震荡指标,hist_gradient_boosting
+30,generic_dom,0.001689945368675246,日期,hist_gradient_boosting
+31,generic_atr_pct_zscore_252,0.0015864214425940215,natr_14 的 252 日分位 zscore,hist_gradient_boosting
+32,generic_trend_score,0.0015339504115667129,"综合趋势得分 [-1, 1]",hist_gradient_boosting
+33,generic_vol_ratio_10_60,0.0015330049875842782,波动率比率,hist_gradient_boosting
+34,generic_cmf_20,0.0014767522606269716,佳庆资金流,hist_gradient_boosting
+35,generic_gap_pct,0.0013874096942830076,缺口百分比,hist_gradient_boosting
+36,generic_adx,0.0013836279983530468,平均方向指数,hist_gradient_boosting
+37,generic_days_since_60d_low,0.001359519686799926,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+38,generic_macd_dea,0.001350065446975246,MACD 信号线,hist_gradient_boosting
+39,generic_pa_momentum_decay,0.0013443929030803419,动量衰减,hist_gradient_boosting
+40,generic_pa_bar_range_rel_10,0.00131083035170243,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+41,generic_vol_ma_20,0.0012829403442193854,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+42,generic_pa_always_in_dir,0.001276795088333375,Always In 方向,hist_gradient_boosting
+43,generic_pa_close_pos_bias_10,0.0012191242254023422,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+44,generic_roc_3,0.001198324897787928,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+45,generic_pa_bar_overlap_avg_10,0.0011874525219894478,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+46,generic_pa_leg_range,0.0011855616740244306,当前腿幅度,hist_gradient_boosting
+47,generic_entropy_60,0.001165707770392525,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+48,generic_pa_leg_ratio,0.0011434903068043105,腿幅比,hist_gradient_boosting
+49,generic_pa_close_pos_bias_20,0.0011184365712687179,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+50,generic_ultimate_osc,0.0011066187714876923,终极震荡指标,hist_gradient_boosting
+51,generic_pa_trend_channel_slope,0.0010768379160397412,通道斜率,hist_gradient_boosting
+52,generic_pa_bar_range_rel_3,0.001068329100197422,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+53,generic_hist_vol_3,0.0010300394289072257,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+54,generic_pa_tight_channel_20,0.0010300394289072257,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+55,generic_oi_vol_ratio,0.0010186943411175282,持仓量/成交量,hist_gradient_boosting
+56,generic_month_sin,0.000991277045625664,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+57,generic_pa_leg_gap_count_10,0.0009369151666334119,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+58,generic_pa_double_top_20,0.0009298244867648187,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+59,generic_pa_range_shrinking_20,0.0009288790627824209,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+60,generic_bb_width_zscore_252,0.0009284063507911297,bb_width 的 252 日 zscore,hist_gradient_boosting
+61,generic_plus_di,0.0009217883829137907,+DI 正方向指标,hist_gradient_boosting
+62,generic_pa_channel_width_chg,0.0009203702469400277,通道宽度变化率,hist_gradient_boosting
+63,generic_pa_space_to_low_20,0.0009194248229575189,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+64,generic_ad_line,0.0009189521109663756,A/D 累积分布线,hist_gradient_boosting
+65,generic_pa_dist_to_ema_20,0.0008924802394569831,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+66,generic_oi_change_pct,0.0008806624396760684,持仓量变化率,hist_gradient_boosting
+67,generic_pa_lh_ll_count_20,0.0008541905681667868,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+68,generic_mtf_trend_score_60m,0.0008107010649729037,60m 视角趋势得分,hist_gradient_boosting
+69,generic_pa_bar_overlap,0.0008069193690429429,相邻K线重叠度,hist_gradient_boosting
+70,generic_zscore_close_10,0.0007913198733321044,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+71,generic_pa_low_slope_20,0.000781392921516133,低点斜率,hist_gradient_boosting
+72,generic_intraday_range,0.0007757203776212288,日内振幅,hist_gradient_boosting
+73,generic_pa_bar_since_sig,0.0007620117298753337,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+74,generic_pa_space_to_low_60,0.0007412124022609193,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+75,generic_pa_range_over_atr_20,0.0007345944343836175,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+76,feature_bp_breakout_level,0.0007241947705763548,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+77,generic_realized_var_20,0.0007237220585851375,已实现方差,hist_gradient_boosting
+78,generic_vol_ratio_5_20,0.0007161586667253269,波动率比率,hist_gradient_boosting
+79,generic_entropy_20,0.0007128496827866574,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+80,generic_vol_ma_5,0.0007062317149093186,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+81,generic_pa_bar_range_avg_10,0.0007057590029181012,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+82,generic_pa_ltf_quality,0.000687795947251065,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+83,generic_pa_trend_bar_cluster_20,0.0006613240757417463,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+84,generic_gap,0.0006551788198556988,缺口,hist_gradient_boosting
+85,generic_breakout_dist_atr_down_10,0.0006438337320659645,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+86,generic_pa_hh_hl_count_3,0.000639106612153569,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+87,generic_cci_20,0.0006367430521973713,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+88,generic_pa_trading_range_20,0.0006291796603375976,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+89,feature_don_atr20,0.000598453380907138,Donchian 宽度/ATR20,hist_gradient_boosting
+90,generic_pa_channel_age_20,0.0005937262609947425,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+91,generic_pa_leg_body_cv_20,0.000579544901257593,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+92,generic_regime_conf,0.000571508797406528,首位 - 次位得分差,hist_gradient_boosting
+93,generic_atr_5,0.0005639454055467175,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+94,generic_pa_hh_hl_count_20,0.0005582728616519242,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+95,generic_breakout_dist_atr_10,0.0005582728616518503,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+96,generic_days_since_3d_low,0.000551182181783331,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+97,generic_slope_60,0.0005459823498797922,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+98,generic_pa_trading_range_10,0.0005445642139059922,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+99,generic_pv_corr_20,0.0005407825179760684,价量相关系数,hist_gradient_boosting
+100,generic_expansion_score,0.000540309805984888,"扩张体制分 [0, 1]",hist_gradient_boosting
+101,generic_pa_space_ratio_ud,0.0005360553980637469,上下空间比,hist_gradient_boosting
+102,feature_turnover,0.0005313282781513143,信号时点成交额,hist_gradient_boosting
+103,generic_pa_prior_leg_slope,0.0005280192942126819,前腿斜率,hist_gradient_boosting
+104,generic_pa_bar_body_abs,0.0005242375982827951,K线实体绝对值,hist_gradient_boosting
+105,generic_pa_leg_ema_sep_20,0.0005195104783703627,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+106,generic_consecutive_hh_10,0.0005162014944317672,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+107,generic_lower_shadow_ratio,0.0005147833584580782,下影线比例,hist_gradient_boosting
+108,feature_tr_range_atr,0.0004859479269925619,tight range / ATR 比值,hist_gradient_boosting
+109,generic_pa_bar_range_rel_20,0.00048452979101879884,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+110,generic_slope_3,0.0004835843670362901,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+111,generic_pa_dist_to_ema_60,0.00048074809508883803,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+112,generic_stoch_d,0.000469875719290469,KDJ-D 值,hist_gradient_boosting
+113,generic_pa_scalp_score,0.00046845758331670595,Scalp可行性,hist_gradient_boosting
+114,generic_mtf_conflict_score,0.00046751215933423423,多周期分歧度,hist_gradient_boosting
+115,generic_rsi_6,0.00046467588738681914,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+116,generic_pa_bar_overlap_avg_5,0.000449549103667161,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+117,generic_obv,0.0004419857118073134,能量潮,hist_gradient_boosting
+118,generic_momentum_20,0.0004363131679124832,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+119,generic_stoch_j,0.00043489503193883117,KDJ-J 值,hist_gradient_boosting
+120,feature_trend_score,0.0004311133360089074,趋势强弱分数,hist_gradient_boosting
+121,generic_pa_hh_hl_count_10,0.00042685892808772924,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+122,generic_pa_leg_body_cv_5,0.00041835011224548396,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+123,generic_pa_pullback_bar_ratio,0.0004131502803419081,回调K线数比,hist_gradient_boosting
+124,generic_momentum_5,0.0004112594323769277,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+125,generic_pa_follow_through_10,0.0004112594323769277,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+126,generic_pa_space_to_high_60,0.0004093685844119473,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+127,generic_tsi,0.00039660536064852386,真实强度指数,hist_gradient_boosting
+128,generic_log_ret_1,0.0003932963767098914,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+129,feature_atr14,0.0003871511208237329,14周期 ATR 波动率,hist_gradient_boosting
+130,generic_pa_tb_streak_strength,0.00038147857692905074,趋势K线连续强度,hist_gradient_boosting
+131,generic_hist_vol_20,0.0003810058649377594,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+132,generic_pa_trend_strength_3,0.00037769688099901594,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+133,generic_oi_change,0.000371078913121677,持仓量变化,hist_gradient_boosting
+134,generic_pa_close_position,0.00036067924931448836,收盘位置,hist_gradient_boosting
+135,generic_slope_10,0.00035878840134950796,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+136,generic_regime_age,0.0003436616176299238,自上次切换以来的 bar 数,hist_gradient_boosting
+137,generic_force_idx_13,0.0003356255137788959,力量指数,hist_gradient_boosting
+138,generic_days_since_60d_high,0.0003332619538226611,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+139,generic_cci_14,0.0003275894099278309,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+140,generic_days_since_20d_high,0.000319553306076877,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+141,generic_roc_10,0.00030962635426079466,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+142,generic_pa_channel_touch_20,0.00029355414655870177,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+143,generic_oi_price_div_10,0.0002888270266463433,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+144,generic_setup_quality_score,0.0002888270266463063,"形态质量分 [0, 1]",hist_gradient_boosting
+145,generic_bias_60,0.0002859907546990022,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+146,generic_pa_tight_channel_10,0.00027984549881284365,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+147,generic_pa_range_over_atr_10,0.00027275481894428744,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+148,generic_vol_ratio_20,0.000269445835005618,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+149,generic_pa_signal_strength_20,0.0002675549870406746,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+150,generic_dow_cos,0.00025715532323348594,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+151,generic_price_pos_60,0.0002500646433648557,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+152,generic_natr_14,0.00023824684358390394,标准化 ATR,hist_gradient_boosting
+153,generic_atr_based_target_short,0.00023257429968899976,做空止盈建议价,hist_gradient_boosting
+154,generic_woy,0.00022973802774162166,年内周序,hist_gradient_boosting
+155,generic_pa_overlap_ratio_20,0.00022784717977671529,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+156,generic_pa_range_maturity_20,0.00022501090782922617,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+157,generic_month_cos,0.00022453819583800882,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+158,generic_bb_pctb,0.00022075649990815904,布林带 %B,hist_gradient_boosting
+159,generic_pa_trail_stop,0.0002165020919869809,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+160,generic_oi_ma_20,0.00019995717229370769,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+161,generic_pa_bar_body,0.00019806632432869029,K线实体（有符号）,hist_gradient_boosting
+162,generic_pa_trend_strength_10,0.0001942846283988405,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+163,generic_consecutive_ll_20,0.00019381191640762316,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+164,generic_price_pos_20,0.00019239378043378608,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+165,generic_roc_ma_12_6,0.0001914483564513144,ROC 移动平均,hist_gradient_boosting
+166,generic_minus_di,0.0001886120845039733,-DI 负方向指标,hist_gradient_boosting
+167,generic_range_ratio_20,0.0001867212365389929,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+168,generic_slope_20,0.0001857758125565212,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+169,generic_range_height_atr_5,0.00018530310056530386,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+170,generic_pa_bar_range_avg_20,0.00018246682861788877,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+171,generic_atr_based_target_long,0.00017773970870541925,做多止盈建议价,hist_gradient_boosting
+172,generic_consecutive_ll_10,0.0001739580127756065,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+173,generic_pa_double_top_60,0.00017348530078435212,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+174,generic_pa_close_pos_bias_5,0.00017159445281929772,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+175,feature_volume,0.00017112174082815437,信号时点成交量,hist_gradient_boosting
+176,generic_pa_pullback_retrace,0.00015835851706473095,回调深度比,hist_gradient_boosting
+177,generic_pa_ema_slope_accel,0.0001578858050734766,EMA 斜率加速度,hist_gradient_boosting
+178,generic_compression_score,0.0001559949571085332,"压缩体制分 [0, 1]",hist_gradient_boosting
+179,generic_pa_trend_strength_20,0.00015457682113480717,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+180,generic_pa_gap_bar_size,0.0001493769892311573,缺口大小%,hist_gradient_boosting
+181,generic_pa_bull_flag_flag,0.00014417715732754446,多头旗形识别,hist_gradient_boosting
+182,generic_williams_r_14,0.00014134088538012937,威廉 %R,hist_gradient_boosting
+183,generic_pv_divergence_10,0.00014086817338891203,量价背离,hist_gradient_boosting
+184,generic_pa_bull_legs_20,0.00014039546139769468,20日多头腿数,hist_gradient_boosting
+185,feature_high,0.00013330478152906444,信号时点最高价,hist_gradient_boosting
+186,generic_pa_leg_gap_count_20,0.00013235935754662975,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+187,generic_pa_overlap_ratio_10,0.00012952308559914064,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+188,generic_pa_bear_legs_20,0.00012668681365179957,20日空头腿数,hist_gradient_boosting
+189,generic_pa_doji_density_10,0.00012195969373944109,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+190,generic_pa_pre_bo_tightness_10,0.00011723257382708259,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+191,generic_supertrend,0.00011486901387084784,SuperTrend 值,hist_gradient_boosting
+192,generic_pa_range_false_bo,0.00011297816590590444,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+193,generic_pa_bar_mid,0.00011297816590586744,K线中点,hist_gradient_boosting
+194,generic_breakout_dist_atr_20,0.00011250545391461308,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+195,generic_pa_support_density,0.00010683291001981991,下方支撑密度,hist_gradient_boosting
+196,generic_pa_ema_slope_60,9.879680616879198e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+197,generic_pa_space_to_high_20,9.643324621259423e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+198,generic_pa_trend_bar_net,9.359697426510512e-05,趋势K线净占比,hist_gradient_boosting
+199,generic_pa_inside_bar_ratio_20,8.46154464316055e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+200,feature_open_interest,8.130646249297306e-05,信号时点持仓量,hist_gradient_boosting
+201,generic_vol_ma_10,7.9888326519247e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+202,generic_sma_120,7.799747855434062e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+203,generic_month,7.610663058932321e-05,月份,hist_gradient_boosting
+204,feature_don_lower_entry,7.374307063316247e-05,Donchian 下轨入场价,hist_gradient_boosting
+205,generic_atr_3,7.185222266821907e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+206,generic_breakout_mode_score,7.185222266821907e-05,"突破模式整体分 [0, 1]",hist_gradient_boosting
+207,generic_pa_bar_range,6.712510275586059e-05,K线全幅,hist_gradient_boosting
+208,generic_consecutive_days,6.712510275578658e-05,连涨/连跌天数,hist_gradient_boosting
+209,generic_vol_of_vol_20,6.570696678206052e-05,波动率的波动率,hist_gradient_boosting
+210,generic_consecutive_ll_5,6.287069483464543e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+211,generic_kc_lower,6.05071348785217e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+212,generic_upper_shadow_ratio,5.625272695726954e-05,上影线比例,hist_gradient_boosting
+213,generic_momentum_3,5.341645500989145e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+214,generic_pa_ema_slope_20,5.2943743018674105e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+215,generic_zscore_close_60,4.348950319399414e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+216,generic_stoch_k,4.301679120266577e-05,KDJ-K 值,hist_gradient_boosting
+217,generic_rsi_24,4.2544079211337404e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+218,generic_ema_120,3.734424730787259e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+219,generic_pa_leg_body_cv_10,3.734424730783559e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+220,generic_pa_exhaustion_gap,3.734424730779858e-05,衰竭缺口,hist_gradient_boosting
+221,generic_aroon_down,3.45079753604575e-05,Aroon 下行,hist_gradient_boosting
+222,generic_aroon_up,3.403526336920315e-05,Aroon 上行,hist_gradient_boosting
+223,generic_pa_breakout_strength_3,3.0253567439242346e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+224,generic_pa_trend_bar_bull_pct,2.8835431465553302e-05,多头趋势K线占比,hist_gradient_boosting
+225,generic_pa_bar_range_avg_3,2.8362719474335957e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+226,generic_pa_breakout_pullback_3,2.8362719474298952e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+227,generic_pa_inside_bar_ratio_10,2.458102354441216e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+228,generic_bb_width,2.2690175579505773e-05,布林带宽度,hist_gradient_boosting
+229,generic_pa_pullback_tb_quality_5,1.8908479649581977e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+230,generic_ema_10,1.654491969338423e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+231,feature_close,1.6072207702129877e-05,信号时点收盘价,hist_gradient_boosting
+232,generic_breakout_quality_score,1.4654071728403828e-05,"突破质量分 [0, 1]",hist_gradient_boosting
+233,generic_vol_ratio_5,1.4181359737186483e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+234,generic_dow_sin,1.3235935754677778e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+235,generic_is_week_start,5.672543894867192e-06,交易周首日,hist_gradient_boosting
+236,generic_breakout_dist_atr_down_20,2.836271947415092e-06,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+237,feature_low,1.8908479649433947e-06,信号时点最低价,hist_gradient_boosting
+238,feature_atr_lower,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+239,feature_atr_ma,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+240,feature_atr_upper,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+241,feature_atr_value,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+242,feature_bp_bars_since_breakout,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+243,feature_breakout_score,0.0,突破质量分数,hist_gradient_boosting
+244,feature_don_upper_entry,0.0,Donchian 上轨入场价,hist_gradient_boosting
+245,feature_don_upper_exit,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+246,feature_open,0.0,信号时点开盘价,hist_gradient_boosting
+247,feature_trend_dir,0.0,趋势方向编码,hist_gradient_boosting
+248,generic_aroon_osc,0.0,Aroon 震荡,hist_gradient_boosting
+249,generic_atr_14,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+250,generic_atr_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+251,generic_atr_based_stop_short,0.0,做空止损建议价,hist_gradient_boosting
+252,generic_bb_lower,0.0,布林带下轨,hist_gradient_boosting
+253,generic_bb_mid,0.0,布林带中轨,hist_gradient_boosting
+254,generic_bb_upper,0.0,布林带上轨,hist_gradient_boosting
+255,generic_candle_dir,0.0,K线方向,hist_gradient_boosting
+256,generic_chandelier_stop_short,0.0,吊灯止损（空）,hist_gradient_boosting
+257,generic_consecutive_hh_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+258,generic_consecutive_hh_5,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+259,generic_days_since_20d_low,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+260,generic_days_since_3d_high,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+261,generic_dc_lower_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+262,generic_dc_lower_3,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+263,generic_dc_mid_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+264,generic_dc_mid_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+265,generic_dc_mid_3,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+266,generic_dc_upper_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+267,generic_dc_upper_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+268,generic_dc_upper_3,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+269,generic_ema_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+270,generic_ema_3,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+271,generic_ema_5,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+272,generic_ema_60,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+273,generic_htf_bias,0.0,日线方向偏置,hist_gradient_boosting
+274,generic_inside_bar,0.0,内包线,hist_gradient_boosting
+275,generic_is_10d_high,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+276,generic_is_10d_low,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+277,generic_is_20d_high,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+278,generic_is_20d_low,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+279,generic_is_3d_high,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+280,generic_is_3d_low,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+281,generic_is_5d_high,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+282,generic_is_5d_low,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+283,generic_is_60d_high,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+284,generic_is_60d_low,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+285,generic_is_month_end,0.0,月度最后交易日,hist_gradient_boosting
+286,generic_is_month_start,0.0,月度首个交易日,hist_gradient_boosting
+287,generic_is_week_end,0.0,交易周末日,hist_gradient_boosting
+288,generic_kc_mid,0.0,Keltner 通道中轨,hist_gradient_boosting
+289,generic_kc_upper,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+290,generic_liquidity_filter_pass,0.0,流动性过滤通过,hist_gradient_boosting
+291,generic_log_ret_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+292,generic_log_ret_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+293,generic_log_ret_3,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+294,generic_log_ret_5,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+295,generic_ltf_signal_ready_5m,0.0,5m 出现信号 bar,hist_gradient_boosting
+296,generic_ma_alignment,0.0,均线排列,hist_gradient_boosting
+297,generic_micro_channel_stop_long,0.0,微通道下沿止损,hist_gradient_boosting
+298,generic_micro_channel_stop_short,0.0,微通道上沿止损,hist_gradient_boosting
+299,generic_mtf_align_flag,0.0,HTF / MTF 方向一致,hist_gradient_boosting
+300,generic_mtf_trend_score_30m,0.0,30m 视角,hist_gradient_boosting
+301,generic_outside_bar,0.0,外包线,hist_gradient_boosting
+302,generic_pa_bar_body_mid,0.0,实体中点,hist_gradient_boosting
+303,generic_pa_barb_wire,0.0,Barb Wire,hist_gradient_boosting
+304,generic_pa_bear_flag_flag,0.0,空头旗形识别,hist_gradient_boosting
+305,generic_pa_bear_reversal,0.0,看跌反转K线,hist_gradient_boosting
+306,generic_pa_bo_body_ratio_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+307,generic_pa_bo_body_ratio_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+308,generic_pa_bo_close_pos_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+309,generic_pa_bo_close_pos_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+310,generic_pa_bo_follow_consistency,0.0,突破跟随一致性,hist_gradient_boosting
+311,generic_pa_bo_vol_ratio_20,0.0,突破量比,hist_gradient_boosting
+312,generic_pa_body_ratio,0.0,实体占比,hist_gradient_boosting
+313,generic_pa_bpb_flag,0.0,breakout-pullback-continuation,hist_gradient_boosting
+314,generic_pa_breakout_down_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+315,generic_pa_breakout_down_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+316,generic_pa_breakout_down_3,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+317,generic_pa_breakout_fail_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+318,generic_pa_breakout_fail_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+319,generic_pa_breakout_fail_3,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+320,generic_pa_breakout_pullback_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+321,generic_pa_breakout_pullback_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+322,generic_pa_breakout_strength_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+323,generic_pa_breakout_strength_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+324,generic_pa_breakout_up_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+325,generic_pa_breakout_up_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+326,generic_pa_breakout_up_3,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+327,generic_pa_bull_reversal,0.0,看涨反转K线,hist_gradient_boosting
+328,generic_pa_buy_climax,0.0,买方Climax,hist_gradient_boosting
+329,generic_pa_channel_overshoot,0.0,通道超越,hist_gradient_boosting
+330,generic_pa_consec_bull,0.0,连续阳线根数,hist_gradient_boosting
+331,generic_pa_doji_density_5,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+332,generic_pa_expected_reward,0.0,预期回报(ATR单位),hist_gradient_boosting
+333,generic_pa_failed_sig_rev,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+334,generic_pa_first_pullback_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+335,generic_pa_gap_bar,0.0,缺口K线方向,hist_gradient_boosting
+336,generic_pa_h123,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+337,generic_pa_high_slope_20,0.0,高点斜率,hist_gradient_boosting
+338,generic_pa_higher_high,0.0,Higher High,hist_gradient_boosting
+339,generic_pa_higher_low,0.0,Higher Low,hist_gradient_boosting
+340,generic_pa_htf_align,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+341,generic_pa_ii_pattern,0.0,ii 模式,hist_gradient_boosting
+342,generic_pa_inside_bar,0.0,内包线,hist_gradient_boosting
+343,generic_pa_ioi_pattern,0.0,ioi 模式,hist_gradient_boosting
+344,generic_pa_is_doji,0.0,十字星,hist_gradient_boosting
+345,generic_pa_is_shaved_bottom,0.0,光脚K线,hist_gradient_boosting
+346,generic_pa_is_shaved_top,0.0,光头K线,hist_gradient_boosting
+347,generic_pa_is_trend_bar,0.0,趋势K线,hist_gradient_boosting
+348,generic_pa_l123,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+349,generic_pa_leg_close_cons_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+350,generic_pa_leg_close_cons_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+351,generic_pa_leg_close_cons_5,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+352,generic_pa_leg_length,0.0,当前腿长度,hist_gradient_boosting
+353,generic_pa_lower_high,0.0,Lower High,hist_gradient_boosting
+354,generic_pa_micro_channel_3,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+355,generic_pa_micro_channel_5,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+356,generic_pa_mid_range_bounce,0.0,中线反弹,hist_gradient_boosting
+357,generic_pa_outside_bar,0.0,外包线,hist_gradient_boosting
+358,generic_pa_pb_close_entry,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+359,generic_pa_pre_bo_bars,0.0,突破前区间K线数,hist_gradient_boosting
+360,generic_pa_pullback_depth_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+361,generic_pa_pullback_depth_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+362,generic_pa_pullback_depth_3,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+363,generic_pa_pullback_depth_60,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+364,generic_pa_pullback_tb_quality_3,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+365,generic_pa_pullback_to_ema_20,0.0,是否回调到EMA,hist_gradient_boosting
+366,generic_pa_pullback_type,0.0,回调类型,hist_gradient_boosting
+367,generic_pa_range_zone_20,0.0,区间位置分区,hist_gradient_boosting
+368,generic_pa_resistance_density,0.0,上方阻力密度,hist_gradient_boosting
+369,generic_pa_second_entry,0.0,第二次进场信号,hist_gradient_boosting
+370,generic_pa_sell_climax,0.0,卖方Climax,hist_gradient_boosting
+371,generic_pa_signal_strength_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+372,generic_pa_spike_channel,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+373,generic_pa_swing_score,0.0,Swing可行性,hist_gradient_boosting
+374,generic_pa_tf_conflict,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+375,generic_pa_tight_range_flag_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+376,generic_pa_tight_range_flag_5,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+377,generic_pa_tight_range_flag_8,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+378,generic_pa_trend_channel_bot,0.0,由近 3 swing low 拟合的下沿,hist_gradient_boosting
+379,generic_pa_trend_channel_top,0.0,由近 3 swing high 拟合的上沿,hist_gradient_boosting
+380,generic_pa_two_leg_pullback,0.0,两条腿回撤,hist_gradient_boosting
+381,generic_pa_wedge_20,0.0,楔形模式,hist_gradient_boosting
+382,generic_pct_ret_1,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+383,generic_pct_ret_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+384,generic_pct_ret_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+385,generic_pct_ret_3,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+386,generic_pct_ret_5,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+387,generic_quarter,0.0,季度,hist_gradient_boosting
+388,generic_range_height_atr_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+389,generic_range_height_atr_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+390,generic_rr_score,0.0,潜在盈亏比分,hist_gradient_boosting
+391,generic_rsi_14,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+392,generic_sma_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+393,generic_sma_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+394,generic_sma_3,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+395,generic_sma_5,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+396,generic_sma_60,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+397,generic_supertrend_dir,0.0,SuperTrend 方向,hist_gradient_boosting
+398,generic_transition_flag,0.0,当前处于过渡,hist_gradient_boosting
+399,generic_vol_regime_3,0.0,波动率体制分类,hist_gradient_boosting
+400,generic_vwap_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+401,generic_vwap_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+402,generic_zscore_close_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+403,generic_pa_follow_through_20,-9.454239824716973e-07,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+404,generic_avg_range_20,-1.8908479649063874e-06,平均振幅,hist_gradient_boosting
+405,generic_bias_10,-3.308983938632437e-06,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+406,feature_don_lower_exit,-5.199831903538825e-06,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+407,generic_pa_lh_ll_count_3,-5.6725438947931766e-06,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+408,generic_atr_based_stop_long,-7.090679868519227e-06,做多止损建议价,hist_gradient_boosting
+409,generic_pa_signal_risk,-9.454239824716973e-06,信号K线风险,hist_gradient_boosting
+410,generic_hist_vol_10,-1.3235935754603764e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+411,generic_chandelier_stop_long,-1.7963055666925243e-05,吊灯止损（多）,hist_gradient_boosting
+412,generic_cci_3,-1.985390363197966e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+413,generic_pa_consec_bear,-2.22174635881404e-05,连续阴线根数,hist_gradient_boosting
+414,generic_pa_pre_bo_tightness_5,-2.3635599561903458e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+415,generic_gk_vol_20,-3.498068735156382e-05,Garman-Klass 波动率,hist_gradient_boosting
+416,generic_bias_5,-3.5453399342855185e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+417,generic_pa_lh_ll_count_10,-3.7344247307724565e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+418,generic_dc_lower_10,-3.970780726392231e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+419,generic_pa_trend_bar_bear_pct,-4.0653231246357e-05,空头趋势K线占比,hist_gradient_boosting
+420,generic_bias_3,-4.112594323768537e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+421,generic_pa_signal_strength_3,-4.159865522879169e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+422,generic_pa_expected_rr,-4.207136722012006e-05,预期风险回报比,hist_gradient_boosting
+423,generic_pa_lower_low,-4.207136722012006e-05,Lower Low,hist_gradient_boosting
+424,generic_hist_vol_60,-4.53803511587895e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+425,generic_range_ratio_10,-6.287069483460843e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+426,generic_pa_double_bottom_20,-6.948866271194731e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+427,generic_mfi_14,-8.886985435267263e-05,资金流量指数,hist_gradient_boosting
+428,generic_parkinson_vol_20,-8.981527833518133e-05,Parkinson 波动率,hist_gradient_boosting
+429,generic_momentum_10,-9.92695181598983e-05,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+430,generic_price_pos_10,-0.00013046850958157533,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+431,generic_bias_20,-0.00015268597316982677,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+432,generic_pa_leg_ema_sep_10,-0.00017017631684549764,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+433,generic_pa_pb_overlap_20,-0.0002311561637152367,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+434,generic_pa_dist_measured_move,-0.00023730141960135823,距等距目标距离%,hist_gradient_boosting
+435,generic_roc_5,-0.00029544499452357115,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+436,generic_pa_double_bottom_60,-0.0004188228242367013,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+437,generic_roc_20,-0.0004552216475619912,未在 FEATURES.md 登记（自定义/衍生特征）,hist_gradient_boosting
+438,generic_body_ratio,-0.0009090251591502193,实体占全幅比例,hist_gradient_boosting

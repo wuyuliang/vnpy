@@ -1,0 +1,439 @@
+﻿rank,feature,importance,feature_meaning,model_kind
+1,feature_trend_score,0.07601376234472643,趋势强弱分数,random_forest
+2,generic_pa_pullback_depth_20,0.053717960899520426,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+3,generic_cci_20,0.05021776399821745,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+4,generic_roc_10,0.041351055150881985,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+5,generic_rsi_14,0.032211333469502675,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+6,generic_pa_dist_to_ema_20,0.03206171859616295,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+7,generic_rsi_6,0.031940077891251493,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+8,generic_pa_always_in_dir,0.03167857212248262,Always In 方向,random_forest
+9,generic_bb_pctb,0.031602466496401124,布林带 %B,random_forest
+10,generic_momentum_10,0.0291354587336081,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+11,generic_rsi_3,0.0285001496961904,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+12,generic_williams_r_14,0.028140061330140853,威廉 %R,random_forest
+13,generic_log_ret_10,0.025113265399922754,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+14,generic_zscore_close_20,0.022527688249370504,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+15,generic_price_pos_20,0.022157493394679834,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+16,generic_bias_10,0.021999204531861306,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+17,generic_breakout_dist_atr_20,0.01910313901500444,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+18,generic_cci_14,0.0189725172467643,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+19,generic_pa_pb_overlap_20,0.018891480746081858,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+20,generic_pa_range_zone_20,0.018664238920905962,区间位置分区,random_forest
+21,generic_price_pos_10,0.01604457900658353,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+22,generic_log_ret_1,0.015940736778594602,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+23,generic_pct_ret_10,0.01592499532203211,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+24,generic_breakout_dist_atr_down_20,0.015700867682387338,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+25,generic_pa_ema_slope_20,0.014343914478796642,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+26,generic_log_ret_20,0.013420765553974048,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+27,generic_bias_20,0.012818813091454115,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+28,generic_zscore_close_10,0.012618278053088761,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+29,generic_supertrend_dir,0.012606589337648338,SuperTrend 方向,random_forest
+30,generic_pct_ret_1,0.012575787057458038,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+31,generic_consecutive_days,0.012538330280536952,连涨/连跌天数,random_forest
+32,generic_pa_pullback_depth_10,0.012458574462047652,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+33,generic_slope_10,0.012190313227889776,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+34,generic_roc_3,0.01164790531251938,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+35,generic_roc_20,0.01017728253373979,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+36,generic_force_idx_13,0.009503199313233235,力量指数,random_forest
+37,generic_pct_ret_5,0.009147022928269478,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+38,generic_macd_hist,0.009135756414778054,MACD 柱状图,random_forest
+39,generic_mfi_14,0.008257703137286432,资金流量指数,random_forest
+40,generic_rsi_24,0.007157414941373928,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+41,generic_momentum_5,0.006726376711460897,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+42,generic_pa_dist_to_ema_60,0.0066258830396743905,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+43,generic_pa_space_to_high_20,0.006252175224209356,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+44,generic_breakout_dist_atr_10,0.006224008688816712,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+45,generic_roc_5,0.006149742159736338,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+46,generic_breakout_dist_atr_down_10,0.006045296430818476,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+47,generic_days_since_20d_high,0.003930945633251353,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+48,generic_slope_20,0.0037143959746725364,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+49,generic_pa_pullback_depth_3,0.003489818775237332,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+50,generic_bias_3,0.0032376706276395486,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+51,generic_bias_5,0.0032317504564887637,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+52,generic_log_ret_5,0.0031860946171360744,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+53,generic_pa_pullback_depth_60,0.0031502181558423,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+54,generic_pa_space_to_low_20,0.0030798799181994256,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+55,generic_pct_ret_3,0.003061114825524845,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+56,generic_log_ret_3,0.0029767799732373875,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+57,generic_momentum_3,0.002972021361767852,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+58,generic_cci_3,0.002969958326280116,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+59,generic_slope_3,0.0029666815240777036,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+60,generic_candle_dir,0.0024253233327793757,K线方向,random_forest
+61,generic_days_since_3d_high,0.0022991615119630658,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+62,generic_is_20d_low,0.0022622504135071317,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+63,generic_tsi,0.0015818260948753436,真实强度指数,random_forest
+64,generic_pa_ema_slope_60,0.0013936177175217787,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+65,generic_pct_ret_20,0.0013609506070112827,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+66,generic_trend_score,0.001137999451662459,"综合趋势得分 [-1, 1]",random_forest
+67,generic_pa_low_slope_20,0.0009606688127172779,低点斜率,random_forest
+68,generic_macd_dif,0.0009587227805349234,MACD 快慢线差,random_forest
+69,generic_momentum_20,0.0009532762093643229,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+70,generic_adx,0.0008586527312023672,平均方向指数,random_forest
+71,generic_pa_high_slope_20,0.00082578840387461,高点斜率,random_forest
+72,generic_aroon_osc,0.0006859193400644448,Aroon 震荡,random_forest
+73,generic_roc_ma_12_6,0.0006152579354283407,ROC 移动平均,random_forest
+74,generic_price_pos_60,0.0005282872160324491,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+75,generic_mtf_trend_score_30m,0.0005044717103261584,30m 视角,random_forest
+76,generic_macd_dea,0.00046283213734184405,MACD 信号线,random_forest
+77,generic_stoch_d,0.0004469839909178094,KDJ-D 值,random_forest
+78,generic_aroon_up,0.0004438878353932811,Aroon 上行,random_forest
+79,generic_bias_60,0.0004317867592968714,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+80,generic_stoch_k,0.00041600943232897764,KDJ-K 值,random_forest
+81,generic_days_since_20d_low,0.0003921250208117456,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+82,generic_days_since_60d_high,0.00039098616199892845,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+83,generic_zscore_close_60,0.0003739933989878027,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+84,generic_pa_trend_strength_20,0.00035723396236090607,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+85,generic_plus_di,0.00033159431547448394,+DI 正方向指标,random_forest
+86,generic_pa_space_to_high_60,0.0003262109051744379,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+87,generic_mtf_trend_score_60m,0.0003251204171957949,60m 视角趋势得分,random_forest
+88,generic_pa_range_over_atr_20,0.00023981912744910037,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+89,generic_price_pos_3,0.00022524450460172945,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+90,generic_pa_tf_conflict,0.0002227833104228935,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+91,generic_minus_di,0.00019709621083186467,-DI 负方向指标,random_forest
+92,generic_pa_expected_reward,0.00019039836720160312,预期回报(ATR单位),random_forest
+93,generic_days_since_60d_low,0.00018821063339689853,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+94,generic_range_height_atr_20,0.00018241832152196235,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+95,generic_pa_lh_ll_count_20,0.00017350652108886176,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+96,generic_hist_vol_20,0.00015628717009400978,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+97,feature_trend_dir,0.00015064033990623045,趋势方向编码,random_forest
+98,generic_pa_ltf_quality,0.00014940233276935653,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+99,generic_pa_bar_range_rel_3,0.0001480475130961551,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+100,generic_slope_60,0.0001441114740424651,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+101,generic_aroon_down,0.00014370210141992189,Aroon 下行,random_forest
+102,generic_cmf_20,0.00014245556119321095,佳庆资金流,random_forest
+103,generic_pa_swing_score,0.00014172822985807968,Swing可行性,random_forest
+104,generic_htf_trend_score_day,0.00014153576548380767,日线视角趋势得分,random_forest
+105,generic_vol_ratio_5,0.0001408337790346714,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+106,generic_pa_space_to_low_60,0.00013724318349102893,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+107,generic_breakout_mode_score,0.0001367593383194699,"突破模式整体分 [0, 1]",random_forest
+108,generic_pa_bar_range_rel_20,0.00013526488420360545,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+109,generic_pa_channel_width_chg,0.00013492619903013073,通道宽度变化率,random_forest
+110,generic_pa_trend_strength_10,0.00013339149095912753,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+111,generic_obv_ma_20,0.00013242816074663944,OBV 移动平均,random_forest
+112,generic_vol_of_vol_20,0.00013178145862339475,波动率的波动率,random_forest
+113,generic_pa_leg_ema_sep_10,0.00012882544106586826,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+114,generic_pa_space_ratio_ud,0.0001276205008176139,上下空间比,random_forest
+115,generic_pa_hh_hl_count_20,0.00012703695208708622,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+116,generic_pa_bar_range_rel_10,0.00012573729975000583,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+117,generic_pa_channel_touch_20,0.00012321392773330294,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+118,generic_vol_ratio_10_60,0.00012191351342480655,波动率比率,random_forest
+119,generic_pa_trend_bar_net,0.00012118934042757715,趋势K线净占比,random_forest
+120,generic_woy,0.00011788971067391281,年内周序,random_forest
+121,generic_doy,0.0001164610180507107,年内天序,random_forest
+122,generic_pa_pullback_retrace,0.00011534737430355376,回调深度比,random_forest
+123,generic_transition_risk,0.00011434237069531328,过渡风险分,random_forest
+124,generic_entropy_20,0.00011266534094648451,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+125,feature_tr_range_atr,0.00011188870288867264,tight range / ATR 比值,random_forest
+126,generic_pv_corr_20,0.00011132567130951363,价量相关系数,random_forest
+127,generic_hist_vol_3,0.00011113669109665292,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+128,generic_pa_close_pos_bias_20,0.00011107671618256774,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+129,generic_pa_range_shrinking_20,0.00011043655456559945,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+130,generic_pa_swing_high_idx,0.00011003415570421399,最近 swing high 索引,random_forest
+131,generic_pa_trend_channel_slope,0.00010777816530603526,通道斜率,random_forest
+132,generic_pa_htf_align,0.0001070992450292241,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+133,generic_pa_signal_risk,0.00010642752433885798,信号K线风险,random_forest
+134,generic_pa_leg_close_cons_20,0.00010445041106633507,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+135,generic_vol_zscore_20,0.00010402965833796402,成交量 Z-Score,random_forest
+136,generic_pa_breakout_pullback_10,0.0001027826520064591,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+137,generic_vol_ratio_5_20,0.00010270364175168392,波动率比率,random_forest
+138,generic_stoch_j,0.00010189475779563393,KDJ-J 值,random_forest
+139,feature_turnover,0.00010100270166297443,信号时点成交额,random_forest
+140,generic_range_height_atr_10,0.00010051458549254986,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+141,generic_setup_quality_score,9.92572362546583e-05,"形态质量分 [0, 1]",random_forest
+142,generic_pa_shadow_pressure_5,9.8958322932124e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+143,generic_pa_ema_slope_accel,9.889485326669216e-05,EMA 斜率加速度,random_forest
+144,generic_pa_trading_range_10,9.744437423823117e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+145,generic_pa_leg_accel_10,9.521516338690064e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+146,generic_pa_close_pos_bias_5,9.44507487639011e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+147,generic_pa_breakout_pullback_20,9.420211729050968e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+148,generic_pa_breakout_up_20,9.374436629548616e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+149,generic_vol_ratio_20,9.210714799455941e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+150,generic_pa_leg_ema_sep_20,8.968712516652154e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+151,generic_intraday_range,8.923658634553899e-05,日内振幅,random_forest
+152,generic_pa_channel_width_atr,8.847881507078012e-05,通道宽度 / ATR,random_forest
+153,generic_ad_line,8.737186369073982e-05,A/D 累积分布线,random_forest
+154,generic_pa_bo_vol_ratio_20,8.650213191454094e-05,突破量比,random_forest
+155,generic_obv,8.57415329406527e-05,能量潮,random_forest
+156,generic_pa_shadow_pressure_10,8.525319220996674e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+157,generic_pa_resistance_density,8.505891604992485e-05,上方阻力密度,random_forest
+158,generic_hurst_60,8.471931445309781e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+159,generic_pa_trail_stop,8.441004446068683e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+160,generic_ultimate_osc,8.397873305682759e-05,终极震荡指标,random_forest
+161,generic_atr_pct_zscore_252,8.286855464263726e-05,natr_14 的 252 日分位 zscore,random_forest
+162,generic_parkinson_vol_20,8.274771687155315e-05,Parkinson 波动率,random_forest
+163,generic_pa_expected_rr,8.274403023411856e-05,预期风险回报比,random_forest
+164,generic_atr_5,8.249767496468784e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+165,generic_pa_range_false_bo,8.248604592314113e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+166,generic_pa_close_position,8.174487612771485e-05,收盘位置,random_forest
+167,generic_rr_score,8.156557486966714e-05,潜在盈亏比分,random_forest
+168,generic_bb_width_zscore_252,8.060073775772418e-05,bb_width 的 252 日 zscore,random_forest
+169,generic_pa_leg_close_cons_5,7.984877363722783e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+170,generic_pa_tight_channel_10,7.983192465734773e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+171,generic_mtf_conflict_score,7.978228195795647e-05,多周期分歧度,random_forest
+172,generic_pa_bar_body_abs,7.955725494039216e-05,K线实体绝对值,random_forest
+173,generic_vol_ma_5,7.945908297621897e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+174,generic_chaikin_osc,7.805920885723437e-05,佳庆震荡指标,random_forest
+175,generic_oi_acceleration_5,7.777297153689703e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+176,generic_pa_tight_channel_20,7.759614847987302e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+177,generic_regime_conf,7.757789074159992e-05,首位 - 次位得分差,random_forest
+178,generic_pa_trading_range_20,7.737780425275237e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+179,generic_hurst_20,7.66952678637425e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+180,generic_pa_hh_hl_count_10,7.629946318988123e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+181,generic_pa_bo_body_ratio_20,7.622262847413802e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+182,generic_context_score,7.603837382791673e-05,"大环境配合分 [0, 1]",random_forest
+183,generic_pa_trend_bar_bull_pct,7.554760853763631e-05,多头趋势K线占比,random_forest
+184,generic_natr_14,7.476140400320484e-05,标准化 ATR,random_forest
+185,generic_pa_dist_measured_move,7.464521224835966e-05,距等距目标距离%,random_forest
+186,generic_pa_range_over_atr_10,7.419383161128937e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+187,generic_entropy_60,7.352748080168216e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+188,generic_pa_swing_low_idx,7.055093003482704e-05,最近 swing low 索引,random_forest
+189,generic_pa_leg_body_cv_20,7.013419494741654e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+190,generic_pa_leg_close_cons_10,6.975541194092207e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+191,generic_pa_dist_swing_low,6.949555236496727e-05,距最近 Swing Low,random_forest
+192,generic_pa_close_pos_bias_10,6.914827542427289e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+193,generic_gk_vol_20,6.914673333453077e-05,Garman-Klass 波动率,random_forest
+194,generic_realized_var_20,6.875174504394526e-05,已实现方差,random_forest
+195,generic_breakout_quality_score,6.860850294331984e-05,"突破质量分 [0, 1]",random_forest
+196,generic_pa_bar_overlap_avg_10,6.860251141443823e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+197,generic_pa_body_ratio,6.75678296404174e-05,实体占比,random_forest
+198,generic_pa_bar_range,6.707560159363899e-05,K线全幅,random_forest
+199,generic_vol_ma_10,6.701578589075969e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+200,generic_vol_ma_20,6.664301087217387e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+201,generic_pa_leg_range,6.65802453227461e-05,当前腿幅度,random_forest
+202,generic_atr_20,6.656308171327416e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+203,generic_pa_leg_ratio,6.631108008421177e-05,腿幅比,random_forest
+204,generic_pa_breakout_strength_10,6.535526399257444e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+205,generic_consecutive_hh_5,6.533415856402071e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+206,generic_pa_support_density,6.247756310963672e-05,下方支撑密度,random_forest
+207,generic_oi_ma_20,6.219845527962999e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+208,generic_pa_tb_streak_strength,6.12117153233661e-05,趋势K线连续强度,random_forest
+209,generic_pa_bo_body_ratio_10,6.1019651082503734e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+210,generic_atr_3,6.0980699415519034e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+211,generic_pa_dist_swing_high,6.0566078344293464e-05,距最近 Swing High,random_forest
+212,generic_pa_bar_overlap_avg_5,6.026006836040636e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+213,generic_hist_vol_10,5.9986464113733086e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+214,generic_range_ratio_60,5.981499596879511e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+215,feature_atr_value,5.953472539440801e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+216,generic_pa_trend_strength_3,5.935669822468748e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+217,generic_range_height_atr_5,5.862583294327929e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+218,feature_volume,5.8371839293056685e-05,信号时点成交量,random_forest
+219,generic_pa_bar_body,5.763594604018895e-05,K线实体（有符号）,random_forest
+220,generic_oi_concentration_20,5.753983015034626e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+221,generic_avg_range_20,5.751200063523952e-05,平均振幅,random_forest
+222,generic_pa_bar_since_sig,5.7135707867830156e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+223,generic_range_ratio_20,5.701172967854019e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+224,generic_pa_gap_bar_size,5.6973617858006557e-05,缺口大小%,random_forest
+225,feature_atr14,5.656271003799743e-05,14周期 ATR 波动率,random_forest
+226,generic_range_ratio_10,5.590082112760583e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+227,generic_dc_upper_3,5.531421277986945e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+228,generic_pa_prior_leg_slope,5.523300520755403e-05,前腿斜率,random_forest
+229,generic_oi_change,5.45606153524651e-05,持仓量变化,random_forest
+230,generic_pa_breakout_strength_20,5.413279224249841e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+231,generic_pa_pre_bo_tightness_10,5.262634893926764e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+232,generic_atr_14,5.260811161108429e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+233,generic_ma_alignment,5.22579616764315e-05,均线排列,random_forest
+234,generic_days_to_month_end,5.200642468207209e-05,距月末天数,random_forest
+235,generic_bb_width,5.1998812516007003e-05,布林带宽度,random_forest
+236,generic_body_ratio,5.178027061239475e-05,实体占全幅比例,random_forest
+237,generic_hist_vol_60,5.1068029321859895e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+238,generic_pa_overlap_ratio_20,5.092779311559148e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+239,generic_pa_breakout_strength_3,5.0013990669894186e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+240,generic_is_10d_high,4.964757511865827e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+241,generic_pa_bar_range_avg_20,4.773723234206632e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+242,generic_lower_shadow_ratio,4.761023492759779e-05,下影线比例,random_forest
+243,generic_pa_bo_close_pos_20,4.692381770502861e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+244,generic_pa_bar_overlap,4.64610906805107e-05,相邻K线重叠度,random_forest
+245,generic_oi_vol_ratio,4.594949438956251e-05,持仓量/成交量,random_forest
+246,generic_atr_based_stop_long,4.441482309755198e-05,做多止损建议价,random_forest
+247,generic_vwap_10,4.403085644955553e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+248,generic_month,4.3881771807831596e-05,月份,random_forest
+249,generic_consecutive_ll_5,4.37226718922212e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+250,generic_gap_pct,4.3269531225304456e-05,缺口百分比,random_forest
+251,generic_pa_leg_body_cv_10,4.317897867910265e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+252,generic_pa_trend_bar_bear_pct,4.306119516008606e-05,空头趋势K线占比,random_forest
+253,feature_open_interest,4.27912307182378e-05,信号时点持仓量,random_forest
+254,generic_pv_divergence_10,4.225223708909076e-05,量价背离,random_forest
+255,generic_pa_hh_hl_count_3,4.19322588765724e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+256,generic_upper_shadow_ratio,4.178168535227133e-05,上影线比例,random_forest
+257,generic_pa_momentum_decay,4.155533963126409e-05,动量衰减,random_forest
+258,feature_don_atr20,4.0823388605942014e-05,Donchian 宽度/ATR20,random_forest
+259,feature_don_upper_entry,4.042636780968575e-05,Donchian 上轨入场价,random_forest
+260,generic_pa_bar_range_avg_10,4.008206092954427e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+261,generic_regime_age,3.980505780725526e-05,自上次切换以来的 bar 数,random_forest
+262,generic_sma_60,3.961268903828913e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+263,feature_don_lower_entry,3.884719773382188e-05,Donchian 下轨入场价,random_forest
+264,generic_pa_lh_ll_count_3,3.8123498705563235e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+265,generic_sma_20,3.809628773620085e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+266,generic_htf_bias,3.8084504847890086e-05,日线方向偏置,random_forest
+267,generic_dc_lower_3,3.778247519196819e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+268,generic_pa_leg_gap_count_10,3.7672243788624136e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+269,generic_gap,3.6756367387647294e-05,缺口,random_forest
+270,generic_pa_channel_age_20,3.613835746355671e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+271,generic_pa_leg_length,3.602404278022734e-05,当前腿长度,random_forest
+272,generic_bb_mid,3.577871333779973e-05,布林带中轨,random_forest
+273,generic_month_cos,3.526579274143584e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+274,generic_pa_pullback_tb_quality_5,3.488658860495753e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+275,generic_vwap_20,3.4779926269884944e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+276,generic_pa_pb_close_entry,3.4468965987518805e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+277,feature_atr_ma,3.376605037549321e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+278,generic_dom,3.3723010774620456e-05,日期,random_forest
+279,generic_pa_bear_legs_20,3.349848829879327e-05,20日空头腿数,random_forest
+280,generic_oi_change_pct,3.303278780957092e-05,持仓量变化率,random_forest
+281,generic_dc_lower_20,3.2009915418165036e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+282,generic_dc_mid_20,3.195096853283217e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+283,generic_pa_bo_close_pos_10,3.185296215170458e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+284,generic_ema_60,3.176432139673494e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+285,generic_pa_pre_bo_tightness_5,3.140489149552951e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+286,generic_consecutive_ll_10,3.136896660357087e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+287,generic_micro_channel_stop_short,3.124372227549715e-05,微通道上沿止损,random_forest
+288,generic_pa_bar_range_avg_3,3.094778122376285e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+289,generic_pa_lh_ll_count_10,3.062604108053552e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+290,feature_open,3.0031179694838346e-05,信号时点开盘价,random_forest
+291,generic_supertrend,2.9817068478413514e-05,SuperTrend 值,random_forest
+292,generic_ema_5,2.966731461207464e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+293,generic_pa_leg_body_cv_5,2.961342860791058e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+294,feature_atr_upper,2.8318731263212858e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+295,generic_bb_upper,2.8278108978797424e-05,布林带上轨,random_forest
+296,generic_pa_breakout_pullback_3,2.7687744212618883e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+297,generic_pa_pullback_tb_quality_3,2.7466941683802212e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+298,generic_consecutive_hh_20,2.7159782914449873e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+299,feature_don_lower_exit,2.7145904439056728e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+300,generic_chandelier_stop_short,2.7033387694685217e-05,吊灯止损（空）,random_forest
+301,generic_pa_follow_through_3,2.692773675305931e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+302,generic_is_60d_low,2.6637271400468223e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+303,generic_ema_3,2.6436460939102936e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+304,feature_don_upper_exit,2.6249262049422986e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+305,feature_atr_lower,2.6242106260948253e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+306,generic_ema_120,2.5945275586506865e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+307,generic_pa_bar_body_mid,2.5378644338265862e-05,实体中点,random_forest
+308,generic_sma_3,2.5125824251939062e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+309,generic_pa_signal_strength_10,2.5085934986973967e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+310,generic_is_20d_high,2.4685536589520685e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+311,generic_pa_leg_gap_count_20,2.4216738287549663e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+312,generic_kc_lower,2.364393737748853e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+313,generic_dc_mid_10,2.332047522136934e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+314,generic_pa_signal_strength_3,2.2816716567967987e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+315,generic_consecutive_hh_10,2.2232859405143248e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+316,feature_close,2.2129068378852698e-05,信号时点收盘价,random_forest
+317,generic_month_sin,2.1360896520121255e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+318,generic_oi_ma_5,2.0971232706688137e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+319,generic_atr_based_stop_short,2.053063345485359e-05,做空止损建议价,random_forest
+320,generic_pa_doji_density_10,2.0391570345845027e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+321,feature_low,1.9314287467128743e-05,信号时点最低价,random_forest
+322,generic_pa_inside_bar_ratio_20,1.9181997952208126e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+323,generic_pa_inside_bar_ratio_10,1.8872195590412872e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+324,generic_ema_20,1.8772514545277672e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+325,generic_sma_120,1.851156728739246e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+326,generic_compression_score,1.8289821135313327e-05,"压缩体制分 [0, 1]",random_forest
+327,generic_pa_double_bottom_20,1.8080001509738518e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+328,generic_consecutive_ll_20,1.7004845497300206e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+329,generic_pa_h123,1.6983356420209234e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+330,generic_dc_lower_10,1.6905353598619184e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+331,feature_breakout_score,1.6853072304136405e-05,突破质量分数,random_forest
+332,generic_pa_micro_channel_3,1.6464005213563996e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+333,generic_chandelier_stop_long,1.561135362163194e-05,吊灯止损（多）,random_forest
+334,generic_dc_upper_10,1.544296005763431e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+335,generic_bb_lower,1.5334257001087444e-05,布林带下轨,random_forest
+336,generic_ema_10,1.5317847412590744e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+337,generic_pa_bull_legs_20,1.4918195269659793e-05,20日多头腿数,random_forest
+338,generic_expansion_score,1.4654746386545264e-05,"扩张体制分 [0, 1]",random_forest
+339,generic_pa_consec_bull,1.439164640694887e-05,连续阳线根数,random_forest
+340,generic_dow_cos,1.4247905945791993e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+341,generic_micro_channel_stop_long,1.4177579946720276e-05,微通道下沿止损,random_forest
+342,generic_pa_bar_mid,1.4093454982299536e-05,K线中点,random_forest
+343,generic_sma_5,1.3771443386709737e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+344,generic_pa_overlap_ratio_10,1.37343268441666e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+345,generic_pa_trend_channel_top,1.3565257436909955e-05,由近 3 swing high 拟合的上沿,random_forest
+346,generic_kc_upper,1.3563416956350867e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+347,generic_kc_mid,1.3025057568446366e-05,Keltner 通道中轨,random_forest
+348,generic_dow,1.2469150716151784e-05,星期几,random_forest
+349,generic_dow_sin,1.2401762833987893e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+350,generic_pa_signal_strength_20,1.22881907768886e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+351,generic_vol_regime_3,1.197807430929156e-05,波动率体制分类,random_forest
+352,generic_pa_range_maturity_20,1.1519559813745865e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+353,feature_high,1.1493595007380456e-05,信号时点最高价,random_forest
+354,generic_dc_upper_20,1.1317108170897846e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+355,generic_pa_double_top_20,1.1228601601497455e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+356,generic_pa_gap_bar,1.0844555282365954e-05,缺口K线方向,random_forest
+357,generic_dc_mid_3,1.075512430022266e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+358,generic_pa_trend_bar_cluster_20,1.0595429031696098e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+359,generic_pa_wedge_20,1.0592797719896854e-05,楔形模式,random_forest
+360,generic_is_60d_high,1.0011440706076488e-05,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+361,generic_pa_trend_channel_bot,9.457691709777124e-06,由近 3 swing low 拟合的下沿,random_forest
+362,generic_oi_price_div_10,9.063336948686071e-06,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+363,generic_pa_breakout_fail_10,8.62792670592813e-06,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+364,generic_pa_lower_low,8.466147949828654e-06,Lower Low,random_forest
+365,generic_pa_double_bottom_60,8.207826168362614e-06,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+366,generic_pa_is_shaved_bottom,8.032886849547338e-06,光脚K线,random_forest
+367,generic_pa_pullback_bar_ratio,7.666552637704728e-06,回调K线数比,random_forest
+368,generic_pa_bo_follow_consistency,7.480990816881799e-06,突破跟随一致性,random_forest
+369,generic_atr_based_target_long,7.2317334342124305e-06,做多止盈建议价,random_forest
+370,generic_pa_bpb_flag,7.0834710115777536e-06,breakout-pullback-continuation,random_forest
+371,generic_sma_10,7.075090265004169e-06,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+372,generic_pa_scalp_score,6.853145325208593e-06,Scalp可行性,random_forest
+373,generic_pa_sell_climax,6.805012519637046e-06,卖方Climax,random_forest
+374,generic_atr_based_target_short,6.588024597122426e-06,做空止盈建议价,random_forest
+375,generic_pa_buy_climax,5.86899933270717e-06,买方Climax,random_forest
+376,generic_pa_lower_high,5.825818758764917e-06,Lower High,random_forest
+377,generic_pa_doji_density_5,5.7158959817009286e-06,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+378,generic_pa_breakout_fail_3,5.579657498502766e-06,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+379,generic_pa_is_doji,5.504680223057808e-06,十字星,random_forest
+380,generic_is_3d_low,4.3991327487144695e-06,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+381,feature_bp_bars_since_breakout,4.0955679022525234e-06,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+382,generic_pa_breakout_down_20,4.091171757472878e-06,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+383,generic_mtf_align_flag,3.8217276504294765e-06,HTF / MTF 方向一致,random_forest
+384,generic_pa_breakout_up_3,3.795283793614036e-06,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+385,generic_pa_double_top_60,3.7145739064157305e-06,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+386,generic_pa_consec_bear,3.6576173472214397e-06,连续阴线根数,random_forest
+387,generic_days_since_3d_low,2.957347529172723e-06,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+388,generic_pa_outside_bar,2.444918263071827e-06,外包线,random_forest
+389,generic_is_10d_low,2.2259138324694895e-06,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+390,generic_pa_is_trend_bar,2.1785523510927423e-06,趋势K线,random_forest
+391,generic_quarter,1.8501486531967432e-06,季度,random_forest
+392,generic_is_month_end,1.5356684147346566e-06,月度最后交易日,random_forest
+393,generic_pa_follow_through_20,1.4811927868602028e-06,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+394,generic_pa_second_entry,1.3374936627437299e-06,第二次进场信号,random_forest
+395,generic_pa_micro_channel_5,1.0456263802235358e-06,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+396,generic_pa_bull_reversal,8.37000099742163e-07,看涨反转K线,random_forest
+397,generic_pa_ioi_pattern,8.233761103528309e-07,ioi 模式,random_forest
+398,generic_pa_follow_through_10,5.227040090254627e-07,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+399,generic_pa_breakout_up_10,5.140651684165981e-07,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+400,generic_pa_channel_overshoot,4.9748812639544e-07,通道超越,random_forest
+401,generic_pa_pullback_type,3.830695298550878e-07,回调类型,random_forest
+402,generic_pa_l123,3.2804567951555695e-07,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+403,generic_pa_bear_reversal,2.616097751189397e-07,看跌反转K线,random_forest
+404,generic_pa_inside_bar,2.2862269275130966e-07,内包线,random_forest
+405,generic_pa_higher_high,2.2631442125071174e-07,Higher High,random_forest
+406,generic_pa_breakout_fail_20,1.2154181771777486e-07,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+407,generic_is_5d_low,8.062073796781457e-08,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+408,feature_bp_breakout_level,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+409,feature_bp_confirmed,0.0,突破回踩确认标记,random_forest
+410,generic_inside_bar,0.0,内包线,random_forest
+411,generic_is_3d_high,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+412,generic_is_5d_high,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+413,generic_is_month_start,0.0,月度首个交易日,random_forest
+414,generic_is_week_end,0.0,交易周末日,random_forest
+415,generic_is_week_start,0.0,交易周首日,random_forest
+416,generic_liquidity_filter_pass,0.0,流动性过滤通过,random_forest
+417,generic_ltf_signal_ready_5m,0.0,5m 出现信号 bar,random_forest
+418,generic_outside_bar,0.0,外包线,random_forest
+419,generic_pa_barb_wire,0.0,Barb Wire,random_forest
+420,generic_pa_bear_flag_flag,0.0,空头旗形识别,random_forest
+421,generic_pa_breakout_down_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+422,generic_pa_breakout_down_3,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+423,generic_pa_bull_flag_flag,0.0,多头旗形识别,random_forest
+424,generic_pa_exhaustion_gap,0.0,衰竭缺口,random_forest
+425,generic_pa_failed_sig_rev,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+426,generic_pa_first_pullback_20,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+427,generic_pa_higher_low,0.0,Higher Low,random_forest
+428,generic_pa_ii_pattern,0.0,ii 模式,random_forest
+429,generic_pa_is_shaved_top,0.0,光头K线,random_forest
+430,generic_pa_mid_range_bounce,0.0,中线反弹,random_forest
+431,generic_pa_pre_bo_bars,0.0,突破前区间K线数,random_forest
+432,generic_pa_pullback_to_ema_20,0.0,是否回调到EMA,random_forest
+433,generic_pa_spike_channel,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+434,generic_pa_tight_range_flag_10,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+435,generic_pa_tight_range_flag_5,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+436,generic_pa_tight_range_flag_8,0.0,未在 FEATURES.md 登记（自定义/衍生特征）,random_forest
+437,generic_pa_two_leg_pullback,0.0,两条腿回撤,random_forest
+438,generic_transition_flag,0.0,当前处于过渡,random_forest
