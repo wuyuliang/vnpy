@@ -7,6 +7,19 @@
 - Python 使用 `python3`
 - 示例品种使用 `RB0`，可替换为其它品种
 
+> **服务器端一把跑**：本文 §1–§4 的命令已经被整理成 [`cta/run.sh`](run.sh)，支持
+> 按 `cta/feature/symbols_research_ranking.csv` 的 top-N 自动跑完
+> 数据下载 → 校验 → 特征 → 候选样本 → per-symbol 训练 → POOL 池化训练。常用：
+>
+> ```bash
+> export TUSHARE_TOKEN=...
+> TOP_N=18 RUN_TAG=$(date +%Y%m%d) bash cta/run.sh all       # 一把全跑
+> bash cta/run.sh data                                        # 只跑数据下载
+> bash cta/run.sh -h                                          # 完整参数说明
+> ```
+>
+> 仿真 / 实盘部分（§6/§7）涉及账号、长进程与告警 webhook，仍以独立脚本启动。
+
 ---
 
 ## 0. 环境准备
@@ -100,11 +113,11 @@ python3 -m cta.feature.run_all_features --interval all --cross-section
 
 ```bash
 python3 -m cta.strategy.baseline_skill_suite \
-  --top-n-symbols 10 \
+  --top-n-symbols 18 \
   --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
   --interval day,60min 30min,15min,5min,min \
   --start 2010-01-01 \
-  --end 2019-12-31 \
+  --end 2025-12-31 \
   --trade-side-mode both
 ```
 
@@ -124,11 +137,11 @@ python3 -m cta.strategy.baseline_skill_suite \
 
 ```bash
 python3 -m cta.model.feature.candidate_training_dataset \
-  --top-n-symbols 10 \
+  --top-n-symbols 18 \
   --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
   --interval day 60min 30min 15min 5min min \
   --start 2010-01-01 \
-  --end 2019-12-31 \
+  --end 2025-12-31 \
   --trade-side-mode both \
   --run-tag $(date +%Y%m%d)
 ```
@@ -176,22 +189,67 @@ python3 -m cta.model.model_pipeline \
   --generic-mode auto
 ```
 
-### 4.2 topN 品种 + 多周期批量训练
+### 4.2 topN 品种 + 多周期批量训练（每个 symbol 各训一个模型）
 
 ```bash
 python3 -m cta.model.model_pipeline \
-  --top-n-symbols 10 \
+  --top-n-symbols 18 \
   --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
   --interval day 60min 30min 15min 5min min \
   --start 2010-01-01 \
-  --end 2019-12-31 \
-  --train-end 2017-12-31 \
-  --valid-end 2018-12-31 \
+  --end 2025-12-31 \
+  --train-end 2020-12-31 \
+  --valid-end 2023-12-31 \
   --window-mode expanding \
   --max-walk-forward-windows 3 \
   --by-signal-type \
   --generic-mode auto
 ```
+
+### 4.2.1 多 symbol **池化**训练（一个共享模型）
+
+day 等低频 interval 单 symbol 样本可能 < 200 笔，统计不显著。加 ``--pool`` 把
+top-N 品种的样本合并训出**一个**共享模型，跨品种泛化更稳：
+
+```bash
+python3 -m cta.model.model_pipeline \
+  --top-n-symbols 18 \
+  --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
+  --interval day 60min \
+  --start 2010-01-01 --end 2025-12-31 \
+  --train-end 2020-12-31 --valid-end 2023-12-31 \
+  --window-mode expanding --max-walk-forward-windows 3 \
+  --by-signal-type --generic-mode auto \
+  --pool                                    # ← 关键 flag
+```
+
+输出目录：``cta/report/backtest/{run_date}_POOL_{interval}_{side}_model_pipeline/``，
+内含：
+- ``..._pool_members.csv`` — 参与池化的 (symbol, exchange) 列表
+- ``..._feature_table.csv`` — 拼接后的样本（含 ``symbol`` 列保留来源）
+- ``..._metrics.csv`` / ``..._predictions.csv`` / ``models/*.joblib``
+
+**应用模型时与单 symbol 完全一致**：
+```python
+from cta.live.model_filter import make_trade_filter
+from cta.live.online_feature import OnlineFeatureLoader
+
+# 跨品种共享同一个 POOL 模型
+adapter.order_filter = make_trade_filter(
+    "cta/report/backtest/{POOL_run}/models/trade_filter_xxx.joblib",
+    threshold=0.55,
+    feature_provider=OnlineFeatureLoader(),    # 推理时按 vt_symbol 取该品种特征
+)
+```
+
+注意事项：
+1. 池化训练要求各 symbol 的特征列**完全一致**（来自同一份 ``prepare_master_feature_frame``
+   + ``cta/data/feature/`` 离线 parquet schema）；缺特征的 symbol 自动跳过 + 写日志，
+   不阻塞整体。
+2. 单 symbol 任务规模不足时（如 day interval RB0 仅 ~150 笔候选）才推荐池化；
+   分钟级单品种已有足够样本时不必。
+3. ``--pool`` 与 ``--top-n-symbols`` 配合使用；只用 ``--symbol RB0`` 加 ``--pool``
+   退化为单品种（与不加 ``--pool`` 等价但路径多一层 ``POOL`` 目录）。
 
 ### 4.3 离线评估结果快速查看
 
@@ -242,10 +300,42 @@ column -t -s, "$LATEST_RUN/$(ls $LATEST_RUN | grep _metrics.csv | head -n 1)"
 
 - **Brooks v3**：``runner.py --model <path>``（见 5.3 第二条）。runner 内部加载 ``.ubj`` →
   在 ``BrooksV3LiveStrategy.on_bar`` 中调用模型 ``predict_proba`` 过滤候选 → 触发下单。
-- **Baseline 三件套**（Donchian / ATR / BreakoutPullback）：当前 ``model_pipeline`` 训的
-  ``trade_filter`` 模型默认仅用于离线评估；要在回测中应用，需要在 ``baseline_skill_suite``
-  跑出的 raw ``trade_log`` 上按模型概率过滤后重算 PnL（写一个一次性脚本或扩展
-  ``baseline_skill_suite`` 接收 ``--trade-filter-model`` 参数后再跑）。
+- **Baseline 三件套 / TightRange**（Donchian / ATR / BreakoutPullback / TightRange）：
+  通过 ``cta.live.model_filter.make_trade_filter`` 把 ``trade_filter`` 模型挂在 adapter 上。
+  **注意特征源**：默认 ``make_trade_filter`` 从 ``adapter._frame`` 取特征，但 ``_frame``
+  只含 baseline 内嵌的 ~30 列；``model_pipeline --generic-mode auto`` 训出的模型期待
+  ``cta/data/feature/`` 中通用特征（~400 列）。要让模型真正生效，**必须**注入
+  ``OnlineFeatureLoader`` 从离线 parquet 加载完整特征：
+
+```python
+from cta.live.model_filter import make_trade_filter
+from cta.live.online_feature import OnlineFeatureLoader
+
+loader = OnlineFeatureLoader(feature_root="cta/data/feature")
+adapter.order_filter = make_trade_filter(
+    "cta/report/backtest/20260509_RB0_60min_model_pipeline/models/trade_filter_xyz.joblib",
+    threshold=0.55,
+    feature_provider=loader,           # ← 关键：从 cta/data/feature 加载完整特征
+)
+```
+
+注意事项：
+1. ``make_trade_filter`` 自动从 sibling ``*_features.csv`` 读取特征列；如需指定路径用
+   ``feature_columns_csv=...``。
+2. 平仓单永远放行，避免持仓被锁住无法离场。
+3. ``feature_provider=None`` 时 fallback 到 ``adapter._frame.iloc[-1:]``，仅适用于
+   ``--generic-mode whitelist`` 训出的小特征模型；否则会触发"missing columns"全量降级。
+4. ``cta/data/feature/`` 是离线产出，**当日**特征要在收盘后由 ``cta.feature.run_all_features``
+   生成；实时增量计算（``cta.feature.online``）属于 P2 大改，目前未集成。
+5. 若同时使用风控（``make_risk_filter``）和模型过滤，串联挂在一个 lambda 里：
+   ```python
+   from cta.live.risk import make_risk_filter
+   rf = make_risk_filter(guard, capital=1_000_000, daily_pnl_provider=tracker.get_pnl)
+   mf = make_trade_filter(model_path, threshold=0.55, feature_provider=loader)
+   adapter.order_filter = lambda o, a: rf(o, a) and mf(o, a)
+   ```
+   仿真启动器（``run_sim``，见 §6.2）自动挂 ``risk_filter``；模型过滤需要在
+   ``run_sim`` 返回后给 ``main_engine.cta_engine.strategies[name]`` 二次包装。
 
 ### 4.5.4 单组合上线前 sanity check
 
@@ -429,30 +519,107 @@ python3 -m cta.strategy.brooks.online.runner \
 
 ### 6.2 SimNow 启动单策略（需要 `vnpy_ctp` 与仿真账号）
 
+最小可用版（不带风控、不预热历史）：
+
 ```bash
 python3 - <<'PY'
 from cta.sim.sim_runner import SimRunConfig, SimnowSetting, run_sim
-from cta.strategy.brooks.online.live_strategy import BrooksV3LiveStrategy
+from cta.strategy.cta_tight_range import SkillTightRangeBreakoutCta
 
 cfg = SimRunConfig(
-    strategy_class=BrooksV3LiveStrategy,
-    strategy_name="BrooksV3LiveRB0",
-    vt_symbol="RB0.SHFE",
-    setting={
-        "config_path": "cta/strategy/brooks/config/strategy.yaml",
-        "model_path": "none",
-        "trade_log_dir": "cta/report/live/trade_log",
-        "initial_capital": 1_000_000.0,
-    },
+    strategy_class=SkillTightRangeBreakoutCta,
+    strategy_name="TightRangeRB0",
+    vt_symbol="rb888.SHFE",
+    setting={"lookback": 10, "alpha": 1.5, "min_count": 5,
+             "trade_side_mode": "both"},
 )
-sim = SimnowSetting(
-    userid="你的SimNow账号",
-    password="你的SimNow密码",
-)
+sim = SimnowSetting(userid="你的SimNow账号", password="你的SimNow密码")
 main_engine = run_sim(cfg, sim)
-print("strategy started; keep process running")
+# 进程保活，等 SIGINT/SIGTERM 后优雅 close
+from cta.sim.sim_runner import serve_forever
+serve_forever(main_engine)
 PY
 ```
+
+### 6.2.1 推荐：完整集成（历史预热 + 风控 + Kill switch + 成交记录）
+
+```bash
+python3 - <<'PY'
+from cta.live.kill_switch import KillSwitch
+from cta.live.risk import (DailyLossLimit, MaxOrderSize, MaxPositionLimit,
+                           OrderRateLimit, RiskGuard)
+from cta.sim.sim_runner import SimRunConfig, SimnowSetting, run_sim
+from cta.strategy.cta_tight_range import SkillTightRangeBreakoutCta
+
+guard = RiskGuard(rules=[
+    MaxOrderSize(limits={"rb888.SHFE": 5}),
+    MaxPositionLimit(limits={"rb888.SHFE": 10}),
+    DailyLossLimit(max_loss=50_000),    # 自动从 PnlTracker 取当日已实现 PnL
+    OrderRateLimit(max_per_second=3),
+])
+ks = KillSwitch(signal_file="cta/report/live/kill_switch.signal")
+
+cfg = SimRunConfig(
+    strategy_class=SkillTightRangeBreakoutCta,
+    strategy_name="TightRangeRB0",
+    vt_symbol="rb888.SHFE",
+    setting={"lookback": 10, "alpha": 1.5, "min_count": 5,
+             "trade_side_mode": "both",
+             # multiplier / tick_size 留空 → run_sim 自动从 cta_engine.get_size /
+             # get_pricetick 读真实合约元数据
+             "commission_rate": 0.0001, "slippage_ticks": 1.5},
+    # 历史预热：策略启动时往回拉 10 天 1min K 线灌进 buffer，让特征算稳
+    warmup_days=10,
+    warmup_interval="1m",
+    # 集成
+    risk_guard=guard,
+    kill_switch=ks,
+    capital=1_000_000.0,
+    contract_size_resolver=lambda vt: {"rb888.SHFE": 10}.get(vt, 1),
+    commission_resolver=lambda vt, p, v: p * v * 1e-4,   # 万 1
+    trade_recorder_dir="cta/report/live/trade_log",       # 自动每笔 trade 落 parquet
+)
+sim = SimnowSetting(userid="你的SimNow账号", password="你的SimNow密码")
+main_engine = run_sim(cfg, sim)
+
+# 进程保活：阻塞直到收到 SIGINT/SIGTERM，然后优雅 close
+from cta.sim.sim_runner import serve_forever
+serve_forever(main_engine)
+PY
+```
+
+`run_sim` 内部自动完成：
+- 在 ``cta_engine.classes`` 注册策略类，再用字符串类名调 ``add_strategy``（与 vnpy
+  真实接口一致；之前直接传 class object 在生产会静默失败）
+- 调 `strategy.load_bar(warmup_days, warmup_interval)` 灌历史
+- 创建 `DailyPnlTracker`（``auto_reset_on_new_day=True``，跨日成交自动清零累计 PnL，
+  防 ``DailyLossLimit`` 漂移）并挂到 `strategy.pnl_tracker`，作为 `DailyLossLimit` 的数据源
+- 把 `RiskGuard` + `KillSwitchRule` 合并成 `make_risk_filter(...)` 挂到 `strategy.order_filter`
+- 创建 `TradeRecorder` 挂到 `strategy.trade_recorder`，每笔成交自动 append + 停止时 flush parquet
+- 不再立刻退出：调用方应紧跟 ``serve_forever(main_engine)`` 阻塞主线程
+
+### 6.3 多策略 / 多 symbol 同时启动（共享一个 main_engine）
+
+```bash
+python3 - <<'PY'
+from cta.sim.sim_runner import SimRunConfig, SimnowSetting, run_sim
+from cta.strategy.cta_baseline import DonchianCta
+from cta.strategy.cta_tight_range import SkillTightRangeBreakoutCta
+
+sim = SimnowSetting(userid="...", password="...")
+main_engine = None
+for cfg in [
+    SimRunConfig(SkillTightRangeBreakoutCta, "TightRB", "rb888.SHFE", {}, warmup_days=10),
+    SimRunConfig(DonchianCta, "DonchHC", "hc888.SHFE", {"trade_side_mode":"both"}, warmup_days=10),
+]:
+    main_engine = run_sim(cfg, sim, main_engine_factory=(lambda: main_engine) if main_engine else None)
+print("two strategies running on same main_engine")
+PY
+```
+
+> 注意：vnpy 的 `run_sim` 默认每次 new 一个 MainEngine；要在同一个进程里复用，需要把
+> 已创建的 main_engine 通过 `main_engine_factory` 注入（如示例）。生产环境建议用
+> 单独脚本封装，不要混在一行 lambda 里。
 
 ---
 
@@ -471,44 +638,90 @@ echo "manual_emergency_stop" > cta/report/live/kill_switch.signal
 rm -f cta/report/live/kill_switch.signal
 ```
 
-### 7.2 每日对账报告（live vs backtest）
+### 7.2 每日对账报告（live vs backtest，自动一键）
+
+`cta.live.parity_helper` 自动从 ``TradeRecorder`` 输出的成交流水重建 trade_log/equity，
+并用同一份策略对当日 K 线**重跑回测**生成 backtest 侧 trade_log，最后调用
+``write_daily_report`` 输出 markdown 对账（含 parity 失配率）：
 
 ```bash
 python3 - <<'PY'
 import pandas as pd
 from cta.live.daily_report import write_daily_report
+from cta.live.parity_helper import (
+    backtest_on_same_bars, recorder_to_parity_inputs,
+)
+from cta.live.trade_recorder import TradeRecorder
+from cta.strategy.cta_tight_range import SkillTightRangeBreakoutCta
 
-live_trade_log = pd.read_parquet("cta/report/live/trade_log/RB0_SHFE_live.parquet")
-live_equity = pd.read_csv("cta/report/live/equity.csv")["equity"]
-dates = pd.to_datetime(pd.read_csv("cta/report/live/equity.csv")["datetime"])
-backtest_trade_log = pd.read_parquet("cta/strategy/brooks/report/<ts>/per_run/RB0_SHFE/trades.parquet")
+# 1. 还原一个 TradeRecorder 视图（成交流水落盘后再装载）
+trades = pd.read_parquet("cta/report/live/trade_log/trades_rb888_SHFE_*.parquet")
+recorder = TradeRecorder(out_dir=".", vt_symbol="rb888.SHFE")
+recorder._rows = trades.to_dict(orient="records")  # 直接灌入
+
+# 2. 同 K 线下用同一份策略类重跑回测，得到回测侧 trade_log
+bars = pd.read_csv("cta/data/origin/day/RB0.csv", encoding="utf-8-sig")
+bt_tl = backtest_on_same_bars(
+    strategy_class=SkillTightRangeBreakoutCta,
+    vt_symbol="rb888.SHFE",
+    setting={"lookback": 10, "alpha": 1.5, "min_count": 5,
+             "trade_side_mode": "both",
+             "multiplier": 10.0, "tick_size": 1.0,
+             "commission_rate": 0.0001, "slippage_ticks": 1.5},
+    bars=bars,
+)
+
+# 3. 把实盘流水转换为 trade_log + equity + dates，喂给 daily_report
+live_tl, live_eq, dates = recorder_to_parity_inputs(
+    recorder, bar_dates=pd.to_datetime(bars["datetime"]),
+    multiplier=10.0, commission=0.5,
+)
 
 res = write_daily_report(
-    live_trade_log=live_trade_log,
-    live_equity=live_equity,
+    live_trade_log=live_tl,
+    live_equity=live_eq,
     dates=dates,
     out_dir="cta/report/live/daily",
-    title="RB0 Daily Reconcile",
-    backtest_trade_log=backtest_trade_log,
+    title=f"RB0 Daily Reconcile {pd.Timestamp.now().date()}",
+    backtest_trade_log=bt_tl,
 )
-print(res.report_path)
+print(res.report_path, "parity_mismatch_rate=", res.parity_mismatch_rate)
 PY
 ```
 
-### 7.3 连接守护（Supervisor）示例
+> Parity 失配率 ``> 5%`` 应触发告警；常见原因是滑点 / 撮合规则差异，
+> 在 ``backtest_on_same_bars(engine_cfg=EngineConfig(slippage_ticks=...))`` 里调整对齐。
+
+### 7.3 连接守护（Supervisor）
 
 ```bash
 python3 - <<'PY'
 import threading
 from cta.live.supervisor import Supervisor
+from cta.sim.sim_runner import SimRunConfig, SimnowSetting, run_sim
+from cta.strategy.cta_tight_range import SkillTightRangeBreakoutCta
 
-# 这里假设你已持有一个已启动的 main_engine 对象
-# sup = Supervisor(main_engine, gateway_name="CTP", connect_setting=sim_setting, check_interval=10.0)
-# stop = threading.Event()
-# sup.loop(stop)
-print("see cta/live/supervisor.py for integration template")
+sim = SimnowSetting(userid="...", password="...")
+cfg = SimRunConfig(SkillTightRangeBreakoutCta, "RB", "rb888.SHFE", {}, warmup_days=10)
+main_engine = run_sim(cfg, sim)
+
+sup = Supervisor(
+    main_engine, gateway_name="CTP",
+    connect_setting=sim.to_vnpy(),
+    check_interval=10.0,           # 10 秒一次心跳
+    max_reconnects=100,            # 防雪崩
+)
+stop = threading.Event()
+try:
+    sup.loop(stop)
+except KeyboardInterrupt:
+    stop.set()
+    main_engine.close()
 PY
 ```
+
+每次断线（gateway.connected=False 或 query_account 抛错）``Supervisor`` 自动重连，
+日志写在 vnpy loguru 中；超过 ``max_reconnects`` 次数后返回 ``give_up`` 不再尝试。
 
 ---
 

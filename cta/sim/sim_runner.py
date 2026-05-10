@@ -146,9 +146,16 @@ def run_sim(
     if hasattr(cta_engine, "init_engine"):
         cta_engine.init_engine()  # 加载本地策略 / 持仓 / 数据；fake 中可空实现
 
-    cta_engine.add_strategy(
-        cfg.strategy_class, cfg.strategy_name, cfg.vt_symbol, dict(cfg.setting or {})
-    )
+    # vnpy_ctastrategy.CtaEngine.add_strategy 第一参数是**字符串类名**，从 self.classes
+    # 查类。先把策略类注册到 classes 字典，再用字符串名调用，与真实环境一致。
+    class_name = cfg.strategy_class.__name__
+    classes_dict = getattr(cta_engine, "classes", None)
+    if isinstance(classes_dict, dict):
+        classes_dict[class_name] = cfg.strategy_class
+        cta_engine.add_strategy(class_name, cfg.strategy_name, cfg.vt_symbol, dict(cfg.setting or {}))
+    else:
+        # cta_engine 没有 classes 字典：按 class object 调用（兼容简单 fake）
+        cta_engine.add_strategy(cfg.strategy_class, cfg.strategy_name, cfg.vt_symbol, dict(cfg.setting or {}))
 
     # 取出 strategy 实例（vnpy 真实实现把它放在 cta_engine.strategies dict 中）
     strategies_attr = getattr(cta_engine, "strategies", None)
@@ -224,4 +231,52 @@ def _warmup_strategy(strategy: Any, cfg: SimRunConfig) -> None:
         logger.warning("warmup load_bar failed: %s", e)
 
 
-__all__ = ["SIMNOW_DEFAULT", "SimnowSetting", "SimRunConfig", "run_sim"]
+def serve_forever(
+    main_engine: Any,
+    *,
+    stop_event: Any | None = None,
+    install_signal_handlers: bool = True,
+    on_stop: Callable[[], None] | None = None,
+) -> None:
+    """阻塞主线程直到收到 SIGINT/SIGTERM（或外部 stop_event 被 set），然后关闭
+    ``main_engine``。生产化的 sim / 实盘进程应在 ``run_sim(...)`` 之后调它来保活。
+
+    Parameters
+    ----------
+    main_engine
+        ``run_sim`` 返回值。
+    stop_event
+        ``threading.Event``；若不传内部自建一个。测试时可显式注入并预 ``set()``。
+    install_signal_handlers
+        生产环境 True，单测设 False 避免污染 pytest 的信号注册。
+    on_stop
+        可选 hook：在 ``main_engine.close()`` **之前**调用，用于持久化数据 / 发送告警。
+    """
+    import signal as _signal
+    import threading
+
+    stop = stop_event if stop_event is not None else threading.Event()
+    if install_signal_handlers:
+        def _handle(signum, frame):  # noqa: ARG001
+            stop.set()
+        try:
+            _signal.signal(_signal.SIGINT, _handle)
+            _signal.signal(_signal.SIGTERM, _handle)
+        except (ValueError, OSError):  # pragma: no cover - 非主线程注册失败
+            pass
+
+    stop.wait()
+
+    if on_stop is not None:
+        try:
+            on_stop()
+        except Exception as e:  # noqa: BLE001
+            logger.exception("on_stop hook error: %s", e)
+
+    try:
+        main_engine.close()
+    except Exception as e:  # noqa: BLE001
+        logger.exception("main_engine.close error: %s", e)
+
+
+__all__ = ["SIMNOW_DEFAULT", "SimnowSetting", "SimRunConfig", "run_sim", "serve_forever"]

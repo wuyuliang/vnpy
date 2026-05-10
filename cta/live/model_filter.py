@@ -74,8 +74,18 @@ def make_trade_filter(
     feature_columns_csv: str | None = None,
     threshold: float = 0.5,
     proba_index: int = 1,
+    feature_provider: Callable[[Any, list[str]], pd.DataFrame | None] | None = None,
 ) -> Callable[[dict, Any], bool]:
-    """加载 trade_filter 模型并返回 ``adapter.order_filter`` 兼容的 callable。"""
+    """加载 trade_filter 模型并返回 ``adapter.order_filter`` 兼容的 callable。
+
+    Parameters
+    ----------
+    feature_provider
+        可选；签名 ``(adapter, columns) -> pd.DataFrame | None``。传入时**优先**使用
+        provider 输出的特征向量（生产路径，覆盖完整 ~400 列），失败时回退到
+        ``adapter._frame.iloc[-1:]`` 的 baseline 子集。常用 ``OnlineFeatureLoader``
+        实例（见 ``cta.live.online_feature``）。
+    """
     model = _load_model(model_path)
     fc = feature_columns_csv or _resolve_features_csv(model_path)
     if not Path(fc).exists():
@@ -95,23 +105,36 @@ def make_trade_filter(
         else:
             logger.info(msg)
 
+    def _extract_features(adapter: Any) -> pd.DataFrame | None:
+        # 1) 优先用 feature_provider（线上推荐路径）
+        if feature_provider is not None:
+            try:
+                df = feature_provider(adapter, list(columns))
+                if df is not None and len(df) > 0:
+                    return df
+            except Exception as e:  # noqa: BLE001
+                _log(adapter, f"model_filter: feature_provider error {e}; fallback to _frame")
+        # 2) fallback: adapter._frame 最后一行
+        frame = getattr(adapter, "_frame", None)
+        if frame is None or len(frame) == 0:
+            _log(adapter, "model_filter: no frame (warmup); allowing pass-through")
+            return None
+        try:
+            return frame.iloc[-1:].reindex(columns=columns)
+        except KeyError as e:
+            _log(adapter, f"model_filter: missing column {e}; allow")
+            return None
+
     def _filter(order: dict, adapter: Any) -> bool:
         side = str(order.get("side", "")).lower()
         if side == "flat":
             return True
-        frame = getattr(adapter, "_frame", None)
-        if frame is None or len(frame) == 0:
-            _log(adapter, "model_filter: no frame (warmup); allowing pass-through")
+        X = _extract_features(adapter)
+        if X is None:
             return True
-        try:
-            row = frame.iloc[-1:]
-            X = row.reindex(columns=columns)
-            if X.isna().any().any():
-                missing = [c for c in columns if c not in row.columns or row[c].isna().all()]
-                _log(adapter, f"model_filter: missing/null columns {missing[:5]}; allow")
-                return True
-        except KeyError as e:
-            _log(adapter, f"model_filter: missing column {e}; allow")
+        if X.isna().any().any():
+            missing = [c for c in columns if c in X.columns and X[c].isna().all()]
+            _log(adapter, f"model_filter: missing/null columns {missing[:5]}; allow")
             return True
         try:
             prob = float(model.predict_proba(X)[:, pi][0])

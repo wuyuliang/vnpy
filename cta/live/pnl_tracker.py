@@ -14,6 +14,8 @@
 - ``contract_size_resolver(vt_symbol)`` 返回该合约 multiplier；默认 1.0（股票场景）
 - ``commission_resolver(vt_symbol, price, volume)`` 返回单边成本；默认 0
 - ``reset_for_new_day(date)`` 清零累计 PnL（持仓队列保留，跨日不平仓）
+- 默认 ``auto_reset_on_new_day=True``：``on_trade`` 检测到 ``trade.datetime.date()``
+  跨过当前 ``_date`` 时自动 ``reset_for_new_day``，避免 ``DailyLossLimit`` 跨日漂移
 """
 from __future__ import annotations
 
@@ -28,6 +30,7 @@ class DailyPnlTracker:
         *,
         contract_size_resolver: Callable[[str], float] | None = None,
         commission_resolver: Callable[[str, float, float], float] | None = None,
+        auto_reset_on_new_day: bool = True,
     ) -> None:
         self._size_of: Callable[[str], float] = contract_size_resolver or (lambda s: 1.0)
         self._commission_of: Callable[[str, float, float], float] = (
@@ -39,6 +42,7 @@ class DailyPnlTracker:
         )
         self._realized_pnl: float = 0.0
         self._date: date | None = None
+        self._auto_reset: bool = bool(auto_reset_on_new_day)
 
     def _vt_symbol(self, trade: Any) -> str:
         sym = getattr(trade, "symbol", "")
@@ -54,6 +58,16 @@ class DailyPnlTracker:
         volume = float(getattr(trade, "volume", 0.0) or 0.0)
         if volume <= 0:
             return
+
+        # 跨日自动 reset：第一笔成交记录基线日期；新成交日期变化时清零累计 PnL
+        if self._auto_reset:
+            tdt = getattr(trade, "datetime", None)
+            tdate = tdt.date() if hasattr(tdt, "date") else None
+            if tdate is not None:
+                if self._date is None:
+                    self._date = tdate
+                elif tdate != self._date:
+                    self.reset_for_new_day(tdate)
 
         size = float(self._size_of(vt))
         comm = float(self._commission_of(vt, price, volume))

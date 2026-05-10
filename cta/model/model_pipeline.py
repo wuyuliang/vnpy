@@ -758,6 +758,59 @@ def _build_walk_forward_windows(
     ]
 
 
+def _build_pooled_feature_df(
+    pool_symbols: Sequence[tuple[str, str | None]],
+    *,
+    interval: str,
+    start_date: str,
+    end_date: str,
+    trade_side_mode: str,
+    synthetic_periods: int,
+    feature_root: Path,
+    generic_columns: Any,
+) -> pd.DataFrame:
+    """把多个 (symbol, exchange) 各自的候选 + 特征样本拼接为一个共享训练集。
+
+    每个 symbol 单独失败（无数据 / IO 错误）只写日志、跳过；返回的 DataFrame
+    含 ``symbol`` 列以保留来源，按 ``datetime`` 排序后供 walk-forward 切分。
+    """
+    interval_norm = normalize_interval(interval)
+    parts: list[pd.DataFrame] = []
+    for sym, ex in pool_symbols:
+        sym_norm = str(sym).upper()
+        try:
+            cand_df, _ex = _build_candidate_table(
+                symbol=sym_norm,
+                exchange=ex,
+                interval=interval_norm,
+                start_date=start_date,
+                end_date=end_date,
+                trade_side_mode=trade_side_mode,
+                synthetic_periods=synthetic_periods,
+            )
+            cand_df = _ensure_training_columns(cand_df)
+            feat_df = build_training_feature_table(
+                candidate_df=cand_df,
+                symbol=sym_norm,
+                interval=interval_norm,
+                feature_root=feature_root,
+                generic_columns=generic_columns,
+            )
+            feat_df = _ensure_training_columns(feat_df)
+            feat_df = feat_df.copy()
+            feat_df["symbol"] = sym_norm
+            parts.append(feat_df)
+        except Exception:  # noqa: BLE001
+            logger.exception("pool: build feature table failed for %s; skipping", sym_norm)
+            continue
+    if not parts:
+        return pd.DataFrame()
+    pooled = pd.concat(parts, axis=0, ignore_index=True)
+    if "datetime" in pooled.columns:
+        pooled = pooled.sort_values("datetime").reset_index(drop=True)
+    return pooled
+
+
 def _build_candidate_table(
     symbol: str,
     exchange: str | None,
@@ -940,45 +993,72 @@ def run_model_pipeline(
     max_walk_forward_windows: int = 3,
     window_mode: WindowMode = "expanding",
     generic_mode: GenericMode = "auto",
+    pool_symbols: Sequence[tuple[str, str | None]] | None = None,
 ) -> ModelPipelineResult:
     """Run full candidate->feature->model pipeline.
 
     G1: ``generic_mode`` 控制 generic 特征拼接策略：
       - ``"auto"`` (默认): 拼上磁盘 parquet 上**所有数值列**（~400 个特征）
       - ``"whitelist"``: 仅 18 列 ``DEFAULT_GENERIC_COLUMNS`` 历史白名单
+
+    Pool mode：传入 ``pool_symbols=[(sym, ex), ...]`` 时，把多 symbol 的样本拼成
+    一个共享训练集训出**单个跨品种模型**（输出目录用 ``POOL`` 替代单品种代码）。
+    适合 day 等单品种样本不足的 interval。``symbol`` / ``exchange`` 参数在 pool
+    模式下被忽略。
     """
     run_date = pd.Timestamp.now().strftime("%Y%m%d")
-    sym = str(symbol).upper()
+    is_pool = bool(pool_symbols)
+    sym = "POOL" if is_pool else str(symbol).upper()
     interval_norm = normalize_interval(interval)
     root = output_root or DEFAULT_REPORT_ROOT
     out_dir = root / f"{run_date}_{sym}_{interval_norm}_{trade_side_mode}_model_pipeline"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    candidate_df, ex = _build_candidate_table(
-        symbol=sym,
-        exchange=exchange,
-        interval=interval_norm,
-        start_date=start_date,
-        end_date=end_date,
-        trade_side_mode=trade_side_mode,
-        synthetic_periods=synthetic_periods,
-    )
-    candidate_df = _ensure_training_columns(candidate_df)
-    candidate_path = out_dir / f"{run_date}_{sym}_{interval_norm}_{trade_side_mode}_candidates.csv"
-    candidate_df.to_csv(candidate_path, index=False, encoding="utf-8-sig")
+    if is_pool:
+        feature_df = _build_pooled_feature_df(
+            pool_symbols=list(pool_symbols),
+            interval=interval_norm,
+            start_date=start_date,
+            end_date=end_date,
+            trade_side_mode=trade_side_mode,
+            synthetic_periods=synthetic_periods,
+            feature_root=feature_root,
+            generic_columns=_resolve_generic_columns(generic_mode),
+        )
+        candidate_df = feature_df.copy()
+        ex = ""
+        # 落盘 pool 包含哪些 symbol，便于复现；以 pool_members.csv 替代 candidates.csv
+        pool_meta = pd.DataFrame(
+            [{"symbol": s, "exchange": e or ""} for s, e in pool_symbols]
+        )
+        candidate_path = out_dir / f"{run_date}_POOL_{interval_norm}_{trade_side_mode}_pool_members.csv"
+        pool_meta.to_csv(candidate_path, index=False, encoding="utf-8-sig")
+    else:
+        candidate_df, ex = _build_candidate_table(
+            symbol=sym,
+            exchange=exchange,
+            interval=interval_norm,
+            start_date=start_date,
+            end_date=end_date,
+            trade_side_mode=trade_side_mode,
+            synthetic_periods=synthetic_periods,
+        )
+        candidate_df = _ensure_training_columns(candidate_df)
+        candidate_path = out_dir / f"{run_date}_{sym}_{interval_norm}_{trade_side_mode}_candidates.csv"
+        candidate_df.to_csv(candidate_path, index=False, encoding="utf-8-sig")
 
-    feature_df = build_training_feature_table(
-        candidate_df=candidate_df,
-        symbol=sym,
-        interval=interval_norm,
-        feature_root=feature_root,
-        # G1: 透传 generic 拼接策略；默认 "auto" 把所有 generic 数值列带进训练。
-        generic_columns=_resolve_generic_columns(generic_mode),
-    )
-    # B10 note: _ensure_training_columns 是幂等的；这里第二次调用是为了把
-    # generic 特征 merge 后可能出现的 dtype/NaN 漂移再统一收敛一次，确保
-    # 后续 walk-forward 看到的 schema 与 candidate_df 完全一致。
-    feature_df = _ensure_training_columns(feature_df)
+        feature_df = build_training_feature_table(
+            candidate_df=candidate_df,
+            symbol=sym,
+            interval=interval_norm,
+            feature_root=feature_root,
+            # G1: 透传 generic 拼接策略；默认 "auto" 把所有 generic 数值列带进训练。
+            generic_columns=_resolve_generic_columns(generic_mode),
+        )
+        # B10 note: _ensure_training_columns 是幂等的；这里第二次调用是为了把
+        # generic 特征 merge 后可能出现的 dtype/NaN 漂移再统一收敛一次，确保
+        # 后续 walk-forward 看到的 schema 与 candidate_df 完全一致。
+        feature_df = _ensure_training_columns(feature_df)
 
     # 丢弃 ATR warmup 期样本（atr14 不足导致 mfe/mae 归一化不可靠）。
     warmed_mask = feature_df["atr_warmed"].astype(int) == 1
@@ -1551,6 +1631,15 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "cta/data/feature 里预先算好的全部 ~400 个通用特征。"
         ),
     )
+    parser.add_argument(
+        "--pool",
+        action="store_true",
+        help=(
+            "把 --top-n-symbols / --symbol 给定的多个品种**池化**成一个共享样本，"
+            "训出一个跨品种的模型（输出目录 ..._POOL_..._model_pipeline）。"
+            "适合 day 等单品种样本不足的 interval。"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -1573,6 +1662,41 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     else:
         symbols_to_run = [(str(args.symbol).upper(), str(args.exchange).upper() if args.exchange else None)]
+
+    if bool(getattr(args, "pool", False)):
+        # 池化模式：把所有 symbol 一次性拼成共享训练集，跨 interval 各训一个 POOL 模型
+        logger.info(
+            "POOL mode: training a single shared model across %d symbols: %s",
+            len(symbols_to_run), [s for s, _ in symbols_to_run],
+        )
+        for interval in intervals:
+            try:
+                res = run_model_pipeline(
+                    symbol="POOL",
+                    exchange=None,
+                    interval=interval,
+                    start_date=args.start,
+                    end_date=args.end,
+                    trade_side_mode=args.trade_side_mode,
+                    train_end=args.train_end,
+                    valid_end=args.valid_end,
+                    output_root=output_root,
+                    synthetic_periods=args.synthetic_periods,
+                    by_signal_type=bool(args.by_signal_type),
+                    max_walk_forward_windows=int(args.max_walk_forward_windows),
+                    window_mode=str(args.window_mode),
+                    generic_mode=str(args.generic_mode),
+                    pool_symbols=symbols_to_run,
+                )
+            except Exception:
+                logger.exception("POOL pipeline failed for interval=%s", interval)
+                continue
+            logger.info("[POOL][%s] report: %s", interval, res.report_path)
+            logger.info("[POOL][%s] predictions: %s", interval, res.prediction_path)
+            logger.info("[POOL][%s] metrics: %s", interval, res.metrics_path)
+            logger.info("[POOL][%s] top10 feature importance: %s",
+                        interval, res.top_feature_importance_path)
+        return
 
     for sidx, (symbol, exchange_from_rank) in enumerate(symbols_to_run, start=1):
         # D1 fix：靠 helper 把"ranking 提供 vs CLI 提供"的优先级显式化，

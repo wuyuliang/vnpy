@@ -85,6 +85,41 @@ class TestDailyPnlTracker(unittest.TestCase):
         self.assertTrue(callable(cb))
         self.assertEqual(cb(), 0.0)
 
+    def test_auto_reset_on_new_day(self) -> None:
+        """跨交易日时已实现 PnL 自动归零（默认开启）。"""
+        t = DailyPnlTracker(contract_size_resolver=lambda s: 10.0)
+        # day 1 实现 50 PnL
+        t.on_trade(_trade("long",  "open",  100.0, 1, dt=datetime(2024, 1, 2, 9, 30)))
+        t.on_trade(_trade("short", "close", 105.0, 1, dt=datetime(2024, 1, 2, 14, 30)))
+        self.assertAlmostEqual(t.get_pnl(), 50.0)
+        # day 2 第一笔成交：应触发 reset，PnL 从 0 重新计
+        t.on_trade(_trade("long",  "open",  110.0, 1, dt=datetime(2024, 1, 3, 9, 30)))
+        self.assertEqual(t.get_pnl(), 0.0)
+        t.on_trade(_trade("short", "close", 108.0, 1, dt=datetime(2024, 1, 3, 14, 30)))
+        # gross = (108-110)*1*10 = -20
+        self.assertAlmostEqual(t.get_pnl(), -20.0)
+
+    def test_auto_reset_can_be_disabled(self) -> None:
+        t = DailyPnlTracker(
+            contract_size_resolver=lambda s: 10.0,
+            auto_reset_on_new_day=False,
+        )
+        t.on_trade(_trade("long",  "open",  100.0, 1, dt=datetime(2024, 1, 2, 9, 30)))
+        t.on_trade(_trade("short", "close", 105.0, 1, dt=datetime(2024, 1, 2, 14, 30)))
+        # 跨日后再开仓不 reset；已实现 PnL 仍为 50
+        t.on_trade(_trade("long",  "open",  110.0, 1, dt=datetime(2024, 1, 3, 9, 30)))
+        self.assertAlmostEqual(t.get_pnl(), 50.0)
+
+    def test_auto_reset_keeps_open_positions(self) -> None:
+        """跨日 reset 只清 PnL；隔夜持仓 FIFO 队列保留。"""
+        t = DailyPnlTracker(contract_size_resolver=lambda s: 10.0)
+        # day 1 仅开仓不平仓（持仓过夜）
+        t.on_trade(_trade("long", "open", 100.0, 1, dt=datetime(2024, 1, 2, 14, 30)))
+        # day 2 用昨日持仓平仓：reset PnL 后正确累加新一天的 PnL
+        t.on_trade(_trade("short", "close", 110.0, 1, dt=datetime(2024, 1, 3, 9, 30)))
+        # day-2 PnL = (110-100)*1*10 = 100
+        self.assertAlmostEqual(t.get_pnl(), 100.0)
+
 
 if __name__ == "__main__":
     unittest.main()

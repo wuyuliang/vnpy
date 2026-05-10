@@ -12,6 +12,265 @@
 
 ---
 
+## 2026-05-10 (日) · feature · 多 symbol 池化训练（解决 day interval 单品种样本不足）
+
+### 任务
+
+针对 day 等低频 interval 单品种候选样本仅 ~100-200 笔的统计不足问题，加一个"多
+symbol 池化"训练模式：把多个品种的候选+特征样本拼接成一个共享训练集，训出**单个**
+跨品种模型；推理时仍按 vt_symbol 取该品种特征。
+
+### 范围（代码）
+
+- ``cta/model/model_pipeline.py``：
+  - 新增 ``_build_pooled_feature_df(pool_symbols, ...)`` helper：循环每个 (symbol,
+    exchange) 调既有 ``_build_candidate_table`` + ``build_training_feature_table`` →
+    加 ``symbol`` 列保留来源 → concat 按 datetime 排序。单 symbol 失败只跳过不阻塞。
+  - ``run_model_pipeline`` 新增可选 ``pool_symbols`` 参数。传入时：
+    - 输出目录前缀改为 ``POOL`` 替代单品种代码
+    - 跳过单 symbol candidate 加载，改用池化 helper
+    - 落盘 ``pool_members.csv`` 记录参与品种，便于复现
+    - 训练 / walk-forward / 报告生成等下游逻辑**零改动**
+  - CLI 新增 ``--pool`` flag：与 ``--top-n-symbols`` / ``--symbol`` 配合，把多品种
+    一次性池化成共享模型而非循环各自训。
+- ``cta/model/tests/test_pool_training.py``：4 例新单测覆盖
+  - ``_build_pooled_feature_df`` 多 symbol concat + symbol 列追加
+  - 单 symbol 失败时整体不阻塞、跳过该品种继续
+  - ``run_model_pipeline(pool_symbols=...)`` 输出目录用 POOL
+  - CLI ``--pool`` flag 把 top-N 视为池化训练（仅 1 次 run_model_pipeline 调用）
+
+### 应用方式
+
+训练完的 POOL 模型可被任意 symbol 复用，``make_trade_filter`` 推理路径不变：
+
+```python
+adapter.order_filter = make_trade_filter(
+    "cta/report/backtest/{POOL_run}/models/trade_filter_xxx.joblib",
+    threshold=0.55,
+    feature_provider=OnlineFeatureLoader(),  # 按 adapter.vt_symbol 取该品种特征
+)
+```
+
+### 验证
+
+```bash
+cd /Users/wuyuliang/code/vnpy
+python3 -m pytest cta -q --ignore=cta/feature --ignore=cta/data
+# 545 passed, 12 subtests in ~3min
+```
+
+新增测试：
+
+```bash
+python3 -m pytest cta/model/tests/test_pool_training.py -q
+# 4 passed
+```
+
+### 设计权衡
+
+- 改动最小：不动训练阶段（trade_filter / regime / mfe_mae 三个模型类）、不动
+  walk-forward 切分、不动报告生成；只在 feature_df 进入训练之前加 1 个 helper
+  和 1 条 if 分支
+- 不改 CLI 现有参数语义：``--pool`` 是 opt-in flag；不加时行为完全不变
+- ``symbol`` 列保留来源便于事后做"分品种 OOT 分析"，但训练时是共享样本
+
+### run.md 更新
+
+- §4.2.1 新增"多 symbol 池化训练"章节，含 ``--pool`` 用法 + 输出目录约定 +
+  ``make_trade_filter + OnlineFeatureLoader`` 跨品种推理示例
+
+---
+
+## 2026-05-10 (日) · feature · 第二轮断层 review：vnpy 真实兼容 + 模型完整特征 + 进程保活 + 跨日 reset
+
+### 任务
+
+接续上午第一轮 13 处断层修复后再次 review，发现 4 处更深层断层会让仿真/实盘
+**端到端跑不通**，本次全部修复。
+
+### 范围（代码）
+
+**R — sim_runner 真实 vnpy 兼容**
+
+vnpy 真实 ``CtaEngine.add_strategy(class_name: str, ...)`` 第一参数必须是**字符串**，
+通过 ``self.classes.get(class_name)`` 取类对象；第一参数传 class object 会静默失败
+（仅 ``write_log("找不到策略类")``）。
+
+- ``cta/sim/sim_runner.py``：在调 ``add_strategy`` 前先 ``cta_engine.classes[ClassName]
+  = StrategyClass``，再用 ``ClassName`` 字符串调用 ``add_strategy``
+- ``cta/sim/tests/test_sim_runner.py``：``FakeCtaEngine`` 加 ``classes`` 字典 + 兼容
+  string/class 两种调用方式；新增 ``TestVnpyCompatibility`` 2 例：
+  - ``test_registers_class_in_classes_dict`` — sim_runner 必须注册类
+  - ``test_strategy_added_under_class_name_string`` — 模拟严格 string-only fake，验证
+    sim_runner 不再传 class object
+
+**W — DailyPnlTracker 跨日自动 reset**
+
+之前 PnL 永远累计，跨日后 ``DailyLossLimit`` 拿到的是累计而非"当日"亏损，会漂移。
+
+- ``cta/live/pnl_tracker.py``：``DailyPnlTracker`` 新增 ``auto_reset_on_new_day=True``，
+  ``on_trade`` 检测 ``trade.datetime.date() != self._date`` 时自动 ``reset_for_new_day``，
+  保留隔夜 FIFO 持仓队列、只清零当日 PnL
+- ``cta/live/tests/test_pnl_tracker.py``：3 例新单测（自动 reset / 手动关闭 / 隔夜持仓保留）
+
+**V — sim_runner.serve_forever 进程保活**
+
+``run_sim`` 返回后进程立刻退出，``run.md §6.2`` 的 ``print("keep running")`` 实际不阻塞，
+SimNow 启动后秒退。
+
+- ``cta/sim/sim_runner.py``：新增 ``serve_forever(main_engine, *, stop_event=None,
+  install_signal_handlers=True, on_stop=None)``，注册 SIGINT/SIGTERM handler，
+  阻塞主线程直到信号 / 外部 ``stop_event``，然后调 ``on_stop()`` + ``main_engine.close()``
+  （即使 ``close`` 抛错也不向上传）
+- 2 例新单测：``test_blocks_until_stop_event``、``test_close_called_even_on_exception``
+
+**N + O — OnlineFeatureLoader：模型过滤的真实特征源**
+
+``make_trade_filter`` 默认从 ``adapter._frame`` 取特征，但 ``_frame`` 只含 baseline 内嵌
+~30 列；``model_pipeline --generic-mode auto`` 训出的模型期待 ``cta/data/feature/`` 中
+~400 列完整特征。直接用 ``_frame`` 触发"missing columns"全量降级 → **模型形同虚设**。
+
+- ``cta/live/online_feature.py``（新模块）：``OnlineFeatureLoader`` 从
+  ``cta/data/feature/{interval}/{prefix}/{YYYY-MM-DD}.parquet``（日线则 ``day/{symbol}.parquet``）
+  按时间戳定位特征行；LRU 缓存最近 8 个 parquet 文件；``__call__(adapter, columns)`` 接口
+  直接作为 ``model_filter`` 的 ``feature_provider``
+- ``cta/live/model_filter.py``：``make_trade_filter`` 新增 ``feature_provider`` 参数，
+  优先从 provider 取特征，失败/None 时 fallback 到 ``adapter._frame.iloc[-1:]``
+- 6 + 1 例新单测（loader 5 + provider 1 + model_filter 不破）
+
+### 验证
+
+```bash
+cd /Users/wuyuliang/code/vnpy
+python3 -m pytest cta -q --ignore=cta/feature --ignore=cta/data
+# 541 passed, 12 subtests in ~3min
+```
+
+新增模块单跑：
+
+```bash
+python3 -m pytest cta/live/tests/test_online_feature.py \
+    cta/live/tests/test_pnl_tracker.py \
+    cta/sim/tests/test_sim_runner.py -q
+# ~37 passed
+```
+
+**run.md 更新**
+
+- §4.5.3 baseline 三件套接入模型时**强制**指定 ``feature_provider=OnlineFeatureLoader(...)``，
+  否则会因特征不全降级；并明确 ``cta/data/feature/`` 是 T+1 离线产出，当日实时
+  增量特征属于 P2 ``cta.feature.online``
+- §6.2 / §6.2.1 SimNow 启动模板加 ``serve_forever(main_engine)`` 保活，
+  说明 ``run_sim`` 内部已按 vnpy 真实接口注册 class_name + 跨日自动 reset PnL
+
+### 仍然存在的中间断层（不在本次范围）
+
+- **E** 实时增量特征引擎 ``cta.feature.online``：当日特征不依赖 T+1 离线 parquet
+- **F** 多 symbol 自动 scanner 服务（定时扫 ranking 启动新策略）
+- **G** systemd / supervisor.conf 进程级守护模板
+- **运维**：webhook 告警、对账定时（cron 每日收盘后跑 daily_report）
+
+---
+
+## 2026-05-10 (日) · feature · 中间断层补齐：仿真↔实盘端到端可用
+
+### 任务
+
+针对从研究到仿真/实盘的"中间断层"做系统性 review，识别 13 处 gap（D/I/J/K + A/C/L/M
++ E/F/G/H + 运维），按 P0/P1/P2 分级修复。本次完成 **P0 全部 + P1 主要 + P2-H**。
+
+### 范围（代码）
+
+**P0（端到端可用）**
+
+- `cta/live/trade_recorder.py` —— `TradeRecorder` 实盘成交流水落 parquet，
+  `to_trade_log(multiplier, commission)` 配对成回测格式 trade_log，可直接喂
+  `daily_report` / `parity_check`。4 例单测。
+- `cta/live/pnl_tracker.py` —— `DailyPnlTracker` FIFO 配对累计已实现 PnL，
+  `get_pnl` 即风控 `daily_pnl_provider`，让 `DailyLossLimit` 真正生效。8 例单测。
+- `cta/strategy/cta_adapter.py` —— `LegacyCtaAdapter` 重载 `on_trade`，把成交事件
+  转发给 `trade_recorder` + `pnl_tracker`；`on_stop` 自动 flush recorder。
+  +5 例单测（共 20 例）。
+- `cta/sim/sim_runner.py` —— `SimRunConfig` 新增字段：
+  - `warmup_days` / `warmup_interval`：启动后调 `strategy.load_bar` 预热历史
+  - `risk_guard` / `kill_switch` / `capital` / `contract_size_resolver` /
+    `commission_resolver`：自动构造 `DailyPnlTracker` + `make_risk_filter` 挂到
+    `strategy.order_filter`，并把 `KillSwitchRule` 合并进 `RiskGuard`
+  - `trade_recorder_dir`：自动创建 `TradeRecorder` 挂到 `strategy.trade_recorder`
+  - `enable_pnl_tracker`：默认 True，确保 `DailyLossLimit` 数据源可用
+  +5 例集成测试。
+- `cta/strategy/cta_baseline.py` / `cta/strategy/cta_tight_range.py` ——
+  `_build_contract` 改为**优先**从 `cta_engine.get_pricetick / get_size` 读真实合约
+  元数据（之前 bug 是默认值非 0 永远不会查询 engine）；查询失败回退 setting 字段。
+  4 例新单测。
+
+**P1（模型应用 / 一致性校验）**
+
+- `cta/live/model_filter.py` —— `make_trade_filter(model_path, threshold=0.55)`
+  加载 `model_pipeline` 训出的 trade_filter 模型（joblib + 兜底 pickle），从 sibling
+  `*_features.csv` 读特征列，在 `adapter._frame.iloc[-1:]` 上 predict_proba，
+  `< threshold` 时拒绝下单。**平仓订单永远放行**避免持仓被锁。warmup 期间无 frame 时
+  不拦截 + 写日志。6 例单测。
+- `cta/live/parity_helper.py`：
+  - `trade_log_to_equity(tl, n_bars)`：在 exit_i 累加 net_pnl 形成对齐 equity
+  - `recorder_to_parity_inputs(recorder, bar_dates, ...)`：`TradeRecorder` 流水 →
+    `(trade_log, equity, dates)`，可直接喂 `write_daily_report`
+  - `backtest_on_same_bars(strategy_class, vt_symbol, setting, bars)`：用同 K 线
+    重跑回测，输出 backtest 侧 trade_log 给 `parity_check` / `daily_report`
+  3 例单测。
+
+**run.md 更新**
+
+- §4.5.3 baseline 三件套从"需要写一次性脚本"改为直接挂 `make_trade_filter`，给出
+  风控+模型 filter 串联示例
+- §6.2.1 SimNow **完整集成**示例（warmup + 风控 + kill_switch + recorder + 自动合约）
+- §6.3 多策略共享 main_engine 启动模板
+- §7.2 每日对账从"假设你有 trade_log/equity"改为基于 `parity_helper` 自动重建
+- §7.3 Supervisor 真实启动模板（不再是空 stub）
+
+### 验证
+
+```bash
+cd /Users/wuyuliang/code/vnpy
+python3 -m pytest cta -q --ignore=cta/feature --ignore=cta/data
+# 528 passed, 12 subtests in ~3min
+```
+
+新增模块单跑：
+
+```bash
+python3 -m pytest cta/live/tests cta/sim/tests \
+    cta/strategy/tests/test_cta_adapter.py \
+    cta/strategy/tests/test_auto_contract.py \
+    cta/live/tests/test_parity_helper.py -q
+# ~60 passed
+```
+
+无回归。原 M1 / M2 / M3 既有测试均通过。
+
+### 仍然存在的中间断层（不在本次范围）
+
+- **E**：在线特征 pipeline 性能 — adapter 当前每 bar 重算 600 根历史的 prepare_frame，
+  对 1m 实时下大约 100-300ms/bar，1s tick 频率不可接受；如改用 `cta/feature/online.py`
+  的增量计算可降到 <10ms/bar。属于 P2 性能优化，未启动。
+- **F**：多 symbol 并行调度 — §6.3 示例展示了如何在同一进程里启动多策略，但缺少
+  统一的 "scanner" 服务（定时扫所有 ranking 品种、自动添加 / 卸载策略）。生产化时
+  需要与 vnpy `DataRecorder` / 任务队列结合。
+- **G**：systemd / supervisor.conf 守护进程模板 — 当前 `cta.live.supervisor.Supervisor`
+  只处理网关重连，进程级守护需要外层。
+- **运维**：钉钉 / 企微 / 邮件告警 webhook、对账自动定时（市场收盘后 cron 触发
+  daily_report）尚未集成。
+
+### 后续
+
+- 灰度上线前请按 §6.2.1 的完整集成模板启动，核对：
+  1. log 中能看到 `trade_recorder flushed`
+  2. `cta/report/live/trade_log/` 下出现 parquet
+  3. 触发一次超量订单或 `kill_switch.signal`，确认风控生效
+- M5 灰度参考 §7.2 每日对账，`parity_mismatch_rate < 5%` 才进入加仓阶段。
+
+---
+
 ## 2026-05-09 (六) · feature · baseline_skill_suite 增加 topN 品种 + 多 interval 批量候选
 
 ### 任务

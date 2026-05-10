@@ -27,13 +27,25 @@ class _FakeStrategy:
 
 
 class FakeCtaEngine:
+    """Fake，模拟 vnpy_ctastrategy.CtaEngine 真实接口：
+    - ``add_strategy`` 第一参数是**字符串类名**，从 ``self.classes`` 查类
+    - 兼容直接传 class object（向后兼容老测试）
+    """
+
     def __init__(self) -> None:
         self.strategies: dict[str, _FakeStrategy] = {}
+        self.classes: dict[str, type] = {}
         self.added: list[tuple[type, str, str, dict]] = []
         self.inited: list[str] = []
         self.started: list[str] = []
 
-    def add_strategy(self, cls: type, name: str, vt_symbol: str, setting: dict) -> None:
+    def add_strategy(self, class_or_name: Any, name: str, vt_symbol: str, setting: dict) -> None:
+        if isinstance(class_or_name, str):
+            cls = self.classes.get(class_or_name)
+            if cls is None:
+                raise KeyError(f"strategy class not registered: {class_or_name}")
+        else:
+            cls = class_or_name
         self.added.append((cls, name, vt_symbol, dict(setting)))
         self.strategies[name] = _FakeStrategy(name, vt_symbol)
 
@@ -144,6 +156,88 @@ class TestSimnowDefaults(unittest.TestCase):
     def test_default_addresses_present(self) -> None:
         for k in ("brokerid", "auth_code", "appid", "td_address", "md_address"):
             self.assertIn(k, SIMNOW_DEFAULT)
+
+
+class TestVnpyCompatibility(unittest.TestCase):
+    """sim_runner 必须按 vnpy 真实规范工作：先注册类，再用字符串名 add_strategy。"""
+
+    def test_registers_class_in_classes_dict(self) -> None:
+        from cta.sim.sim_runner import SimRunConfig, SimnowSetting, run_sim
+        me = FakeMainEngine()
+        cfg = SimRunConfig(
+            strategy_class=_DummyStrategyClass,
+            strategy_name="rb",
+            vt_symbol="rb888.SHFE",
+            setting={},
+        )
+        run_sim(cfg, SimnowSetting(userid="u", password="p"),
+                main_engine_factory=lambda: me)
+        # vnpy 规范：cta_engine.classes[ClassName] = StrategyClass
+        self.assertIn(_DummyStrategyClass.__name__, me.cta_engine.classes)
+        self.assertIs(me.cta_engine.classes[_DummyStrategyClass.__name__], _DummyStrategyClass)
+
+    def test_strategy_added_under_class_name_string(self) -> None:
+        """在 vnpy 真实环境下若不先注册，``self.classes.get(class_object) → None`` 静默失败；
+        sim_runner 必须用字符串 class_name 调用 add_strategy。"""
+        from cta.sim.sim_runner import SimRunConfig, SimnowSetting, run_sim
+
+        # 不预先注册 → 真实 vnpy 会拒绝；sim_runner 须自己注册
+        me = FakeMainEngine()
+        # 模拟真实 vnpy：classes 为空时不接受 class object，只接受字符串
+        original_add = me.cta_engine.add_strategy
+
+        def strict_add(class_or_name, name, vt, setting):
+            if not isinstance(class_or_name, str):
+                raise TypeError("vnpy add_strategy expects str class_name")
+            return original_add(class_or_name, name, vt, setting)
+
+        me.cta_engine.add_strategy = strict_add  # type: ignore[assignment]
+
+        cfg = SimRunConfig(
+            strategy_class=_DummyStrategyClass,
+            strategy_name="rb",
+            vt_symbol="rb888.SHFE",
+            setting={},
+        )
+        # 应当不抛错 — sim_runner 必须先注册类、再传字符串
+        run_sim(cfg, SimnowSetting(userid="u", password="p"),
+                main_engine_factory=lambda: me)
+        self.assertIn("rb", me.cta_engine.strategies)
+
+
+class TestServeForever(unittest.TestCase):
+    """``serve_forever`` 阻塞主线程直到收到外部信号；停止时 close main_engine。"""
+
+    def test_blocks_until_stop_event(self) -> None:
+        import threading
+        from cta.sim.sim_runner import serve_forever
+        me = FakeMainEngine()
+        stop = threading.Event()
+
+        def _set_stop():
+            import time
+            time.sleep(0.05)
+            stop.set()
+
+        threading.Thread(target=_set_stop).start()
+        serve_forever(me, stop_event=stop, install_signal_handlers=False)
+        self.assertTrue(me.closed)
+
+    def test_close_called_even_on_exception(self) -> None:
+        import threading
+        from cta.sim.sim_runner import serve_forever
+
+        class _RaisingEngine(FakeMainEngine):
+            def close(self):
+                self.closed = True
+                raise RuntimeError("close fail")
+
+        me = _RaisingEngine()
+        stop = threading.Event()
+        stop.set()
+        # 不应抛出，函数内部应吞 close 异常
+        serve_forever(me, stop_event=stop, install_signal_handlers=False)
+        self.assertTrue(me.closed)
 
 
 class TestSimRunnerIntegration(unittest.TestCase):
