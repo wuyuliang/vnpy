@@ -1,0 +1,4 @@
+2026-05-14 22:41:50,419 [INFO] __main__: model_pipeline: seeded global RNG from CTA_GLOBAL_SEED=20260514
+2026-05-14 22:41:50,430 [INFO] __main__: top-n symbol mode enabled: top_n=18 ranking_path=cta/feature/symbols_research_ranking.csv loaded=['RB0', 'HC0', 'I0', 'JM0', 'J0', 'M0', 'P0', 'Y0', 'OI0', 'MA0', 'TA0', 'EG0', 'PP0', 'L0', 'V0', 'CU0', 'AL0', 'ZN0']
+2026-05-14 22:41:50,430 [INFO] __main__: [1/18] run symbol=RB0 exchange=SHFE intervals=['day', '60min', '30min', '15min', '5min', 'min']
+2026-05-14 22:41:50,431 [INFO] __main__: [1/6] running model pipeline for symbol=RB0 interval=day

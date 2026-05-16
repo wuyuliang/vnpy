@@ -6,25 +6,33 @@
 2. 支持日线与未来分钟级数据
 3. 保持数据、策略、回测、报告分层清晰
 4. 严格控制修改范围，避免污染 vn.py 主框架
+5. 一定要防止特征穿越，标签泄露，模型过拟合。
+6. 一切情况尽量跟真实情况一样，包括手续费和滑点等。OOT，仿真环境都要跟真实环境一样成交
 
 # 硬性边界
-你只能修改以下路径：
-- `cta/**`
-- 禁止删除、移动、重命名现有非cta目录文件。
+- 你只能修改以下路径：`cta/**`，禁止删除、移动、重命名现有非cta目录文件。
 - 禁止改交易网关、主框架、数据库底层。
-- 所有新增代码优先放到 cta/strategy, cta/backtest, cta/utils, cta/config。
-- 数据只读目录：cta/data/, day/。除非我明确要求，否则不得覆盖原始数据。
-- 将来分钟级数据统一放 cta/data/minute/。
+- 所有新增代码优先放到 cta/strategy, cta/backtest, cta/utils, cta/config, cta/model, cta/skills, cta/sim, cta/run, cta/data_code等。
+- 数据只读目录：cta/data/。除非我明确要求，否则不得覆盖原始数据。
+- 保持所有文档、代码、测试之间的一致性。保持离线训练/评估，仿真，真实交易的逻辑一致性。
 
 # 目录职责
 `cta/` 目录约定如下：
 
 - `cta/data/`
-  - 数据目录，当前用于存放 CTA 研究数据，最终是每个品种一个目录，每天一个文件。
-  - 日线和分钟级数据可放在 `cta/data/day(minute,minute5,minute15,minute30,minute60等)/symbol`
-  - 特征数据统一放在 `cta/data/feature/minute(minute5,minute15,minute30,minute60等)/symbol`
+  - 数据目录，当前用于存放 CTA 研究数据，origin是原始数据，feature是通用型特征， model_feature是模型特征，最终是每个品种一个目录，每天一个文件。
+  - 日线和分钟级数据可放在 `cta/data/origin/day(minute,minute5,minute15,minute30,minute60等)/symbol`
+  - 通用型特征数据统一放在 `cta/data/feature/minute(minute5,minute15,minute30,minute60等)/symbol`
+  - 各个模型自己的独有特征数据统一放在 `cta/data/model_feature/minute(minute5,minute15,minute30,minute60等)/symbol`
   - 里面的品种子目录symbol，品种最前面两个字母，如果找不到就symbol+exchange, 其中exchange注意扩展,比如CZCE扩展CZC,ZCE等
   - 原始数据默认只读，除非我明确要求生成新文件
+
+- `cta/data_code/`
+  - 生成数据代码目录，当前用于存放 CTA 生成原始数据。
+
+- `cta/feature/`
+  - 生成模型特征相关代码
+  - 包含两部分特征，一部分是通用特征，一部分是每个模型独有特征。
 
 - `cta/strategy/`
   - 策略实现
@@ -51,7 +59,19 @@
   - 变更说明
   - 图表和结论摘要
 
-- `cta/tests/`
+- `cta/model/`
+  - 生成模型，模型训练，预估等相关代码
+
+- `cta/sim/`
+  - 接入仿真平台相关代码
+
+- `cta/live/`
+  - 实盘相关代码
+
+- `cta/run/`
+  - 批量回测与汇总
+
+- `cta/*/tests/`
   - 单元测试
   - 回归测试
   - 最小可复现实验
@@ -74,11 +94,13 @@
 - 策略逻辑、数据处理、回测逻辑必须分离
 
 ## 代码风格
+- TDD的方式，先写测试代码，再写实现代码
 - 优先写可直接运行的代码
 - 优先写小函数、少副作用
 - 每个脚本都要有 `if __name__ == "__main__":`
 - 每个关键函数要有 docstring
 - 尽量保证在 Linux 云服务器和本地电脑都能运行
+- 每个文件最开始写注释，把目标和主要过程写清楚
 
 ---
 

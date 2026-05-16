@@ -217,7 +217,13 @@ def _entry_order(
     return od
 
 
-def prepare_master_feature_frame(bars: pd.DataFrame, interval: str = "day") -> pd.DataFrame:
+def prepare_master_feature_frame(
+    bars: pd.DataFrame,
+    interval: str = "day",
+    *,
+    symbol: str | None = None,
+    pricetick: float | None = None,
+) -> pd.DataFrame:
     """Prepare one dataframe containing baseline features for all strategies."""
     out = bars.copy().reset_index(drop=True)
     if "datetime" in out.columns:
@@ -237,6 +243,37 @@ def prepare_master_feature_frame(bars: pd.DataFrame, interval: str = "day") -> p
         out["open_interest"] = 0.0
     if "turnover" not in out.columns:
         out["turnover"] = 0.0
+
+    # 涨跌停 / 一字板标记。P0.2 重写：
+    # 1) one_way_bar：(high - low) ≤ max(pricetick, 0.0005 × close)，
+    #    覆盖"严格 high==low" 与"high-low < 1 tick"两种真实数据形态；
+    # 2) limit_up/down：close 相对前收变化 ≥ cluster 涨跌停比例 - 0.1%（留 buffer
+    #    避免边界因 tick rounding 漏掉）。symbol 缺失时用 5% 保守 proxy。
+    prev_close = out["close"].shift(1)
+    close_s = out["close"].astype(float)
+    if pricetick is None or not np.isfinite(float(pricetick)) or float(pricetick) <= 0:
+        # 无显式 pricetick 时按 close 的 5bp 反推；商品最小 tick 通常 < 0.05% 价格
+        tick_ref = (close_s * 0.0005).abs()
+    else:
+        tick_ref = pd.Series(
+            np.full(len(out), float(pricetick), dtype=float),
+            index=out.index,
+        )
+    one_way = (out["high"] - out["low"]).abs() <= tick_ref
+
+    from cta.config.symbol_cluster_config import infer_symbol_limit_pct
+
+    limit_pct = float(infer_symbol_limit_pct(str(symbol) if symbol else "", default_pct=0.05))
+    # buffer 0.1%（绝对值），避免 close=prev_close*1.0399 与 limit 0.04 因 tick rounding 误差被漏掉
+    buffer_abs = 0.001
+    pct_change = (close_s / prev_close - 1.0).where(prev_close.notna())
+    limit_up = pct_change >= (limit_pct - buffer_abs)
+    limit_down = pct_change <= -(limit_pct - buffer_abs)
+    # 注意：close 触达涨跌停时不要求 one_way，因为很多一字板在 9:00 集合竞价后
+    # 当天仍有少量成交，high>low 但 close 与开盘一致 — 模型仍需识别为风险。
+    out["is_one_way_bar"] = one_way.astype(int)
+    out["is_limit_up_close"] = limit_up.fillna(False).astype(int)
+    out["is_limit_down_close"] = limit_down.fillna(False).astype(int)
 
     out["atr14"] = _compute_atr14(out)
 
@@ -691,6 +728,87 @@ def _resolve_candidate_entry(
     return False, float("nan"), float("nan")
 
 
+def _simulate_candidate_execution_path(
+    frame: pd.DataFrame,
+    *,
+    entry_i: int,
+    horizon_i: int,
+    side: str,
+    entry_price: float,
+    atr_v: float,
+    stop_loss_pct: float,
+) -> dict[str, Any]:
+    """Simulate candidate execution with stop-aware path (no lookahead order ambiguity)."""
+    seg = frame.iloc[entry_i : horizon_i + 1]
+    if seg.empty or not np.isfinite(entry_price):
+        return {
+            "exit_i": horizon_i,
+            "exit_price": float("nan"),
+            "mfe_atr": float("nan"),
+            "mae_atr": float("nan"),
+            "pnl_atr": float("nan"),
+            "stop_hit": False,
+        }
+
+    side_l = str(side).strip().lower()
+    stop_pct = max(0.0, float(stop_loss_pct))
+    if side_l == "short":
+        stop_price = entry_price * (1.0 + stop_pct)
+    else:
+        stop_price = entry_price * (1.0 - stop_pct)
+
+    actual_exit_i = int(horizon_i)
+    exit_price = _safe_float(seg.iloc[-1].get("close", np.nan))
+    stop_hit = False
+
+    for j in range(entry_i, horizon_i + 1):
+        row = frame.iloc[j]
+        bar_open = _safe_float(row.get("open", np.nan))
+        bar_high = _safe_float(row.get("high", np.nan))
+        bar_low = _safe_float(row.get("low", np.nan))
+        if side_l == "short":
+            if np.isfinite(bar_high) and bar_high >= stop_price:
+                stop_hit = True
+                actual_exit_i = j
+                exit_price = max(stop_price, bar_open) if np.isfinite(bar_open) else stop_price
+                break
+        else:
+            if np.isfinite(bar_low) and bar_low <= stop_price:
+                stop_hit = True
+                actual_exit_i = j
+                exit_price = min(stop_price, bar_open) if np.isfinite(bar_open) else stop_price
+                break
+
+    exec_seg = frame.iloc[entry_i : actual_exit_i + 1]
+    seg_high = float(exec_seg["high"].astype(float).max())
+    seg_low = float(exec_seg["low"].astype(float).min())
+    if side_l == "short":
+        mfe = entry_price - seg_low
+        mae = seg_high - entry_price
+        pnl = entry_price - exit_price if np.isfinite(exit_price) else np.nan
+    else:
+        mfe = seg_high - entry_price
+        mae = entry_price - seg_low
+        pnl = exit_price - entry_price if np.isfinite(exit_price) else np.nan
+
+    if np.isfinite(atr_v) and atr_v > 0:
+        mfe_atr = float(mfe / atr_v)
+        mae_atr = float(mae / atr_v)
+        pnl_atr = float(pnl / atr_v) if np.isfinite(pnl) else float("nan")
+    else:
+        mfe_atr = float("nan")
+        mae_atr = float("nan")
+        pnl_atr = float("nan")
+    return {
+        "exit_i": int(actual_exit_i),
+        "exit_price": float(exit_price) if np.isfinite(exit_price) else float("nan"),
+        "mfe_atr": mfe_atr,
+        "mae_atr": mae_atr,
+        "pnl_atr": pnl_atr,
+        "stop_hit": bool(stop_hit),
+    }
+
+
 def _build_raw_setup_candidates(
     frame: pd.DataFrame,
     i: int,
@@ -850,6 +968,9 @@ def generate_candidate_opportunities(
     signal_type: str,
     horizon_bars: int = 20,
     trade_side_mode: str = "both",
+    # P0.5 修正：0.001 (0.1%) 过严，开仓后 1-2 根 bar 即触发止损；
+    # 1% 在 CTA 实战是常见 ATR 一倍止损的合理近似（按品种 ATR 调整）。
+    label_stop_loss_pct: float = 0.01,
     feature_columns: tuple[str, ...] = TRAINING_FEATURE_COLUMNS,
 ) -> pd.DataFrame:
     """Generate candidate opportunities from baseline signal logic.
@@ -857,7 +978,7 @@ def generate_candidate_opportunities(
     说明：
     1. 逐 bar 扫描 baseline 原始 setup，输出 filled + 未成交 + 被过滤样本。
     2. 对 stop 单按“下一根 K 线是否触发”判定，未触发记为负样本。
-    3. 以固定 horizon 计算 future MFE/MAE（ATR 归一化）；负样本默认 0。
+    3. filled 样本按“入场后逐 bar 跟踪止损”的执行路径计算标签，避免先止损后反弹被误标。
     """
     cols = [
         "symbol",
@@ -865,6 +986,7 @@ def generate_candidate_opportunities(
         "interval",
         "datetime",
         "signal_datetime",
+        "exit_datetime",
         "signal_type",
         "side",
         "order_type",
@@ -872,6 +994,7 @@ def generate_candidate_opportunities(
         "entry_i",
         "horizon_i",
         "entry_price",
+        "exit_price_ref",
         "stop_price",
         "trigger",
         "future_mfe_atr",
@@ -977,33 +1100,37 @@ def generate_candidate_opportunities(
                 atr_warmed = False
 
             if candidate_status == "filled":
-                seg = frame.iloc[entry_i : horizon_i + 1]
-                seg_high = float(seg["high"].astype(float).max())
-                seg_low = float(seg["low"].astype(float).min())
-                exit_close = _safe_float(seg.iloc[-1].get("close", np.nan))
-
-                if side == "long":
-                    mfe = seg_high - entry_price
-                    mae = entry_price - seg_low
-                    future_pnl = exit_close - entry_price if np.isfinite(exit_close) else np.nan
-                else:
-                    mfe = entry_price - seg_low
-                    mae = seg_high - entry_price
-                    future_pnl = entry_price - exit_close if np.isfinite(exit_close) else np.nan
-
-                mfe_atr = mfe / atr_v if np.isfinite(atr_v) and atr_v > 0 else np.nan
-                mae_atr = mae / atr_v if np.isfinite(atr_v) and atr_v > 0 else np.nan
+                sim = _simulate_candidate_execution_path(
+                    frame,
+                    entry_i=entry_i,
+                    horizon_i=horizon_i,
+                    side=side,
+                    entry_price=float(entry_price),
+                    atr_v=float(atr_v),
+                    stop_loss_pct=float(label_stop_loss_pct),
+                )
+                mfe_atr = _safe_float(sim.get("mfe_atr", np.nan))
+                mae_atr = _safe_float(sim.get("mae_atr", np.nan))
+                future_pnl_atr = _safe_float(sim.get("pnl_atr", np.nan))
+                exit_close = _safe_float(sim.get("exit_price", np.nan))
+                future_pnl = future_pnl_atr * atr_v if np.isfinite(future_pnl_atr) and np.isfinite(atr_v) else np.nan
+                # P0.5 修正：恢复 LABEL_THRESHOLD 阈值，过滤"边际净 PnL"过低的"勉强赢家"。
+                # 优先用 (mfe - 0.7*mae) 口径与 OOT evaluation 保持一致；
+                # 仅在 ATR 缺失时退回到 PnL 正负判定。
                 if atr_warmed and np.isfinite(mfe_atr) and np.isfinite(mae_atr):
-                    label_class = int((mfe_atr - LABEL_MAE_PENALTY * mae_atr) > LABEL_THRESHOLD)
+                    edge = float(mfe_atr) - LABEL_MAE_PENALTY * float(mae_atr)
+                    label_class = int(edge > LABEL_THRESHOLD)
+                elif atr_warmed and np.isfinite(future_pnl_atr):
+                    label_class = int(future_pnl_atr > LABEL_THRESHOLD)
                 elif np.isfinite(future_pnl):
-                    label_class = int(future_pnl > 0)
+                    label_class = int(future_pnl > 0.0)
                 else:
                     label_class = 0
             else:
-                seg = frame.iloc[entry_i : horizon_i + 1]
-                seg_high = float(seg["high"].astype(float).max())
-                seg_low = float(seg["low"].astype(float).min())
-                # 虚拟入场价兜底顺序：trigger（触发价）→ entry_bar 开盘价。
+                # P0.5: not_triggered / filtered 样本也按"虚拟入场 + 同一止损规则"做执行路径
+                # 模拟，与 filled 样本的 label 口径一致；避免一类样本反映真实执行、
+                # 另一类样本反映理想端点导致 train 集口径割裂。
+                # 虚拟入场价兜底顺序：trigger（触发价）→ entry_price → entry_bar 开盘价。
                 # ⚠️ 不能用 stop_price 兜底，stop_price 在 limit-order/ATR breakout
                 # 模式下与 trigger 不同（可能远离触发线），错用会污染未来标签。
                 hypo_entry = (
@@ -1016,31 +1143,36 @@ def generate_candidate_opportunities(
                     )
                 )
                 if np.isfinite(hypo_entry):
-                    if side == "long":
-                        mfe = seg_high - hypo_entry
-                        mae = hypo_entry - seg_low
-                        future_pnl = (
-                            _safe_float(seg.iloc[-1].get("close", np.nan)) - hypo_entry
-                        )
-                    else:
-                        mfe = hypo_entry - seg_low
-                        mae = seg_high - hypo_entry
-                        future_pnl = hypo_entry - _safe_float(
-                            seg.iloc[-1].get("close", np.nan)
-                        )
-                    mfe_atr = mfe / atr_v if np.isfinite(atr_v) and atr_v > 0 else np.nan
-                    mae_atr = mae / atr_v if np.isfinite(atr_v) and atr_v > 0 else np.nan
+                    sim = _simulate_candidate_execution_path(
+                        frame,
+                        entry_i=entry_i,
+                        horizon_i=horizon_i,
+                        side=side,
+                        entry_price=float(hypo_entry),
+                        atr_v=float(atr_v),
+                        stop_loss_pct=float(label_stop_loss_pct),
+                    )
+                    mfe_atr = _safe_float(sim.get("mfe_atr", np.nan))
+                    mae_atr = _safe_float(sim.get("mae_atr", np.nan))
+                    future_pnl_atr = _safe_float(sim.get("pnl_atr", np.nan))
+                    exit_close = _safe_float(sim.get("exit_price", np.nan))
+                    future_pnl = (
+                        future_pnl_atr * atr_v
+                        if np.isfinite(future_pnl_atr) and np.isfinite(atr_v)
+                        else np.nan
+                    )
                 else:
                     mfe_atr = np.nan
                     mae_atr = np.nan
                     future_pnl = np.nan
+                    future_pnl_atr = np.nan
+                    exit_close = _safe_float(
+                        frame.iloc[horizon_i].get("close", np.nan)
+                    ) if horizon_i < len(frame) else np.nan
+                # not_triggered / filtered 的 label_class 保留 0：
+                # 这些是"市场未触发"或"被规则过滤"的样本，本质属于"未发生交易"，
+                # 应该作为负样本，不该因为虚拟执行有理论盈利就反向贴金。
                 label_class = 0
-
-            future_pnl_atr = (
-                future_pnl / atr_v
-                if np.isfinite(future_pnl) and np.isfinite(atr_v) and atr_v > 0
-                else np.nan
-            )
 
             row: dict[str, Any] = {
                 "symbol": str(symbol).upper(),
@@ -1048,6 +1180,7 @@ def generate_candidate_opportunities(
                 "interval": str(interval),
                 "datetime": dt.iloc[entry_i] if entry_i < len(dt) else pd.NaT,
                 "signal_datetime": dt.iloc[i],
+                "exit_datetime": dt.iloc[horizon_i] if horizon_i < len(dt) else pd.NaT,
                 "signal_type": st,
                 "side": side,
                 "order_type": order_type,
@@ -1055,6 +1188,7 @@ def generate_candidate_opportunities(
                 "entry_i": entry_i,
                 "horizon_i": horizon_i,
                 "entry_price": float(entry_price) if np.isfinite(entry_price) else np.nan,
+                "exit_price_ref": float(exit_close) if np.isfinite(exit_close) else np.nan,
                 "stop_price": float(stop_price) if np.isfinite(stop_price) else np.nan,
                 # 触发价单独写出，下游 candidate_training_dataset 用作 entry_price_virtual 兜底。
                 "trigger": float(trigger) if np.isfinite(trigger) else np.nan,

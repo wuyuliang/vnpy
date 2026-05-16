@@ -57,6 +57,7 @@ logger = logging.getLogger(__name__)
 
 MODEL_FEATURE_ROOT: Path = CTA_ROOT / "data" / "model_feature"
 SYMBOLS_RANKING_PATH: Path = CTA_ROOT / "feature" / "symbols_research_ranking.csv"
+DEFAULT_MACRO_FEATURE_PATH: Path = CTA_ROOT / "data" / "feature" / "macro" / "macro_daily.parquet"
 
 # baseline candidate_status -> sample_status 映射。
 # 注意：``not_triggered``（市场未触发）与 ``blocked_by_execution``（执行规则
@@ -95,6 +96,7 @@ _CORE_COLS: tuple[str, ...] = (
     "interval",
     "timeframe",
     "datetime",
+    "candidate_trade_date",
     "signal_datetime",
     "setup_type",
     "signal_type",
@@ -111,6 +113,7 @@ _CORE_COLS: tuple[str, ...] = (
     "entry_price",
     "stop_price",
     "atr_warmed",
+    "atr_pct_at_entry",
     "label_class",
     "future_mfe_atr",
     "future_mae_atr",
@@ -136,6 +139,51 @@ _PRIMARY_KEY_COLS: tuple[str, ...] = (
     "setup_type",
     "direction",
 )
+
+
+def _load_macro_feature_table(path: Path) -> pd.DataFrame:
+    """Load macro feature table keyed by trade_date."""
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"macro feature file not found: {p}")
+    df = pd.read_parquet(p)
+    if "trade_date" in df.columns:
+        out = df.copy()
+        out["trade_date"] = pd.to_datetime(out["trade_date"], errors="coerce").dt.normalize()
+    else:
+        out = df.reset_index().rename(columns={"index": "trade_date"})
+        if "trade_date" not in out.columns:
+            raise KeyError(f"macro feature table missing trade_date: {p}")
+        out["trade_date"] = pd.to_datetime(out["trade_date"], errors="coerce").dt.normalize()
+    out = out.dropna(subset=["trade_date"]).copy()
+    keep_cols = ["trade_date"] + [c for c in out.columns if str(c).startswith("macro_")]
+    if len(keep_cols) <= 1:
+        raise ValueError(f"macro feature table has no macro_* columns: {p}")
+    out = out[keep_cols].drop_duplicates(subset=["trade_date"]).sort_values("trade_date")
+    return out.reset_index(drop=True)
+
+
+def _merge_macro_features(samples: pd.DataFrame, macro_df: pd.DataFrame) -> pd.DataFrame:
+    """Join macro features by candidate trade date."""
+    if samples.empty:
+        return samples.copy()
+    out = samples.copy()
+    if "candidate_trade_date" in out.columns:
+        out["_candidate_trade_date"] = pd.to_datetime(
+            out["candidate_trade_date"], errors="coerce"
+        ).dt.normalize()
+    elif "datetime" in out.columns:
+        out["_candidate_trade_date"] = pd.to_datetime(out["datetime"], errors="coerce").dt.normalize()
+    else:
+        return out
+    merged = out.merge(
+        macro_df,
+        left_on="_candidate_trade_date",
+        right_on="trade_date",
+        how="left",
+    )
+    merged = merged.drop(columns=["_candidate_trade_date", "trade_date"], errors="ignore")
+    return merged
 
 
 @dataclass(frozen=True)
@@ -172,7 +220,11 @@ def _load_top_n_symbols_from_ranking(
     ranking_path: Path,
     top_n: int,
 ) -> list[tuple[str, str | None]]:
-    """Load top-N symbols ordered by research_rank from ranking csv."""
+    """Load top-N symbols ordered by research_rank from ranking csv.
+
+    M2：与 model_pipeline._load_top_n_symbols_from_ranking 一致地接入
+    symbol_disable_manifest 过滤，避免持续亏损品种污染训练集。
+    """
     n = int(top_n)
     if n <= 0:
         return []
@@ -193,7 +245,7 @@ def _load_top_n_symbols_from_ranking(
     df["_rank"] = df["_rank"].fillna(np.inf)
     df = df.sort_values(["_rank"]).reset_index(drop=True)
 
-    picked: list[tuple[str, str | None]] = []
+    all_pairs: list[tuple[str, str | None]] = []
     seen: set[str] = set()
     for _, row in df.iterrows():
         sym = str(row.get("symbol", "")).strip().upper()
@@ -202,11 +254,17 @@ def _load_top_n_symbols_from_ranking(
         seen.add(sym)
         ex_raw = row.get("exchange", None)
         ex = str(ex_raw).strip().upper() if pd.notna(ex_raw) and str(ex_raw).strip() else None
-        picked.append((sym, ex))
-        if len(picked) >= n:
-            break
+        all_pairs.append((sym, ex))
+
+    from cta.config.symbol_disable import filter_out_disabled_pairs
+
+    filtered = filter_out_disabled_pairs(all_pairs)
+    picked = filtered[:n]
     if not picked:
-        raise ValueError(f"no valid symbols loaded from ranking csv: {path}")
+        raise ValueError(
+            f"no valid symbols loaded from ranking csv: {path}; "
+            f"check symbol_disable_manifest.csv if you expect more"
+        )
     return picked
 
 
@@ -400,6 +458,7 @@ def standardize_candidate_events(candidate_df: pd.DataFrame) -> pd.DataFrame:
     out = out.dropna(subset=["datetime"]).sort_values("datetime").reset_index(drop=True)
     if out.empty:
         return _empty_candidate_events_frame()
+    out["candidate_trade_date"] = out["datetime"].dt.strftime("%Y-%m-%d")
 
     if "signal_datetime" in out.columns:
         out["signal_datetime"] = pd.to_datetime(out["signal_datetime"], errors="coerce")
@@ -476,6 +535,12 @@ def standardize_candidate_events(candidate_df: pd.DataFrame) -> pd.DataFrame:
     out["entry_price"] = entry_price
     out["stop_price"] = stop_price
     out["trigger"] = trigger
+    atr_entry = _to_float_series(out, "feature_atr14")
+    if atr_entry.isna().all():
+        atr_entry = _to_float_series(out, "atr14")
+    if atr_entry.isna().all():
+        atr_entry = _to_float_series(out, "atr_14")
+    out["atr_pct_at_entry"] = (atr_entry / entry_virtual.replace(0, np.nan)).astype(float)
 
     mfe = _to_float_series(out, "future_mfe_atr")
     mae = _to_float_series(out, "future_mae_atr")
@@ -600,6 +665,8 @@ def build_and_save_candidate_training_dataset(
     feature_root: Path = FEATURE_ROOT,
     run_tag: str | None = None,
     generic_columns: Iterable[str] | None = None,
+    enable_macro_features: bool = True,
+    macro_feature_path: Path = DEFAULT_MACRO_FEATURE_PATH,
 ) -> CandidateTrainingDatasetResult:
     """Build and persist standardized candidate-events + merged training samples."""
     sym = str(symbol).upper()
@@ -623,6 +690,12 @@ def build_and_save_candidate_training_dataset(
         # C12: merge_asof 重排了行顺序，再走一次 standardize 仅用于 schema 整理；
         # 由于 candidate_id 已经存在，_build_candidate_id 不会被再次触发 → 主键稳定。
         merged = standardize_candidate_events(merged_raw)
+        if enable_macro_features:
+            try:
+                macro_df = _load_macro_feature_table(macro_feature_path)
+                merged = _merge_macro_features(merged, macro_df)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("skip macro feature join: %s", exc)
 
     candidate_events_parquet = dataset_dir / f"{tag}_{sym}_{interval_norm}_candidate_events.parquet"
     training_samples_parquet = dataset_dir / f"{tag}_{sym}_{interval_norm}_training_samples.parquet"
@@ -709,6 +782,8 @@ def generate_and_save_candidate_training_dataset(
     feature_root: Path = FEATURE_ROOT,
     run_tag: str | None = None,
     generic_columns: Iterable[str] | None = None,
+    enable_macro_features: bool = True,
+    macro_feature_path: Path = DEFAULT_MACRO_FEATURE_PATH,
 ) -> CandidateTrainingDatasetResult:
     """One-stop API: generate candidate events from baselines and persist dataset."""
     candidate_df = generate_candidate_events_from_baselines(
@@ -729,6 +804,8 @@ def generate_and_save_candidate_training_dataset(
         feature_root=feature_root,
         run_tag=run_tag,
         generic_columns=generic_columns,
+        enable_macro_features=enable_macro_features,
+        macro_feature_path=macro_feature_path,
     )
 
 
@@ -745,6 +822,8 @@ def generate_and_save_candidate_training_dataset_multi(
     feature_root: Path = FEATURE_ROOT,
     run_tag: str | None = None,
     generic_columns: Iterable[str] | None = None,
+    enable_macro_features: bool = True,
+    macro_feature_path: Path = DEFAULT_MACRO_FEATURE_PATH,
 ) -> list[CandidateTrainingDatasetResult]:
     """Run candidate dataset generation for multiple intervals."""
     interval_tuple = _normalize_intervals(intervals)
@@ -771,6 +850,8 @@ def generate_and_save_candidate_training_dataset_multi(
                 feature_root=feature_root,
                 run_tag=run_tag,
                 generic_columns=generic_columns,
+                enable_macro_features=enable_macro_features,
+                macro_feature_path=macro_feature_path,
             )
         except Exception:
             logger.exception("candidate dataset generation failed for interval=%s", interval)
@@ -814,16 +895,41 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output-root", default=str(MODEL_FEATURE_ROOT))
     parser.add_argument("--feature-root", default=str(FEATURE_ROOT))
     parser.add_argument("--signal-types", default=",".join(BASELINE_SIGNAL_TYPES))
+    parser.add_argument(
+        "--macro-feature-path",
+        default=str(DEFAULT_MACRO_FEATURE_PATH),
+        help="macro parquet path (default cta/data/feature/macro/macro_daily.parquet)",
+    )
+    parser.add_argument(
+        "--enable-macro-features",
+        dest="enable_macro_features",
+        action="store_true",
+        default=True,
+        help="join macro_* features into training samples (default: enabled)",
+    )
+    parser.add_argument(
+        "--disable-macro-features",
+        dest="enable_macro_features",
+        action="store_false",
+        help="disable macro feature join",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    # P2.2：候选样本生成是整个 model pipeline 的最上游，也需要可复现的 RNG。
+    from cta.utils.random_seed import seed_all_from_env
+
+    used_seed = seed_all_from_env("CTA_GLOBAL_SEED")
+    if used_seed is not None:
+        logger.info("candidate_training_dataset: seeded global RNG from CTA_GLOBAL_SEED=%s", used_seed)
     args = _parse_args(argv)
     intervals = _normalize_intervals(args.interval)
     signal_types = tuple(s.strip() for s in str(args.signal_types).split(",") if s.strip())
     output_root = Path(args.output_root).resolve()
     feature_root = Path(args.feature_root).resolve()
+    macro_feature_path = Path(args.macro_feature_path).resolve()
 
     top_n = int(getattr(args, "top_n_symbols", 0))
     if top_n > 0:
@@ -862,6 +968,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             run_tag=args.run_tag,
             output_root=output_root,
             feature_root=feature_root,
+            enable_macro_features=bool(args.enable_macro_features),
+            macro_feature_path=macro_feature_path,
         )
         for interval, result in zip(intervals, results):
             logger.info("[%s][%s] candidate_events: %s", symbol, interval, result.candidate_events_parquet)

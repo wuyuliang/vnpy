@@ -83,6 +83,15 @@ class SimRunConfig:
     trade_recorder_dir: str | None = None
     # —— 关闭 PnL tracker（风控需要时即便用户没显式指定，run_sim 也会挂）——
     enable_pnl_tracker: bool = True
+    # —— portfolio_logic 运行时开关（透传给策略 setting，便于仿真与离线评估口径一致）——
+    portfolio_logic_flags: dict[str, bool] | None = None
+    # —— portfolio state snapshot / idempotency （供 strategy/live 侧消费）——
+    state_snapshot_path: str | None = None
+    enable_order_idempotency: bool = False
+    order_reference_prefix: str | None = None
+    # —— 启动前持仓校对（live wrapper 会使用；sim 默认关闭）——
+    enable_broker_reconciliation: bool = False
+    broker_positions_provider: Callable[[], list[dict[str, Any]]] | None = None
 
 
 def _default_main_engine_factory():  # pragma: no cover - 实际运行才走到
@@ -150,12 +159,33 @@ def run_sim(
     # 查类。先把策略类注册到 classes 字典，再用字符串名调用，与真实环境一致。
     class_name = cfg.strategy_class.__name__
     classes_dict = getattr(cta_engine, "classes", None)
+    strategy_setting = dict(cfg.setting or {})
+    if cfg.portfolio_logic_flags:
+        strategy_setting["portfolio_logic_flags"] = dict(cfg.portfolio_logic_flags)
+        logger.info(
+            "portfolio_logic enabled flags: htf=%s ranker=%s trail=%s pyramid=%s calib=%s throttle=%s",
+            bool(cfg.portfolio_logic_flags.get("enable_htf_gate", False)),
+            bool(cfg.portfolio_logic_flags.get("enable_ranker", False)),
+            bool(cfg.portfolio_logic_flags.get("enable_trailing", False)),
+            bool(cfg.portfolio_logic_flags.get("enable_pyramid", False)),
+            bool(cfg.portfolio_logic_flags.get("enable_score_calibration", False)),
+            bool(cfg.portfolio_logic_flags.get("enable_risk_throttle", False)),
+        )
+    if cfg.state_snapshot_path:
+        strategy_setting["portfolio_state_snapshot_path"] = str(cfg.state_snapshot_path)
+    if bool(cfg.enable_order_idempotency):
+        strategy_setting["enable_order_idempotency"] = True
+        if cfg.order_reference_prefix:
+            strategy_setting["order_reference_prefix"] = str(cfg.order_reference_prefix)
+        else:
+            strategy_setting["order_reference_prefix"] = str(cfg.strategy_name)
+
     if isinstance(classes_dict, dict):
         classes_dict[class_name] = cfg.strategy_class
-        cta_engine.add_strategy(class_name, cfg.strategy_name, cfg.vt_symbol, dict(cfg.setting or {}))
+        cta_engine.add_strategy(class_name, cfg.strategy_name, cfg.vt_symbol, strategy_setting)
     else:
         # cta_engine 没有 classes 字典：按 class object 调用（兼容简单 fake）
-        cta_engine.add_strategy(cfg.strategy_class, cfg.strategy_name, cfg.vt_symbol, dict(cfg.setting or {}))
+        cta_engine.add_strategy(cfg.strategy_class, cfg.strategy_name, cfg.vt_symbol, strategy_setting)
 
     # 取出 strategy 实例（vnpy 真实实现把它放在 cta_engine.strategies dict 中）
     strategies_attr = getattr(cta_engine, "strategies", None)

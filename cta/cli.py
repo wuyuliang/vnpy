@@ -37,6 +37,7 @@ from cta.data_code import validate as V
 from cta.data_code.futures_downloader import MINUTE_INTERVALS
 from cta.run.runner import run_event_driven_backtest
 from cta.skills.data_backtest.event_driven_backtest import EngineConfig
+from cta.utils.random_seed import seed_all_from_env
 
 logger = logging.getLogger("cta.cli")
 
@@ -196,6 +197,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    used_seed = seed_all_from_env("CTA_GLOBAL_SEED")
+    if used_seed is not None:
+        logger.info("seeded global RNG from CTA_GLOBAL_SEED=%s", used_seed)
     parser = _build_parser()
     args = parser.parse_args(argv)
     if args.cmd == "backtest":

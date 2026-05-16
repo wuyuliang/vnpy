@@ -10,23 +10,183 @@ import pandas as pd
 
 from cta.model.model_pipeline import (
     MFE_MAE_KIND_SKIPPED_NO_EXEC,
+    _apply_causality_manifest_filter,
+    _auto_enrich_candidate_features_for_models,
+    _build_candidate_table,
+    _build_top_feature_concentration_alerts,
+    _build_valid_test_gap_alerts,
+    _build_symbol_cluster_sample_weight,
     _ensure_training_columns,
     _build_last_oot_decile_table,
     _build_walk_forward_windows,
+    _evaluate_oot_real_execution,
     _ensure_binary_label_diversity,
     _load_top_n_symbols_from_ranking,
     _normalize_intervals,
     _parse_args,
     _resolve_run_exchange,
+    _select_best_param_trial,
+    _filter_model_leakage_features,
     _select_feature_columns,
     _train_mfe_mae_or_skip,
+    _validate_stop_loss_pct_consistency,
     run_model_pipeline,
     run_model_pipeline_multi,
 )
+from cta.model.pipeline_oot_evaluation import _build_position_lifetime_table
+from cta.config.model_oot_eval_config import OotEvaluationConfig
+from cta.portfolio_logic.config import PortfolioLogicConfig, RiskThrottleConfig, ThrottleLevel
 from cta.model.trade_filter_model import TradeFilterModel
 
 
 class TestModelPipeline(unittest.TestCase):
+    def test_validate_stop_loss_pct_consistency_default_passes(self) -> None:
+        _validate_stop_loss_pct_consistency()
+
+    def test_validate_stop_loss_pct_consistency_raises_when_gap_too_large(self) -> None:
+        with self.assertRaises(RuntimeError):
+            _validate_stop_loss_pct_consistency(
+                oot_stop_loss_pct=0.001,
+                label_stop_loss_pct=0.02,
+            )
+
+    # ------------------ HPO: select by valid AUC + gap<=2%, OOT excluded -----
+    def test_select_best_param_trial_prefers_gap_constrained_candidate(self) -> None:
+        trials = [
+            {"name": "overfit_high_valid", "train_auc": 0.97, "valid_auc": 0.90, "oot_auc": 0.10},
+            {"name": "stable", "train_auc": 0.87, "valid_auc": 0.85, "oot_auc": 0.08},
+        ]
+        picked = _select_best_param_trial(trials, max_auc_gap=0.02)
+        self.assertEqual(str(picked["name"]), "stable")
+
+    def test_select_best_param_trial_fallbacks_to_min_gap_when_no_candidate_under_threshold(self) -> None:
+        trials = [
+            {"name": "gap_8pct", "train_auc": 0.90, "valid_auc": 0.82, "oot_auc": 0.50},
+            {"name": "gap_3pct", "train_auc": 0.86, "valid_auc": 0.83, "oot_auc": 0.10},
+            {"name": "gap_5pct", "train_auc": 0.92, "valid_auc": 0.87, "oot_auc": 0.90},
+        ]
+        picked = _select_best_param_trial(trials, max_auc_gap=0.02)
+        self.assertEqual(str(picked["name"]), "gap_3pct")
+
+    def test_select_best_param_trial_does_not_use_oot_for_selection(self) -> None:
+        trials = [
+            {"name": "best_valid_low_oot", "train_auc": 0.84, "valid_auc": 0.82, "oot_auc": 0.10},
+            {"name": "worse_valid_high_oot", "train_auc": 0.83, "valid_auc": 0.81, "oot_auc": 0.99},
+        ]
+        picked = _select_best_param_trial(trials, max_auc_gap=0.02)
+        self.assertEqual(str(picked["name"]), "best_valid_low_oot")
+
+    def test_build_candidate_table_allows_synthetic_fallback_for_missing_symbol(self) -> None:
+        df, ex = _build_candidate_table(
+            symbol="NOPE0",
+            exchange="SHFE",
+            interval="60min",
+            start_date="2018-01-01",
+            end_date="2019-12-31",
+            trade_side_mode="both",
+            synthetic_periods=120,
+            allow_synthetic_fallback=True,
+        )
+        self.assertFalse(df.empty)
+        self.assertIn("symbol", df.columns)
+        self.assertEqual(str(ex).upper(), "SHFE")
+
+    def test_build_candidate_table_disables_synthetic_fallback_when_required(self) -> None:
+        with self.assertRaises(Exception):
+            _build_candidate_table(
+                symbol="NOPE0",
+                exchange="SHFE",
+                interval="60min",
+                start_date="2018-01-01",
+                end_date="2019-12-31",
+                trade_side_mode="both",
+                synthetic_periods=120,
+                allow_synthetic_fallback=False,
+            )
+
+    def test_pool_mode_raises_when_no_real_data_symbol_available(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="cta_pool_no_real_") as td:
+            with self.assertRaises(ValueError):
+                run_model_pipeline(
+                    symbol="POOL",
+                    exchange="SHFE",
+                    interval="60min",
+                    start_date="2018-01-01",
+                    end_date="2019-12-31",
+                    output_root=Path(td),
+                    train_end="2018-12-31",
+                    valid_end="2019-06-30",
+                    synthetic_periods=120,
+                    by_signal_type=True,
+                    max_walk_forward_windows=2,
+                    pool_symbols=[("NOPE0", "SHFE"), ("NONE0", "DCE")],
+                )
+
+    def test_pool_mode_survives_when_generic_feature_dir_missing(self) -> None:
+        """缺失 cta/data/feature/<interval>/<symbol> 时，POOL 仍可退化用 candidate-only 继续。"""
+        with tempfile.TemporaryDirectory(prefix="cta_pool_missing_feat_") as td:
+            missing_feature_root = Path(td) / "feature_missing"
+            out = run_model_pipeline(
+                symbol="POOL",
+                exchange=None,
+                interval="60min",
+                start_date="2018-01-01",
+                end_date="2019-12-31",
+                output_root=Path(td),
+                feature_root=missing_feature_root,
+                train_end="2018-12-31",
+                valid_end="2019-06-30",
+                synthetic_periods=120,
+                by_signal_type=False,
+                max_walk_forward_windows=1,
+                pool_symbols=[("RB0", "SHFE")],
+                min_used_symbols=1,
+            )
+            self.assertTrue(out.report_path.exists())
+            self.assertTrue(out.feature_table_path.exists())
+            self.assertTrue(out.metrics_path.exists())
+
+    def test_pool_mode_guard_raises_when_used_symbols_below_minimum(self) -> None:
+        """P1/PL1: 防止 POOL 只有单品种却误当池化模型。"""
+        with tempfile.TemporaryDirectory(prefix="cta_pool_guard_") as td:
+            with self.assertRaises(ValueError):
+                run_model_pipeline(
+                    symbol="POOL",
+                    exchange=None,
+                    interval="60min",
+                    start_date="2018-01-01",
+                    end_date="2019-12-31",
+                    output_root=Path(td),
+                    train_end="2018-12-31",
+                    valid_end="2019-06-30",
+                    synthetic_periods=120,
+                    by_signal_type=False,
+                    max_walk_forward_windows=1,
+                    pool_symbols=[("RB0", "SHFE"), ("NOPE0", "DCE")],
+                    min_used_symbols=2,
+                )
+
+    def test_pipeline_writes_calibration_joblib_files(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="cta_calibration_") as td:
+            out = run_model_pipeline(
+                symbol="RB0",
+                exchange="SHFE",
+                interval="60min",
+                start_date="2018-01-01",
+                end_date="2019-12-31",
+                output_root=Path(td),
+                train_end="2018-12-31",
+                valid_end="2019-06-30",
+                synthetic_periods=120,
+                by_signal_type=False,
+                max_walk_forward_windows=1,
+            )
+            cal_files = sorted(out.output_dir.glob("models/*/window_*/**/*_calibration.joblib"))
+            self.assertTrue(cal_files, "expected at least one *_calibration.joblib file")
+            names = {p.name for p in cal_files}
+            self.assertIn("trade_filter_calibration.joblib", names)
+            self.assertIn("final_decision_stack_calibration.joblib", names)
+
     def test_build_last_oot_decile_table_uses_last_window_test_only(self) -> None:
         df = pd.DataFrame(
             {
@@ -86,6 +246,1089 @@ class TestModelPipeline(unittest.TestCase):
         self.assertIn("avg_return_atr", out.columns)
         self.assertIn("total_return_atr", out.columns)
 
+    def test_evaluate_oot_real_execution_numeric_correctness(self) -> None:
+        """P1: OOT 真实成交评估应按资金曲线口径得到可复核结果。"""
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2020-01-10", "2020-01-20", "2020-02-10", "2020-03-10"]),
+                "symbol": ["RB0"] * 4,
+                "exchange": ["SHFE"] * 4,
+                "interval": ["60min"] * 4,
+                "signal_type": ["tight_range_breakout"] * 4,
+                "side": ["long", "short", "long", "short"],
+                "window_id": [1, 1, 1, 1],
+                "pred_split": ["test", "test", "test", "test"],
+                "is_executed": [1, 1, 1, 1],
+                "future_mfe_atr": [2.0, 0.0, 4.0, 0.0],
+                "future_mae_atr": [1.0, 1.0, 1.0, 2.0],
+            }
+        )
+        cfg = OotEvaluationConfig(
+            use_test_split_only=True,
+            use_last_window_only=False,
+            require_executed_only=True,
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            mae_penalty=1.0,
+            initial_capital=1000.0,
+            risk_per_trade_pct=0.1,
+            max_single_loss_pct=1.0,
+            commission_pct_per_trade=0.0,
+            slippage_pct_per_trade=0.0,
+            benchmark_annual_return=0.0,
+            risk_free_annual_return=0.0,
+            annualization_factor=12.0,
+            use_portfolio_constraints=False,
+            use_intrabar_stop_tracking=False,
+            max_position_scale=1.0,
+            max_symbol_notional_pct=1.0,
+            max_concurrent_positions_per_symbol=10,
+            max_concurrent_positions_total=20,
+            # P0 fix：trade_return floor 改用 intrabar_stop_loss_pct（实际止损率），
+            # 不再误用 max_single_loss_pct（权益占比）。设到合法上限 0.10 模拟"基本无 cap"。
+            intrabar_stop_loss_pct=0.10,
+        )
+        monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+        self.assertEqual(len(trades), 4)
+        self.assertEqual(len(monthly), 3)
+        # equity path (floor=-0.10): 1000 -> 1100 -> 990 (第二笔 -0.1 未触底) -> 1287 -> 1158.3 (第四笔 -0.2 被 floor 到 -0.10)
+        self.assertAlmostEqual(float(trades["equity_before"].iloc[0]), 1000.0, places=6)
+        self.assertAlmostEqual(float(trades["equity_after"].iloc[-1]), 1158.3, places=6)
+        jan = monthly.loc[monthly["month"] == pd.Timestamp("2020-01-01")]
+        self.assertEqual(len(jan), 1)
+        self.assertEqual(int(jan["trade_count"].iloc[0]), 2)
+        self.assertEqual(int(jan["win_count"].iloc[0]), 1)
+        self.assertEqual(int(jan["loss_count"].iloc[0]), 1)
+        self.assertAlmostEqual(float(jan["monthly_return_pct"].iloc[0]), -0.01, places=6)
+        s0 = summary.iloc[0]
+        self.assertEqual(int(s0["trade_count"]), 4)
+        # gross_pnl 用未截断的 gross_ret_pct：100 - 110 + 297 - 257.4 = 29.6
+        self.assertAlmostEqual(float(s0["gross_pnl"]), 29.6, places=6)
+        # net_pnl 用截断后的 net_ret_pct (floor=-0.10)：100 - 110 + 297 - 128.7 = 158.3
+        self.assertAlmostEqual(float(s0["net_pnl"]), 158.3, places=6)
+        self.assertAlmostEqual(float(s0["total_return_pct"]), 0.1583, places=6)
+        # max_dd = 1158.3 / 1287 - 1 ≈ -0.10
+        self.assertAlmostEqual(float(s0["max_drawdown_pct"]), -0.10, places=4)
+
+    def test_evaluate_oot_real_execution_adds_position_sizing_fields(self) -> None:
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2020-01-10", "2020-01-20"]),
+                "signal_datetime": pd.to_datetime(["2020-01-09", "2020-01-19"]),
+                "exit_datetime": pd.to_datetime(["2020-01-11", "2020-01-21"]),
+                "symbol": ["RB0", "RB0"],
+                "exchange": ["SHFE", "SHFE"],
+                "interval": ["60min", "60min"],
+                "signal_type": ["donchian_breakout", "donchian_breakout"],
+                "side": ["long", "short"],
+                "pred_split": ["test", "test"],
+                "window_id": [0, 0],
+                "is_executed": [1, 1],
+                "entry_price": [100.0, 200.0],
+                "exit_price_ref": [101.0, 198.0],
+                "future_mfe_atr": [1.0, 0.0],
+                "future_mae_atr": [0.0, 1.0],
+                "pred_mae_atr": [4.0, 0.5],
+            }
+        )
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            mae_penalty=1.0,
+            initial_capital=1000.0,
+            risk_per_trade_pct=0.002,
+            max_single_loss_pct=0.002,
+            commission_pct_per_trade=0.0,
+            slippage_pct_per_trade=0.0,
+            benchmark_annual_return=0.0,
+            risk_free_annual_return=0.0,
+            annualization_factor=12.0,
+            use_position_sizing=True,
+            min_pred_mae_atr_for_sizing=0.5,
+            max_position_scale=1.0,
+            max_symbol_notional_pct=1.0,
+            max_concurrent_positions_per_symbol=10,
+            max_concurrent_positions_total=20,
+            use_portfolio_constraints=False,
+            use_intrabar_stop_tracking=False,
+            # P0 fix：该测试本意是验证 sizing 在"超紧止损"下能打满 max_position_scale。
+            # 显式设 0.001 保留旧测试意图（与新默认 0.01 的"合理止损"区分）。
+            intrabar_stop_loss_pct=0.001,
+        )
+        _monthly, _summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+        self.assertAlmostEqual(float(trades.iloc[0]["position_scale"]), 1.0, places=6)
+        self.assertAlmostEqual(float(trades.iloc[0]["max_loss_amount"]), 2.0, places=6)
+        self.assertAlmostEqual(float(trades.iloc[0]["position_notional"]), 1000.0, places=6)
+        self.assertAlmostEqual(float(trades.iloc[0]["position_qty"]), 10.0, places=6)
+        self.assertAlmostEqual(float(trades.iloc[0]["entry_amount"]), 1000.0, places=6)
+        # 买入时总持仓资金（含新开这笔）应等于当笔 notional（该用例下无并发持仓）。
+        self.assertAlmostEqual(float(trades.iloc[0]["open_notional_at_entry"]), 1000.0, places=6)
+        self.assertAlmostEqual(
+            float(trades.iloc[0]["pnl_amount"]),
+            float(trades.iloc[0]["net_pnl"]),
+            places=9,
+        )
+
+    def test_evaluate_oot_real_execution_intrabar_stop_tracking(self) -> None:
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2020-01-06 09:00:00"]),
+                "entry_datetime": pd.to_datetime(["2020-01-06 09:00:00"]),
+                "exit_datetime": pd.to_datetime(["2020-01-06 12:00:00"]),
+                "symbol": ["RB0"],
+                "exchange": ["SHFE"],
+                "interval": ["day"],
+                "signal_type": ["donchian_breakout"],
+                "side": ["long"],
+                "pred_split": ["test"],
+                "window_id": [0],
+                "is_executed": [1],
+                "entry_price": [100.0],
+                "future_mfe_atr": [5.0],
+                "future_mae_atr": [0.0],
+            }
+        )
+
+        def provider(
+            symbol: str,
+            exchange: str,
+            start_ts: pd.Timestamp,
+            end_ts: pd.Timestamp,
+            interval: str,
+        ) -> pd.DataFrame:
+            self.assertEqual(symbol, "RB0")
+            self.assertEqual(exchange, "SHFE")
+            self.assertEqual(interval, "60min")
+            return pd.DataFrame(
+                {
+                    "datetime": pd.to_datetime(
+                        [
+                            "2020-01-06 09:00:00",
+                            "2020-01-06 10:00:00",
+                            "2020-01-06 11:00:00",
+                        ]
+                    ),
+                    "open": [100.0, 99.95, 99.70],
+                    "high": [100.10, 100.00, 99.90],
+                    "low": [99.97, 99.60, 99.50],
+                    "close": [100.00, 99.80, 99.60],
+                }
+            )
+
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            mae_penalty=1.0,
+            initial_capital=1000.0,
+            risk_per_trade_pct=0.002,
+            max_single_loss_pct=0.001,
+            commission_pct_per_trade=0.0,
+            slippage_pct_per_trade=0.0,
+            use_position_sizing=False,
+            use_portfolio_constraints=False,
+            use_intrabar_stop_tracking=True,
+            intrabar_tracking_interval="60min",
+            intrabar_stop_loss_pct=0.001,
+            benchmark_annual_return=0.0,
+            risk_free_annual_return=0.0,
+            annualization_factor=12.0,
+        )
+        _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg, intrabar_bar_provider=provider)
+        self.assertEqual(int(summary.iloc[0]["trade_count"]), 1)
+        self.assertEqual(int(summary.iloc[0]["stop_loss_exit_rows"]), 1)
+        self.assertEqual(str(trades.iloc[0]["exit_reason"]), "stop_loss")
+        self.assertEqual(int(trades.iloc[0]["stop_triggered"]), 1)
+        self.assertEqual(pd.Timestamp(trades.iloc[0]["final_exit_datetime"]), pd.Timestamp("2020-01-06 10:00:00"))
+        self.assertAlmostEqual(float(trades.iloc[0]["trade_return_pct"]), -0.001, places=6)
+
+    def test_evaluate_oot_real_execution_intrabar_trailing_stop_tracking(self) -> None:
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2020-01-06 09:00:00"]),
+                "entry_datetime": pd.to_datetime(["2020-01-06 09:00:00"]),
+                "exit_datetime": pd.to_datetime(["2020-01-06 12:00:00"]),
+                "symbol": ["RB0"],
+                "exchange": ["SHFE"],
+                "interval": ["30min"],
+                "signal_type": ["donchian_breakout"],
+                "side": ["long"],
+                "pred_regime_label": ["trend_up"],
+                "pred_split": ["test"],
+                "window_id": [0],
+                "is_executed": [1],
+                "entry_price": [100.0],
+                "atr_pct_at_entry": [0.01],
+                "future_mfe_atr": [5.0],
+                "future_mae_atr": [0.0],
+            }
+        )
+
+        def provider(
+            symbol: str,
+            exchange: str,
+            start_ts: pd.Timestamp,
+            end_ts: pd.Timestamp,
+            interval: str,
+        ) -> pd.DataFrame:
+            self.assertEqual(symbol, "RB0")
+            self.assertEqual(exchange, "SHFE")
+            self.assertEqual(interval, "60min")
+            return pd.DataFrame(
+                {
+                    "datetime": pd.to_datetime(
+                        [
+                            "2020-01-06 09:00:00",
+                            "2020-01-06 10:00:00",
+                            "2020-01-06 11:00:00",
+                        ]
+                    ),
+                    "open": [100.0, 103.0, 101.5],
+                    "high": [100.0, 104.0, 102.0],
+                    "low": [100.0, 103.0, 100.5],
+                    "close": [100.0, 103.5, 101.0],
+                }
+            )
+
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            mae_penalty=1.0,
+            initial_capital=1000.0,
+            risk_per_trade_pct=0.002,
+            max_single_loss_pct=0.001,
+            commission_pct_per_trade=0.0,
+            slippage_pct_per_trade=0.0,
+            use_position_sizing=False,
+            use_portfolio_constraints=False,
+            use_intrabar_stop_tracking=True,
+            intrabar_tracking_interval="60min",
+            intrabar_stop_loss_pct=0.02,
+            use_portfolio_logic_runtime=True,
+            portfolio_logic=PortfolioLogicConfig(
+                enable_htf_gate=False,
+                enable_ranker=False,
+                enable_risk_throttle=False,
+                enable_pyramid=False,
+            ),
+            benchmark_annual_return=0.0,
+            risk_free_annual_return=0.0,
+            annualization_factor=12.0,
+        )
+        _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg, intrabar_bar_provider=provider)
+        self.assertEqual(int(summary.iloc[0]["trade_count"]), 1)
+        self.assertEqual(int(summary.iloc[0]["trailing_stop_exit_rows"]), 1)
+        self.assertEqual(str(trades.iloc[0]["exit_reason"]), "trailing_stop")
+        self.assertEqual(int(trades.iloc[0]["trailing_activated"]), 1)
+        self.assertEqual(pd.Timestamp(trades.iloc[0]["final_exit_datetime"]), pd.Timestamp("2020-01-06 11:00:00"))
+        self.assertAlmostEqual(float(trades.iloc[0]["final_exit_price"]), 101.0, places=6)
+
+    def test_evaluate_oot_real_execution_portfolio_logic_htf_blocks_conflict(self) -> None:
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-06 09:00:00", "2020-01-06 09:00:00"]),
+                "entry_datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-06 09:00:00", "2020-01-06 09:00:00"]),
+                "exit_datetime": pd.to_datetime(["2020-01-06 15:00:00", "2020-01-06 15:00:00", "2020-01-06 11:00:00"]),
+                "symbol": ["RB0", "RB0", "RB0"],
+                "exchange": ["SHFE", "SHFE", "SHFE"],
+                "interval": ["day", "60min", "30min"],
+                "signal_type": ["htf_ref", "htf_ref", "donchian_breakout"],
+                "side": ["long", "long", "short"],
+                "pred_regime_label": ["trend_up", "trend_up", "trend_up"],
+                "pred_split": ["test", "test", "test"],
+                "window_id": [0, 0, 0],
+                "is_executed": [0, 0, 1],
+                "entry_price": [100.0, 100.0, 100.0],
+                "future_mfe_atr": [0.0, 0.0, 1.0],
+                "future_mae_atr": [0.0, 0.0, 0.2],
+            }
+        )
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            require_executed_only=True,
+            use_test_split_only=True,
+            use_intrabar_stop_tracking=False,
+            use_portfolio_constraints=False,
+            use_position_sizing=False,
+            use_portfolio_logic_runtime=True,
+            portfolio_logic=PortfolioLogicConfig(
+                enable_htf_gate=True,
+                enable_ranker=False,
+                enable_risk_throttle=False,
+                enable_pyramid=False,
+            ),
+        )
+        _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+        self.assertEqual(int(summary.iloc[0]["trade_count"]), 0)
+        self.assertEqual(int(summary.iloc[0]["blocked_htf_rows"]), 1)
+        self.assertEqual(int((trades["execution_status"] == "blocked_htf_gate").sum()), 1)
+
+    def test_evaluate_oot_real_execution_portfolio_logic_htf_accepts_minute_aliases(self) -> None:
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-06 09:00:00", "2020-01-06 09:00:00"]),
+                "entry_datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-06 09:00:00", "2020-01-06 09:00:00"]),
+                "exit_datetime": pd.to_datetime(["2020-01-06 15:00:00", "2020-01-06 15:00:00", "2020-01-06 11:00:00"]),
+                "symbol": ["RB0", "RB0", "RB0"],
+                "exchange": ["SHFE", "SHFE", "SHFE"],
+                "interval": ["day", "minute60", "minute30"],
+                "signal_type": ["htf_ref", "htf_ref", "donchian_breakout"],
+                "side": ["long", "long", "long"],
+                "pred_regime_label": ["trend_up", "trend_up", "trend_up"],
+                "pred_split": ["test", "test", "test"],
+                "window_id": [0, 0, 0],
+                "is_executed": [0, 0, 1],
+                "entry_price": [100.0, 100.0, 100.0],
+                "future_mfe_atr": [0.0, 0.0, 1.0],
+                "future_mae_atr": [0.0, 0.0, 0.2],
+            }
+        )
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            require_executed_only=True,
+            use_test_split_only=True,
+            use_intrabar_stop_tracking=False,
+            use_portfolio_constraints=False,
+            use_position_sizing=False,
+            use_portfolio_logic_runtime=True,
+            portfolio_logic=PortfolioLogicConfig(
+                enable_htf_gate=True,
+                enable_ranker=False,
+                enable_risk_throttle=False,
+                enable_pyramid=False,
+            ),
+        )
+        _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+        self.assertEqual(int(summary.iloc[0]["trade_count"]), 1)
+        self.assertEqual(int(summary.iloc[0]["blocked_htf_rows"]), 0)
+        self.assertEqual(str(trades.iloc[0]["execution_status"]), "executed")
+
+    def test_evaluate_oot_real_execution_portfolio_logic_pyramid_layers(self) -> None:
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-06 10:00:00"]),
+                "entry_datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-06 10:00:00"]),
+                "exit_datetime": pd.to_datetime(["2020-01-06 15:00:00", "2020-01-06 15:00:00"]),
+                "symbol": ["RB0", "RB0"],
+                "exchange": ["SHFE", "SHFE"],
+                "interval": ["60min", "30min"],
+                "signal_type": ["donchian_breakout", "atr_breakout"],
+                "side": ["long", "long"],
+                "pred_regime_label": ["trend_up", "trend_up"],
+                "pred_split": ["test", "test"],
+                "window_id": [0, 0],
+                "is_executed": [1, 1],
+                "entry_price": [100.0, 101.0],
+                "atr_pct_at_entry": [0.01, 0.01],
+                "future_mfe_atr": [1.0, 1.0],
+                "future_mae_atr": [0.2, 0.2],
+            }
+        )
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            use_intrabar_stop_tracking=False,
+            use_portfolio_constraints=False,
+            use_position_sizing=False,
+            use_portfolio_logic_runtime=True,
+            portfolio_logic=PortfolioLogicConfig(
+                enable_htf_gate=False,
+                enable_ranker=False,
+                enable_risk_throttle=False,
+                enable_pyramid=True,
+            ),
+        )
+        _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+        self.assertEqual(int(summary.iloc[0]["trade_count"]), 2)
+        self.assertIn("pos_id", trades.columns)
+        self.assertIn("layer_id", trades.columns)
+        exec_trades = trades.loc[trades["execution_status"] == "executed"].copy()
+        self.assertEqual(len(exec_trades), 2)
+        self.assertEqual(int(exec_trades["layer_id"].min()), 0)
+        self.assertEqual(int(exec_trades["layer_id"].max()), 1)
+        self.assertEqual(exec_trades["pos_id"].nunique(), 1)
+
+    def test_evaluate_oot_real_execution_portfolio_logic_risk_throttle_halts(self) -> None:
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-06 10:00:00"]),
+                "entry_datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-06 10:00:00"]),
+                "exit_datetime": pd.to_datetime(["2020-01-06 09:30:00", "2020-01-06 10:30:00"]),
+                "symbol": ["RB0", "RB0"],
+                "exchange": ["SHFE", "SHFE"],
+                "interval": ["60min", "60min"],
+                "signal_type": ["donchian_breakout", "donchian_breakout"],
+                "side": ["long", "long"],
+                "pred_regime_label": ["trend_up", "trend_up"],
+                "pred_split": ["test", "test"],
+                "window_id": [0, 0],
+                "is_executed": [1, 1],
+                "entry_price": [100.0, 100.0],
+                "future_mfe_atr": [0.0, 0.0],
+                "future_mae_atr": [80.0, 1.0],  # first trade deep loss to trigger halt
+            }
+        )
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            use_intrabar_stop_tracking=False,
+            use_portfolio_constraints=False,
+            use_position_sizing=False,
+            max_position_scale=1.0,
+            risk_per_trade_pct=0.01,
+            initial_capital=1000.0,
+            commission_pct_per_trade=0.0,
+            slippage_pct_per_trade=0.0,
+            use_portfolio_logic_runtime=True,
+            portfolio_logic=PortfolioLogicConfig(
+                enable_htf_gate=False,
+                enable_ranker=False,
+                enable_risk_throttle=True,
+                enable_pyramid=False,
+                risk_throttle=RiskThrottleConfig(
+                    levels=(
+                        ThrottleLevel("normal", 0.0, 0.005, 1.0, 1.0, 60.0, True, 2),
+                        ThrottleLevel("halt", 0.005, 1.0, 0.0, 0.0, 100.0, False, 0),
+                    )
+                ),
+            ),
+        )
+        _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+        self.assertEqual(int(summary.iloc[0]["blocked_throttle_rows"]), 1)
+        self.assertEqual(int((trades["execution_status"] == "blocked_throttle_halt").sum()), 1)
+
+    def test_evaluate_oot_real_execution_portfolio_logic_emits_extra_outputs(self) -> None:
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-06 10:00:00"]),
+                "entry_datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-06 10:00:00"]),
+                "exit_datetime": pd.to_datetime(["2020-01-06 15:00:00", "2020-01-06 15:00:00"]),
+                "symbol": ["RB0", "RB0"],
+                "exchange": ["SHFE", "SHFE"],
+                "interval": ["60min", "30min"],
+                "signal_type": ["donchian_breakout", "atr_breakout"],
+                "side": ["long", "long"],
+                "pred_regime_label": ["trend_up", "trend_up"],
+                "pred_split": ["test", "test"],
+                "window_id": [0, 0],
+                "is_executed": [1, 1],
+                "entry_price": [100.0, 101.0],
+                "atr_pct_at_entry": [0.01, 0.01],
+                "future_mfe_atr": [1.0, 1.0],
+                "future_mae_atr": [0.2, 0.2],
+            }
+        )
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            use_intrabar_stop_tracking=False,
+            use_portfolio_constraints=False,
+            use_position_sizing=False,
+            use_portfolio_logic_runtime=True,
+            portfolio_logic=PortfolioLogicConfig(
+                enable_htf_gate=False,
+                enable_ranker=False,
+                enable_risk_throttle=True,
+                enable_pyramid=True,
+            ),
+        )
+        extra: dict[str, pd.DataFrame] = {}
+        _monthly, _summary, _trades = _evaluate_oot_real_execution(pred, cfg=cfg, extra_outputs=extra)
+        self.assertIn("throttle_log", extra)
+        self.assertIn("position_lifetime", extra)
+        self.assertFalse(extra["position_lifetime"].empty)
+        self.assertEqual(int(extra["position_lifetime"].iloc[0]["layer_count"]), 2)
+
+    def test_build_position_lifetime_table_computes_active_layers_and_peak_notional(self) -> None:
+        trade_df = pd.DataFrame(
+            {
+                "pos_id": ["p1", "p1", "p1"],
+                "symbol": ["RB0", "RB0", "RB0"],
+                "exchange": ["SHFE", "SHFE", "SHFE"],
+                "side": ["long", "long", "long"],
+                "execution_status": ["executed", "executed", "executed"],
+                "entry_datetime": pd.to_datetime(
+                    [
+                        "2024-01-02 09:00:00",
+                        "2024-01-02 10:00:00",
+                        "2024-01-02 11:30:00",
+                    ]
+                ),
+                "exit_datetime": pd.to_datetime(
+                    [
+                        "2024-01-02 11:00:00",
+                        "2024-01-02 12:00:00",
+                        "2024-01-02 13:00:00",
+                    ]
+                ),
+                "layer_id": [0, 1, 2],
+                "position_notional": [100_000.0, 50_000.0, 25_000.0],
+            }
+        )
+        out = _build_position_lifetime_table(trade_df)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(int(out.iloc[0]["layer_count"]), 3)
+        self.assertEqual(int(out.iloc[0]["max_active_layers"]), 2)
+        self.assertAlmostEqual(float(out.iloc[0]["peak_notional"]), 150_000.0, places=6)
+
+    def test_evaluate_oot_real_execution_same_bar_stop_does_not_lock_leverage(self) -> None:
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-07 09:00:00"]),
+                "entry_datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-07 09:00:00"]),
+                "exit_datetime": pd.to_datetime(["2020-01-06 12:00:00", "2020-01-07 12:00:00"]),
+                "symbol": ["RB0", "RB0"],
+                "exchange": ["SHFE", "SHFE"],
+                "interval": ["day", "day"],
+                "signal_type": ["donchian_breakout", "donchian_breakout"],
+                "side": ["long", "long"],
+                "pred_split": ["test", "test"],
+                "window_id": [0, 0],
+                "is_executed": [1, 1],
+                "entry_price": [100.0, 100.0],
+                "future_mfe_atr": [5.0, 5.0],
+                "future_mae_atr": [0.0, 0.0],
+            }
+        )
+
+        def provider(
+            symbol: str,
+            exchange: str,
+            start_ts: pd.Timestamp,
+            end_ts: pd.Timestamp,
+            interval: str,
+        ) -> pd.DataFrame:
+            self.assertEqual(symbol, "RB0")
+            self.assertEqual(exchange, "SHFE")
+            self.assertEqual(interval, "60min")
+            return pd.DataFrame(
+                {
+                    "datetime": [pd.Timestamp(start_ts)],
+                    "open": [100.0],
+                    "high": [100.1],
+                    "low": [99.8],  # long stop 99.9 hit on entry bar
+                    "close": [99.85],
+                }
+            )
+
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            mae_penalty=1.0,
+            initial_capital=1000.0,
+            risk_per_trade_pct=0.002,
+            max_single_loss_pct=0.001,
+            commission_pct_per_trade=0.0,
+            slippage_pct_per_trade=0.0,
+            use_position_sizing=False,
+            use_portfolio_constraints=True,
+            margin_rate=1.0,
+            max_total_leverage=1.0,
+            max_daily_new_notional_pct=10.0,
+            weekly_max_drawdown_pct=1.0,
+            block_new_entries_on_weekly_dd_breach=False,
+            enforce_weekly_dd_budget_on_entry=False,
+            use_intrabar_stop_tracking=True,
+            intrabar_tracking_interval="60min",
+            intrabar_stop_loss_pct=0.001,
+            benchmark_annual_return=0.0,
+            risk_free_annual_return=0.0,
+            annualization_factor=12.0,
+        )
+        _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg, intrabar_bar_provider=provider)
+        self.assertEqual(int(summary.iloc[0]["trade_count"]), 2)
+        self.assertEqual(int(summary.iloc[0]["blocked_leverage_rows"]), 0)
+        self.assertTrue((trades["execution_status"].astype(str) == "executed").all())
+
+    def test_evaluate_oot_real_execution_daily_position_cap_blocks_extra_entries(self) -> None:
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-06 14:00:00"]),
+                "exit_datetime": pd.to_datetime(["2020-01-06 11:00:00", "2020-01-06 15:00:00"]),
+                "symbol": ["RB0", "RB0"],
+                "exchange": ["SHFE", "SHFE"],
+                "interval": ["60min", "60min"],
+                "signal_type": ["atr_breakout", "atr_breakout"],
+                "side": ["long", "long"],
+                "pred_split": ["test", "test"],
+                "window_id": [0, 0],
+                "is_executed": [1, 1],
+                "entry_price": [100.0, 100.0],
+                "future_mfe_atr": [1.0, 1.0],
+                "future_mae_atr": [0.0, 0.0],
+            }
+        )
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            mae_penalty=1.0,
+            initial_capital=1000.0,
+            risk_per_trade_pct=0.01,
+            max_single_loss_pct=0.002,
+            commission_pct_per_trade=0.0,
+            slippage_pct_per_trade=0.0,
+            use_position_sizing=False,
+            max_position_scale=1.0,
+            max_symbol_notional_pct=1.0,
+            max_concurrent_positions_per_symbol=10,
+            max_concurrent_positions_total=20,
+            use_portfolio_constraints=True,
+            margin_rate=0.01,
+            max_total_leverage=10.0,
+            max_daily_new_notional_pct=1.0,
+            weekly_max_drawdown_pct=1.0,
+            enforce_weekly_dd_budget_on_entry=False,
+            block_new_entries_on_weekly_dd_breach=False,
+            benchmark_annual_return=0.0,
+            risk_free_annual_return=0.0,
+            annualization_factor=12.0,
+            use_intrabar_stop_tracking=False,
+        )
+        _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+        self.assertEqual(int(summary.iloc[0]["trade_count"]), 1)
+        self.assertEqual(int(summary.iloc[0]["selected_rows"]), 2)
+        self.assertEqual(int(summary.iloc[0]["blocked_rows"]), 1)
+        self.assertEqual(int(summary.iloc[0]["blocked_daily_position_rows"]), 1)
+        status = trades["execution_status"].astype(str).tolist()
+        self.assertIn("executed", status)
+        self.assertIn("blocked_daily_position", status)
+
+    def test_evaluate_oot_real_execution_blocks_limit_move_entries(self) -> None:
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-07 09:00:00"]),
+                "entry_datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-07 09:00:00"]),
+                "exit_datetime": pd.to_datetime(["2020-01-06 11:00:00", "2020-01-07 11:00:00"]),
+                "symbol": ["RB0", "RB0"],
+                "exchange": ["SHFE", "SHFE"],
+                "interval": ["day", "day"],
+                "signal_type": ["atr_breakout", "atr_breakout"],
+                "side": ["long", "short"],
+                "pred_split": ["test", "test"],
+                "window_id": [0, 0],
+                "is_executed": [1, 1],
+                "entry_price": [100.0, 100.0],
+                "future_mfe_atr": [1.0, 1.0],
+                "future_mae_atr": [0.0, 0.0],
+                "feature_is_limit_up_close": [1, 0],
+                "feature_is_limit_down_close": [0, 1],
+            }
+        )
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            mae_penalty=1.0,
+            initial_capital=1000.0,
+            risk_per_trade_pct=0.01,
+            max_single_loss_pct=0.002,
+            commission_pct_per_trade=0.0,
+            slippage_pct_per_trade=0.0,
+            use_position_sizing=False,
+            use_portfolio_constraints=False,
+            use_intrabar_stop_tracking=False,
+        )
+        _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+        self.assertEqual(int(summary.iloc[0]["trade_count"]), 0)
+        self.assertEqual(int(summary.iloc[0]["blocked_limit_move_rows"]), 2)
+        self.assertTrue((trades["execution_status"].astype(str) == "blocked_limit_move").all())
+
+    def test_evaluate_oot_real_execution_weekly_drawdown_budget_caps_trades(self) -> None:
+        n = 12
+        dt = pd.date_range("2020-01-06 09:00:00", periods=n, freq="8h")
+        pred = pd.DataFrame(
+            {
+                "datetime": dt,
+                "exit_datetime": dt + pd.Timedelta(hours=1),
+                "symbol": ["RB0"] * n,
+                "exchange": ["SHFE"] * n,
+                "interval": ["60min"] * n,
+                "signal_type": ["donchian_breakout"] * n,
+                "side": ["long"] * n,
+                "pred_split": ["test"] * n,
+                "window_id": [0] * n,
+                "is_executed": [1] * n,
+                "entry_price": [100.0] * n,
+                # every trade will be clipped to -0.2%
+                "future_mfe_atr": [0.0] * n,
+                "future_mae_atr": [1.0] * n,
+            }
+        )
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            mae_penalty=1.0,
+            initial_capital=1000.0,
+            risk_per_trade_pct=0.01,
+            max_single_loss_pct=0.002,
+            commission_pct_per_trade=0.0,
+            slippage_pct_per_trade=0.0,
+            use_position_sizing=False,
+            max_position_scale=1.0,
+            max_symbol_notional_pct=1.0,
+            max_concurrent_positions_per_symbol=10,
+            max_concurrent_positions_total=20,
+            use_portfolio_constraints=True,
+            margin_rate=0.01,
+            max_total_leverage=10.0,
+            max_daily_new_notional_pct=100.0,
+            weekly_max_drawdown_pct=0.02,
+            enforce_weekly_dd_budget_on_entry=True,
+            block_new_entries_on_weekly_dd_breach=True,
+            benchmark_annual_return=0.0,
+            risk_free_annual_return=0.0,
+            annualization_factor=12.0,
+            use_intrabar_stop_tracking=False,
+        )
+        _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+        # 周回撤预算应触发裁剪/阻断，最终回撤不应突破 -2%。
+        self.assertLess(int(summary.iloc[0]["trade_count"]), n)
+        weekly_blocked = int(summary.iloc[0]["blocked_weekly_budget_rows"]) + int(
+            summary.iloc[0]["blocked_weekly_drawdown_rows"]
+        )
+        self.assertGreaterEqual(weekly_blocked, 1)
+        self.assertGreaterEqual(float(summary.iloc[0]["max_drawdown_pct"]), -0.0200001)
+
+    def test_evaluate_oot_real_execution_symbol_notional_cap_blocks_second_entry(self) -> None:
+        """单 symbol 名义金额 cap 在同 symbol 连续触发信号时把后续笔卡掉。"""
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-07 09:00:00"]),
+                "exit_datetime": pd.to_datetime(["2020-01-10 15:00:00", "2020-01-10 16:00:00"]),
+                "symbol": ["RB0", "RB0"],
+                "exchange": ["SHFE", "SHFE"],
+                "interval": ["60min", "60min"],
+                "signal_type": ["atr_breakout", "atr_breakout"],
+                "side": ["long", "long"],
+                "pred_split": ["test", "test"],
+                "window_id": [0, 0],
+                "is_executed": [1, 1],
+                "entry_price": [100.0, 100.0],
+                "future_mfe_atr": [1.0, 1.0],
+                "future_mae_atr": [0.0, 0.0],
+            }
+        )
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            mae_penalty=1.0,
+            initial_capital=1000.0,
+            risk_per_trade_pct=0.01,
+            max_single_loss_pct=0.002,
+            commission_pct_per_trade=0.0,
+            slippage_pct_per_trade=0.0,
+            use_position_sizing=False,
+            max_position_scale=1.0,
+            max_symbol_notional_pct=0.30,
+            max_concurrent_positions_per_symbol=10,
+            max_concurrent_positions_total=20,
+            use_portfolio_constraints=True,
+            margin_rate=0.10,
+            max_total_leverage=10.0,
+            max_daily_new_notional_pct=10.0,
+            weekly_max_drawdown_pct=1.0,
+            enforce_weekly_dd_budget_on_entry=False,
+            block_new_entries_on_weekly_dd_breach=False,
+            benchmark_annual_return=0.0,
+            risk_free_annual_return=0.0,
+            annualization_factor=12.0,
+            use_intrabar_stop_tracking=False,
+        )
+        _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+        # 第一笔吃满单 symbol cap (=300)；第二笔触发时 sym_notional 已占满 → blocked_symbol_cap
+        self.assertGreaterEqual(int(summary.iloc[0]["blocked_symbol_cap_rows"]), 1)
+        statuses = trades["execution_status"].astype(str).tolist()
+        self.assertIn("blocked_symbol_cap", statuses)
+
+    def test_evaluate_oot_real_execution_symbol_concurrent_cap_blocks_fourth_entry(self) -> None:
+        """同 symbol 同时在仓笔数 cap：3 笔后第 4 笔阻断。"""
+        starts = pd.to_datetime([
+            "2020-01-06 09:00:00",
+            "2020-01-06 10:00:00",
+            "2020-01-06 11:00:00",
+            "2020-01-06 12:00:00",
+        ])
+        exits = pd.to_datetime([
+            "2020-01-10 09:00:00",
+            "2020-01-10 09:00:00",
+            "2020-01-10 09:00:00",
+            "2020-01-10 09:00:00",
+        ])
+        pred = pd.DataFrame(
+            {
+                "datetime": starts,
+                "exit_datetime": exits,
+                "symbol": ["RB0"] * 4,
+                "exchange": ["SHFE"] * 4,
+                "interval": ["60min"] * 4,
+                "signal_type": ["atr_breakout"] * 4,
+                "side": ["long"] * 4,
+                "pred_split": ["test"] * 4,
+                "window_id": [0] * 4,
+                "is_executed": [1] * 4,
+                "entry_price": [100.0] * 4,
+                "future_mfe_atr": [1.0] * 4,
+                "future_mae_atr": [0.0] * 4,
+            }
+        )
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            mae_penalty=1.0,
+            initial_capital=1_000_000.0,
+            risk_per_trade_pct=0.002,
+            max_single_loss_pct=0.001,
+            commission_pct_per_trade=0.0,
+            slippage_pct_per_trade=0.0,
+            use_position_sizing=False,
+            max_position_scale=0.10,
+            max_symbol_notional_pct=1.0,
+            max_concurrent_positions_per_symbol=3,
+            max_concurrent_positions_total=10,
+            use_portfolio_constraints=True,
+            margin_rate=0.10,
+            max_total_leverage=10.0,
+            max_daily_new_notional_pct=10.0,
+            weekly_max_drawdown_pct=1.0,
+            enforce_weekly_dd_budget_on_entry=False,
+            block_new_entries_on_weekly_dd_breach=False,
+            benchmark_annual_return=0.0,
+            risk_free_annual_return=0.0,
+            annualization_factor=12.0,
+            use_intrabar_stop_tracking=False,
+        )
+        _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+        self.assertEqual(int(summary.iloc[0]["blocked_symbol_concurrent_rows"]), 1)
+        statuses = trades["execution_status"].astype(str).tolist()
+        self.assertEqual(statuses.count("blocked_symbol_concurrent"), 1)
+
+    def test_evaluate_oot_real_execution_applies_roll_cost(self) -> None:
+        """P0.3: OOT 评估应扣减换月/展期成本。"""
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2020-01-02 09:00:00"]),
+                "entry_datetime": pd.to_datetime(["2020-01-02 09:00:00"]),
+                "exit_datetime": pd.to_datetime(["2020-02-01 09:00:00"]),
+                "symbol": ["RB0"],
+                "exchange": ["SHFE"],
+                "interval": ["day"],
+                "signal_type": ["tight_range_breakout"],
+                "side": ["long"],
+                "pred_split": ["test"],
+                "window_id": [0],
+                "is_executed": [1],
+                "entry_price": [100.0],
+                "future_mfe_atr": [2.0],
+                "future_mae_atr": [0.0],
+            }
+        )
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            use_intrabar_stop_tracking=False,
+            use_portfolio_constraints=False,
+            use_roll_cost=True,
+            default_roll_cost_pct_per_year=0.12,
+            initial_capital=1000.0,
+            risk_per_trade_pct=0.01,
+            max_single_loss_pct=1.0,
+            use_position_sizing=False,
+            max_position_scale=1.0,
+            commission_pct_per_trade=0.0,
+            slippage_pct_per_trade=0.0,
+            benchmark_annual_return=0.0,
+            risk_free_annual_return=0.0,
+            annualization_factor=12.0,
+        )
+        _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+        self.assertEqual(int(summary.iloc[0]["trade_count"]), 1)
+        self.assertIn("roll_cost", trades.columns)
+        self.assertIn("roll_cost_total", summary.columns)
+        self.assertAlmostEqual(float(trades.iloc[0]["gross_pnl"]), 20.0, places=6)
+        self.assertGreater(float(trades.iloc[0]["roll_cost"]), 0.0)
+        self.assertLess(float(trades.iloc[0]["net_pnl"]), 20.0)
+        self.assertAlmostEqual(
+            float(summary.iloc[0]["roll_cost_total"]),
+            float(trades.iloc[0]["roll_cost"]),
+            places=6,
+        )
+
+    def test_build_valid_test_gap_alerts_flags_only_over_threshold(self) -> None:
+        metrics = pd.DataFrame(
+            [
+                {"signal_type": "A", "window_id": 0, "model": "m", "split": "valid", "auc": 0.80},
+                {"signal_type": "A", "window_id": 0, "model": "m", "split": "test", "auc": 0.55},
+                {"signal_type": "B", "window_id": 0, "model": "m", "split": "valid", "auc": 0.62},
+                {"signal_type": "B", "window_id": 0, "model": "m", "split": "test", "auc": 0.60},
+            ]
+        )
+        out = _build_valid_test_gap_alerts(metrics, max_gap=0.10)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(str(out.iloc[0]["signal_type"]), "A")
+        self.assertAlmostEqual(float(out.iloc[0]["gap"]), 0.25, places=6)
+
+    def test_build_top_feature_concentration_alerts_flags_top1_above_threshold(self) -> None:
+        imp = pd.DataFrame(
+            [
+                {"signal_type": "A", "window_id": 0, "model": "m", "feature": "x", "importance": 0.9},
+                {"signal_type": "A", "window_id": 0, "model": "m", "feature": "y", "importance": 0.1},
+                {"signal_type": "B", "window_id": 0, "model": "m", "feature": "u", "importance": 0.4},
+                {"signal_type": "B", "window_id": 0, "model": "m", "feature": "v", "importance": 0.3},
+                {"signal_type": "B", "window_id": 0, "model": "m", "feature": "w", "importance": 0.3},
+            ]
+        )
+        out = _build_top_feature_concentration_alerts(imp, top1_thresh=0.5)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(str(out.iloc[0]["signal_type"]), "A")
+        self.assertEqual(str(out.iloc[0]["top_feature"]), "x")
+        self.assertAlmostEqual(float(out.iloc[0]["top1_pct_in_top10"]), 0.9, places=6)
+        self.assertIn("top1_pct_in_top10", out.columns)
+
+    def test_filter_model_leakage_features_blocks_centered_and_lookahead_naming(self) -> None:
+        cols = [
+            "generic_centered_ma_20",
+            "generic_rollingmax_5",
+            "feature_lookahead_score",
+            "generic_aft_high",
+            "generic_shiftneg_close",
+            "feature_breakout_score",
+        ]
+        out = _filter_model_leakage_features(cols, model_name="trade_filter")
+        self.assertNotIn("generic_centered_ma_20", out)
+        self.assertNotIn("generic_rollingmax_5", out)
+        self.assertNotIn("feature_lookahead_score", out)
+        self.assertNotIn("generic_aft_high", out)
+        self.assertNotIn("generic_shiftneg_close", out)
+        self.assertIn("feature_breakout_score", out)
+
+    def test_filter_model_leakage_features_for_regime_classifier(self) -> None:
+        cols = [
+            "feature_trend_score",
+            "feature_trend_dir",
+            "generic_auto_trend",
+            "generic_model_regime_state",
+            "feature_breakout_score",
+            "generic_auto_vol_ratio",
+        ]
+        out = _filter_model_leakage_features(cols, model_name="regime_classifier")
+        self.assertNotIn("feature_trend_score", out)
+        self.assertNotIn("feature_trend_dir", out)
+        self.assertNotIn("generic_auto_trend", out)
+        self.assertNotIn("generic_model_regime_state", out)
+        self.assertIn("feature_breakout_score", out)
+        self.assertIn("generic_auto_vol_ratio", out)
+
+    def test_filter_model_leakage_features_blocks_target_like_prefixed_columns(self) -> None:
+        cols = [
+            "generic_atr_based_target_long",
+            "generic_future_edge",
+            "feature_next_bar_gap",
+            "generic_forward_score",
+            "feature_breakout_score",
+        ]
+        out = _filter_model_leakage_features(cols, model_name="trade_filter")
+        self.assertNotIn("generic_atr_based_target_long", out)
+        self.assertNotIn("generic_future_edge", out)
+        self.assertNotIn("feature_next_bar_gap", out)
+        self.assertNotIn("generic_forward_score", out)
+        self.assertIn("feature_breakout_score", out)
+
+    def test_apply_causality_manifest_filter_blocks_noncausal_features(self) -> None:
+        """P1.5: manifest 标记为 non-causal 的特征必须被过滤。"""
+        with tempfile.TemporaryDirectory(prefix="cta_causal_manifest_") as td:
+            p = Path(td) / "causality_manifest.csv"
+            pd.DataFrame(
+                [
+                    {"feature": "feature_ok", "causal": 1},
+                    {"feature": "generic_centered_swing", "causal": 0},
+                ]
+            ).to_csv(p, index=False, encoding="utf-8-sig")
+            out = _apply_causality_manifest_filter(
+                ["feature_ok", "generic_centered_swing", "feature_unknown"],
+                manifest_path=p,
+            )
+        self.assertIn("feature_ok", out)
+        self.assertIn("feature_unknown", out)
+        self.assertNotIn("generic_centered_swing", out)
+
+    def test_build_symbol_cluster_sample_weight_compensates_dense_cluster(self) -> None:
+        """P1.2 双层加权后：cluster 内 samples 少的 symbol 权重 ≥ samples 多的同伴，
+        而单 symbol cluster 的总权重应 > 拥挤 cluster 的 symbol 权重。"""
+        df = pd.DataFrame(
+            {
+                # RB / HC 同 black cluster，但 RB 样本 2 条、HC 仅 1 条
+                # AU 独占 precious cluster（cluster=1 symbol）
+                "symbol": ["RB0", "HC0", "AU0", "RB0", "AU0"],
+                "feature_x": [1, 2, 3, 4, 5],
+            }
+        )
+        w = _build_symbol_cluster_sample_weight(df)
+        self.assertEqual(len(w), len(df))
+        rb_w = float(w.iloc[0])
+        hc_w = float(w.iloc[1])
+        au_w = float(w.iloc[2])
+        # 同 cluster 内 sample 少的 HC 应 ≥ sample 多的 RB
+        self.assertGreaterEqual(hc_w, rb_w)
+        # 单 symbol cluster (AU) 总权重应高于拥挤 cluster (RB)
+        self.assertGreater(au_w, rb_w)
+
+    def test_build_walk_forward_windows_purges_cross_boundary_exit_rows(self) -> None:
+        df = pd.DataFrame(
+            {
+                "row_id": ["drop_train", "keep_train", "drop_valid", "keep_valid", "keep_test"],
+                "datetime": pd.to_datetime(
+                    [
+                        "2020-01-01",
+                        "2020-01-03",
+                        "2020-01-05",
+                        "2020-01-07",
+                        "2020-01-09",
+                    ]
+                ),
+                "exit_datetime": pd.to_datetime(
+                    [
+                        "2020-01-06",  # cross train_end -> purge from train
+                        "2020-01-03",
+                        "2020-01-09",  # cross valid_end -> purge from valid
+                        "2020-01-07",
+                        "2020-01-10",
+                    ]
+                ),
+                "feature_x": [1.0, 2.0, 3.0, 4.0, 5.0],
+                "label_class": [1, 0, 1, 0, 1],
+                "future_mfe_atr": [1.0, 1.0, 1.0, 1.0, 1.0],
+                "future_mae_atr": [0.5, 0.5, 0.5, 0.5, 0.5],
+            }
+        )
+        wins = _build_walk_forward_windows(
+            df,
+            train_end="2020-01-04",
+            valid_end="2020-01-08",
+            max_windows=1,
+            window_mode="expanding",
+        )
+        self.assertEqual(len(wins), 1)
+        win = wins[0]
+        self.assertListEqual(win.train["row_id"].tolist(), ["keep_train"])
+        self.assertListEqual(win.valid["row_id"].tolist(), ["keep_valid"])
+        self.assertListEqual(win.test["row_id"].tolist(), ["keep_test"])
+
     def test_run_pipeline_smoke(self) -> None:
         with tempfile.TemporaryDirectory(prefix="cta_model_pipeline_") as td:
             out = run_model_pipeline(
@@ -102,13 +1345,85 @@ class TestModelPipeline(unittest.TestCase):
             self.assertTrue(out.prediction_path.exists())
             self.assertTrue(out.metrics_path.exists())
             self.assertTrue(out.top_feature_importance_path.exists())
+            self.assertTrue(out.oot_monthly_path.exists())
+            self.assertTrue(out.oot_summary_path.exists())
+            self.assertTrue(out.oot_trades_path.exists())
+            self.assertTrue(out.html_report_path.exists())
             pred = pd.read_csv(out.prediction_path)
             self.assertIn("pred_split", pred.columns)
+            metrics = pd.read_csv(out.metrics_path)
+            for col in (
+                "split_start",
+                "split_end",
+                "split_sample_count",
+                "split_executed_count",
+                "split_non_executed_count",
+                "feature_count",
+                "feature_null_ratio_mean",
+                "feature_null_ratio_max",
+                "feature_null_feature_count",
+                "feature_all_null_count",
+                "label_ic_abs_mean",
+                "regime_ic_abs_mean",
+                "return_ic_abs_mean",
+            ):
+                self.assertIn(col, metrics.columns)
             imp = pd.read_csv(out.top_feature_importance_path)
             self.assertIn("model", imp.columns)
             self.assertIn("feature", imp.columns)
             self.assertIn("importance", imp.columns)
             self.assertIn("feature_meaning", imp.columns)
+            oot_monthly = pd.read_csv(out.oot_monthly_path)
+            for col in ("month", "trade_count", "win_count", "loss_count", "monthly_return_pct", "cum_return_pct"):
+                self.assertIn(col, oot_monthly.columns)
+            oot_summary = pd.read_csv(out.oot_summary_path)
+            for col in ("trade_count", "gross_pnl", "monthly_sharpe", "max_drawdown_pct", "monthly_excess_return_pct"):
+                self.assertIn(col, oot_summary.columns)
+            self.assertIn("blocked_htf_rows", oot_summary.columns)
+            self.assertIn("blocked_ranker_rows", oot_summary.columns)
+            self.assertIn("blocked_throttle_rows", oot_summary.columns)
+            self.assertIn("blocked_pyramid_rows", oot_summary.columns)
+            self.assertIn("trailing_stop_exit_rows", oot_summary.columns)
+            oot_trades = pd.read_csv(out.oot_trades_path)
+            for col in (
+                "datetime",
+                "symbol",
+                "side",
+                "trade_return_pct",
+                "equity_before",
+                "equity_after",
+                "entry_price",
+                "exit_datetime",
+                "exit_price_ref",
+                "position_notional",
+                "position_qty",
+                "max_loss_amount",
+                "entry_amount",
+                "exit_amount",
+                "pnl_amount",
+                "pos_id",
+                "layer_id",
+                "throttle_level_at_entry",
+                "ranker_score",
+            ):
+                self.assertIn(col, oot_trades.columns)
+            throttle_logs = list(out.output_dir.glob("*_throttle_log.csv"))
+            position_lifetimes = list(out.output_dir.glob("*_oot_position_lifetime.csv"))
+            self.assertTrue(throttle_logs, "throttle_log.csv should be generated")
+            self.assertTrue(position_lifetimes, "oot_position_lifetime.csv should be generated")
+            throttle_df = pd.read_csv(throttle_logs[0])
+            for col in ("timestamp", "equity", "drawdown_pct", "level", "score_threshold"):
+                self.assertIn(col, throttle_df.columns)
+            pos_life_df = pd.read_csv(position_lifetimes[0])
+            for col in ("pos_id", "layer_count", "peak_notional"):
+                self.assertIn(col, pos_life_df.columns)
+            report_text = out.report_path.read_text(encoding="utf-8")
+            self.assertIn("## Process Steps", report_text)
+            self.assertIn("## Split Diagnostics", report_text)
+            self.assertIn("## OOT Real Execution Evaluation", report_text)
+            self.assertIn("html_report", report_text)
+            self.assertIn("oot_throttle_log_csv", report_text)
+            self.assertIn("oot_position_lifetime_csv", report_text)
 
     def test_run_pipeline_support_all_intervals(self) -> None:
         intervals = ("day", "60min", "30min", "15min", "5min", "min")
@@ -130,6 +1445,62 @@ class TestModelPipeline(unittest.TestCase):
                 self.assertTrue(out.report_path.exists())
                 self.assertTrue(out.prediction_path.exists())
                 self.assertTrue(out.metrics_path.exists())
+
+    def test_pipeline_auto_enriches_features_when_generic_dir_missing(self) -> None:
+        """当 cta/data/feature/<interval>/<symbol> 缺失时，pipeline 应自动补充
+        通用 fallback 特征和模型专用特征，不应中断训练。
+        """
+        with tempfile.TemporaryDirectory(prefix="cta_no_generic_dir_") as td:
+            out = run_model_pipeline(
+                symbol="NOPE0",
+                exchange="SHFE",
+                interval="60min",
+                start_date="2018-01-01",
+                end_date="2018-12-31",
+                output_root=Path(td),
+                train_end="2018-06-30",
+                valid_end="2018-09-30",
+                synthetic_periods=160,
+                by_signal_type=False,
+                max_walk_forward_windows=1,
+            )
+            ft = pd.read_csv(out.feature_table_path)
+            self.assertIn("generic_auto_close", ft.columns)
+            self.assertIn("generic_model_trade_setup", ft.columns)
+            self.assertIn("generic_model_regime_state", ft.columns)
+            self.assertIn("generic_model_mfe_edge", ft.columns)
+
+    def test_auto_enrich_candidate_features_numeric_correctness(self) -> None:
+        """P1: _auto_enrich_candidate_features_for_models 应产出可校验的数值。"""
+        df = pd.DataFrame(
+            {
+                "feature_open": [10.0, 5.0],
+                "feature_high": [16.0, 5.0],
+                "feature_low": [10.0, 5.0],
+                "feature_close": [14.0, 5.0],
+                "feature_volume": [100.0, 50.0],
+                "feature_atr14": [2.0, 0.0],
+                "feature_trend_score": [1.5, -1.0],
+                "feature_breakout_score": [2.0, 0.5],
+                "feature_setup_quality": [1.0, 0.2],
+                "feature_tr_range_atr": [0.5, 1.0],
+                "side": ["long", "short"],
+                "signal_type": ["tight_range_breakout", "tight_range_breakout"],
+            }
+        )
+        out = _auto_enrich_candidate_features_for_models(df, force_generic_fallback=True)
+        # row0: range=6, body=4 -> body_ratio=2/3; vol_ratio=6/2=3
+        self.assertAlmostEqual(float(out.loc[0, "generic_auto_body_ratio"]), 2.0 / 3.0, places=6)
+        self.assertAlmostEqual(float(out.loc[0, "generic_auto_vol_ratio"]), 3.0, places=6)
+        # row1: atr14=0 / range=0 时 ratio 应该被安全回填为 0
+        self.assertAlmostEqual(float(out.loc[1, "generic_auto_body_ratio"]), 0.0, places=9)
+        self.assertAlmostEqual(float(out.loc[1, "generic_auto_vol_ratio"]), 0.0, places=9)
+        # row0: regime_state = trend + 0.15*side = 1.5 + 0.15*1
+        self.assertAlmostEqual(float(out.loc[0, "generic_model_regime_state"]), 1.65, places=6)
+        # row1: mfe_edge = (0.5 + 0.4*-1 + 0.3*0.2) - 0.4*1 = -0.24
+        self.assertAlmostEqual(float(out.loc[1, "generic_model_mfe_edge"]), -0.24, places=6)
+        # row1 short: side_interaction = -0.24 * (-1) = 0.24
+        self.assertAlmostEqual(float(out.loc[1, "generic_model_mfe_side_interaction"]), 0.24, places=6)
 
     def test_run_pipeline_by_signal_type_walk_forward(self) -> None:
         with tempfile.TemporaryDirectory(prefix="cta_signal_wf_pipeline_") as td:
@@ -229,6 +1600,43 @@ class TestModelPipeline(unittest.TestCase):
             train_starts.append(train_dt.min())
         for i in range(1, len(train_starts)):
             self.assertGreater(train_starts[i], train_starts[i - 1])
+
+    def test_walk_forward_windows_rolling_mode_uses_fixed_span(self) -> None:
+        """P1.1: rolling 模式支持固定 train/valid/test 年份窗口。"""
+        n = 16 * 12
+        dt = pd.date_range("2010-01-01", periods=n, freq="MS")
+        df = pd.DataFrame(
+            {
+                "datetime": dt,
+                "exit_datetime": dt,
+                "label_class": [0, 1] * (n // 2),
+                "future_mfe_atr": np.ones(n),
+                "future_mae_atr": np.zeros(n),
+            }
+        )
+        windows = _build_walk_forward_windows(
+            df,
+            train_end="2014-12-31",
+            valid_end="2015-12-31",
+            max_windows=4,
+            window_mode="rolling",
+            rolling_train_years=3,
+            rolling_valid_years=1,
+            rolling_test_years=1,
+            rolling_step_years=1,
+        )
+        self.assertGreaterEqual(len(windows), 2)
+        for w in windows:
+            self.assertGreater(len(w.train), 0)
+            self.assertGreater(len(w.valid), 0)
+            self.assertGreater(len(w.test), 0)
+            train_span_days = (
+                pd.to_datetime(w.train["datetime"], errors="coerce").max()
+                - pd.to_datetime(w.train["datetime"], errors="coerce").min()
+            ).days
+            # 3年窗口约 1095 天，考虑月频边界留足容忍区间
+            self.assertGreaterEqual(train_span_days, 900)
+            self.assertLessEqual(train_span_days, 1300)
 
     def test_walk_forward_windows_invalid_mode_raises(self) -> None:
         df = pd.DataFrame({"datetime": pd.date_range("2020-01-01", periods=400, freq="D")})
@@ -378,6 +1786,8 @@ class TestModelPipeline(unittest.TestCase):
         """M1: 不传 --interval 时仍兼容旧默认 60min。"""
         ns = _parse_args(["--symbol", "RB0"])
         self.assertEqual(list(ns.interval), ["60min"])
+        self.assertAlmostEqual(float(ns.max_auc_gap), 0.03, places=9)
+        self.assertEqual(int(ns.min_used_symbols), 2)
 
     def test_parse_args_supports_top_n_symbols(self) -> None:
         ns = _parse_args(
@@ -385,9 +1795,11 @@ class TestModelPipeline(unittest.TestCase):
                 "--symbol", "RB0",
                 "--top-n-symbols", "5",
                 "--symbols-ranking-path", "cta/feature/symbols_research_ranking.csv",
+                "--min-used-symbols", "3",
             ]
         )
         self.assertEqual(int(ns.top_n_symbols), 5)
+        self.assertEqual(int(ns.min_used_symbols), 3)
         self.assertEqual(str(ns.symbols_ranking_path), "cta/feature/symbols_research_ranking.csv")
 
     def test_load_top_n_symbols_from_ranking_orders_by_rank(self) -> None:
@@ -743,6 +2155,235 @@ class TestModelPipeline(unittest.TestCase):
         self.assertEqual(_resolve_run_exchange("DCE", "CZCE"), "DCE")
         # 大小写归一：CLI 小写时也要 upper。
         self.assertEqual(_resolve_run_exchange(None, "czce"), "CZCE")
+
+    def test_evaluate_oot_real_execution_supports_stacking_gate_override(self) -> None:
+        """P1.3: 启用 stacking gate 后，应支持覆盖旧的三段式 AND 过滤。"""
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2020-01-10", "2020-01-11"]),
+                "symbol": ["RB0", "RB0"],
+                "exchange": ["SHFE", "SHFE"],
+                "interval": ["60min", "60min"],
+                "signal_type": ["donchian_breakout", "donchian_breakout"],
+                "side": ["long", "long"],
+                "window_id": [1, 1],
+                "pred_split": ["test", "test"],
+                "is_executed": [1, 1],
+                "future_mfe_atr": [1.0, 1.0],
+                "future_mae_atr": [0.2, 0.2],
+                # 旧三段 gate 全会挡住第一行
+                "trade_filter_prob": [0.05, 0.99],
+                "pred_regime_label": ["trend_down", "trend_up"],
+                "pred_mfe_atr": [0.0, 2.0],
+                "pred_mae_atr": [1.0, 0.1],
+                # stacking 分数只放行第一行
+                "final_decision_score": [0.90, 0.10],
+            }
+        )
+        cfg = OotEvaluationConfig(
+            use_test_split_only=True,
+            use_last_window_only=False,
+            require_executed_only=True,
+            use_trade_filter_gate=True,
+            trade_filter_threshold=0.55,
+            use_regime_gate=True,
+            allow_range_in_regime_gate=False,
+            use_mfe_mae_gate=True,
+            min_pred_edge_atr=0.5,
+            # 新逻辑：stacking gate 覆盖三段式 gate
+            use_stacking_gate=True,
+            stacking_score_threshold=0.6,
+            stacking_score_column="final_decision_score",
+            stacking_gate_overrides_individual_gates=True,
+            mae_penalty=1.0,
+            initial_capital=1000.0,
+            risk_per_trade_pct=0.01,
+            max_single_loss_pct=0.02,
+            commission_pct_per_trade=0.0,
+            slippage_pct_per_trade=0.0,
+            benchmark_annual_return=0.0,
+            risk_free_annual_return=0.0,
+            annualization_factor=12.0,
+            use_position_sizing=False,
+            use_portfolio_constraints=False,
+            use_intrabar_stop_tracking=False,
+        )
+        _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+        self.assertEqual(int(summary.iloc[0]["selected_rows"]), 1)
+        self.assertEqual(int(summary.iloc[0]["trade_count"]), 1)
+        self.assertEqual(len(trades), 1)
+        self.assertAlmostEqual(float(trades.iloc[0]["final_decision_score"]), 0.90, places=9)
+
+    def test_evaluate_oot_real_execution_scales_down_after_weekly_dd_breach(self) -> None:
+        """P2.5: 周回撤触发后不一定停手，可按配置缩仓。"""
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-07 09:00:00"]),
+                "entry_datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-07 09:00:00"]),
+                "exit_datetime": pd.to_datetime(["2020-01-06 15:00:00", "2020-01-07 15:00:00"]),
+                "symbol": ["RB0", "RB0"],
+                "exchange": ["SHFE", "SHFE"],
+                "interval": ["day", "day"],
+                "signal_type": ["donchian_breakout", "donchian_breakout"],
+                "side": ["long", "long"],
+                "window_id": [0, 0],
+                "pred_split": ["test", "test"],
+                "is_executed": [1, 1],
+                "future_mfe_atr": [0.0, 1.0],   # 第一笔亏损，第二笔盈利
+                "future_mae_atr": [1.0, 0.0],
+            }
+        )
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            mae_penalty=1.0,
+            initial_capital=1000.0,
+            risk_per_trade_pct=0.04,
+            max_single_loss_pct=0.04,
+            commission_pct_per_trade=0.0,
+            slippage_pct_per_trade=0.0,
+            benchmark_annual_return=0.0,
+            risk_free_annual_return=0.0,
+            annualization_factor=12.0,
+            use_position_sizing=False,
+            max_position_scale=1.0,
+            max_symbol_notional_pct=10.0,
+            use_portfolio_constraints=True,
+            margin_rate=0.01,
+            max_total_leverage=10.0,
+            max_daily_new_notional_pct=100.0,
+            weekly_max_drawdown_pct=0.03,
+            block_new_entries_on_weekly_dd_breach=False,
+            weekly_dd_position_scale_after_breach=0.5,
+            enforce_weekly_dd_budget_on_entry=False,
+            use_intrabar_stop_tracking=False,
+            # P0 fix：让 trade_return floor 与本测试场景的 max_single_loss_pct 对齐，
+            # 保留旧测试意图（第一笔 -4% 触发 3% 周回撤 → 第二笔缩仓 0.5x）。
+            intrabar_stop_loss_pct=0.04,
+        )
+        _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+        self.assertEqual(int(summary.iloc[0]["trade_count"]), 2)
+        first_notional = float(trades.iloc[0]["position_notional"])
+        second_notional = float(trades.iloc[1]["position_notional"])
+        self.assertGreater(first_notional, 0.0)
+        second_equity_before = float(trades.iloc[1]["equity_before"])
+        self.assertAlmostEqual(second_notional, second_equity_before * 0.5, places=6)
+
+    def test_evaluate_oot_real_execution_monthly_dd_hard_stop(self) -> None:
+        """P2.5: 月回撤触发后应阻断当月后续新开仓。"""
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(
+                    ["2020-01-06 09:00:00", "2020-01-10 09:00:00", "2020-01-15 09:00:00"]
+                ),
+                "entry_datetime": pd.to_datetime(
+                    ["2020-01-06 09:00:00", "2020-01-10 09:00:00", "2020-01-15 09:00:00"]
+                ),
+                "exit_datetime": pd.to_datetime(
+                    ["2020-01-06 15:00:00", "2020-01-10 15:00:00", "2020-01-15 15:00:00"]
+                ),
+                "symbol": ["RB0", "RB0", "RB0"],
+                "exchange": ["SHFE", "SHFE", "SHFE"],
+                "interval": ["day", "day", "day"],
+                "signal_type": ["donchian_breakout", "donchian_breakout", "donchian_breakout"],
+                "side": ["long", "long", "long"],
+                "window_id": [0, 0, 0],
+                "pred_split": ["test", "test", "test"],
+                "is_executed": [1, 1, 1],
+                # 前两笔各亏 3%，第三笔本应可交易
+                "future_mfe_atr": [0.0, 0.0, 1.0],
+                "future_mae_atr": [1.0, 1.0, 0.0],
+            }
+        )
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            mae_penalty=1.0,
+            initial_capital=1000.0,
+            risk_per_trade_pct=0.03,
+            max_single_loss_pct=0.03,
+            commission_pct_per_trade=0.0,
+            slippage_pct_per_trade=0.0,
+            benchmark_annual_return=0.0,
+            risk_free_annual_return=0.0,
+            annualization_factor=12.0,
+            use_position_sizing=False,
+            max_position_scale=1.0,
+            max_symbol_notional_pct=1.0,
+            use_portfolio_constraints=True,
+            margin_rate=0.01,
+            max_total_leverage=10.0,
+            max_daily_new_notional_pct=10.0,
+            weekly_max_drawdown_pct=1.0,
+            block_new_entries_on_weekly_dd_breach=False,
+            enforce_weekly_dd_budget_on_entry=False,
+            monthly_max_drawdown_pct=0.05,
+            block_new_entries_on_monthly_dd_breach=True,
+            use_intrabar_stop_tracking=False,
+            # P0 fix：让 trade_return floor 与本测试 max_single_loss_pct 对齐。
+            # 前两笔各亏 3% → 累计 -6% > 5% 月回撤阈值 → 第三笔被月熔断。
+            intrabar_stop_loss_pct=0.03,
+        )
+        _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+        self.assertEqual(int(summary.iloc[0]["selected_rows"]), 3)
+        self.assertEqual(int(summary.iloc[0]["trade_count"]), 2)
+        statuses = trades["execution_status"].astype(str).tolist()
+        self.assertIn("blocked_monthly_drawdown", statuses)
+
+    def test_run_model_pipeline_writes_provenance_json(self) -> None:
+        """P2.3: pipeline 输出目录必须有 provenance.json，便于实验追溯。"""
+        with tempfile.TemporaryDirectory(prefix="cta_provenance_") as td:
+            out = run_model_pipeline(
+                symbol="PROV0",
+                exchange="SHFE",
+                interval="60min",
+                start_date="2018-01-01",
+                end_date="2019-12-31",
+                output_root=Path(td),
+                train_end="2018-12-31",
+                valid_end="2019-06-30",
+                synthetic_periods=180,
+                by_signal_type=False,
+                max_walk_forward_windows=1,
+            )
+            provenance_path = out.output_dir / "provenance.json"
+            self.assertTrue(provenance_path.exists())
+            payload = pd.read_json(provenance_path, typ="series")
+            for key in (
+                "run_tag",
+                "git_commit",
+                "python_version",
+                "candidate_path",
+                "feature_table_path",
+                "prediction_path",
+                "metrics_path",
+                "data_snapshot_hash",
+                "feature_manifest_hash",
+            ):
+                self.assertIn(key, payload.index)
+
+    def test_run_model_pipeline_outputs_final_decision_model_naming(self) -> None:
+        """P1.3: 训练后 metrics/predictions 中应有可辨识的最终决策模型命名。"""
+        with tempfile.TemporaryDirectory(prefix="cta_stack_model_") as td:
+            out = run_model_pipeline(
+                symbol="STACK0",
+                exchange="SHFE",
+                interval="60min",
+                start_date="2018-01-01",
+                end_date="2019-12-31",
+                output_root=Path(td),
+                train_end="2018-12-31",
+                valid_end="2019-06-30",
+                synthetic_periods=220,
+                by_signal_type=False,
+                max_walk_forward_windows=1,
+            )
+            metrics = pd.read_csv(out.metrics_path)
+            preds = pd.read_csv(out.prediction_path)
+            self.assertIn("final_decision_stack", set(metrics["model"].astype(str)))
+            self.assertIn("final_decision_score", set(preds.columns))
 
 
 if __name__ == "__main__":

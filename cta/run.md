@@ -13,12 +13,49 @@
 >
 > ```bash
 > export TUSHARE_TOKEN=...
-> TOP_N=18 RUN_TAG=$(date +%Y%m%d) bash cta/run.sh all       # 一把全跑
+> TOP_N=77 RUN_TAG=$(date +%Y%m%d) GLOBAL_SEED=${RUN_TAG} bash cta/run.sh all  # 一把全跑（覆盖商品+金融）
 > bash cta/run.sh data                                        # 只跑数据下载
+> bash cta/run.sh data_index_bond                             # 只补股指+国债+指数参考数据
 > bash cta/run.sh -h                                          # 完整参数说明
 > ```
 >
 > 仿真 / 实盘部分（§6/§7）涉及账号、长进程与告警 webhook，仍以独立脚本启动。
+
+---
+
+## 推荐流程（候选 → 特征 → 训练 → OOT）
+
+当前 `cta.model.model_pipeline` 已按以下顺序执行并写入报告：
+1. 生成候选样本（candidate events）
+2. 拼接候选对应通用特征 + 模型训练特征
+3. 训练三类模型（train/valid 选参）
+4. OOT(test) 评估并输出报告
+
+OOT 风控默认值提示：
+- `weekly_max_drawdown_pct=0.03`（3%）
+
+报告中会额外打印：
+- train/valid/test 的时间周期与样本数量
+- 特征空值统计（均值/最大值/空值列数量）
+- 特征 IC 统计（label/regime/return）
+
+最小运行命令：
+
+```bash
+python3 -m cta.model.model_pipeline \
+  --symbol RB0 \
+  --exchange SHFE \
+  --interval 60min \
+  --start 2010-01-01 \
+  --end 2019-12-31 \
+  --train-end 2017-12-31 \
+  --valid-end 2018-12-31 \
+  --window-mode expanding \
+  --max-walk-forward-windows 3 \
+  --by-signal-type \
+  --generic-mode auto \
+  --seed 20260512
+```
 
 ---
 
@@ -53,6 +90,30 @@ python3 -m cta.data_code.download_all \
   --max-rank 10 \
   --workers 4 \
   --rate-limit 450
+```
+
+### 1.1.1 只下载股指 + 国债 + 指数参考数据（补齐缺失）
+
+方式 A（推荐，直接用 run.sh 专项动作）：
+
+```bash
+export TUSHARE_TOKEN=...
+bash cta/run.sh data_index_bond
+```
+
+方式 B（直接调用 download_all）：
+
+```bash
+python3 -m cta.data_code.download_all \
+  --intervals day minute60 minute30 minute15 minute5 minute \
+  --only-symbols IF0 IH0 IC0 IM0 T0 TF0 TS0 \
+  --start 2010-01-01 \
+  --end 2025-12-31 \
+  --workers 4 \
+  --rate-limit 450 \
+  --include-financial \
+  --include-index \
+  --build-macro
 ```
 
 ### 1.2 只扩展分钟级（推荐日常增量）
@@ -113,7 +174,7 @@ python3 -m cta.feature.run_all_features --interval all --cross-section
 
 ```bash
 python3 -m cta.strategy.baseline_skill_suite \
-  --top-n-symbols 18 \
+  --top-n-symbols 77 \
   --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
   --interval day,60min 30min,15min,5min,min \
   --start 2010-01-01 \
@@ -137,7 +198,7 @@ python3 -m cta.strategy.baseline_skill_suite \
 
 ```bash
 python3 -m cta.model.feature.candidate_training_dataset \
-  --top-n-symbols 18 \
+  --top-n-symbols 77 \
   --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
   --interval day 60min 30min 15min 5min min \
   --start 2010-01-01 \
@@ -186,14 +247,15 @@ python3 -m cta.model.model_pipeline \
   --window-mode expanding \
   --max-walk-forward-windows 3 \
   --by-signal-type \
-  --generic-mode auto
+  --generic-mode auto \
+  --seed 20260512
 ```
 
 ### 4.2 topN 品种 + 多周期批量训练（每个 symbol 各训一个模型）
 
 ```bash
 python3 -m cta.model.model_pipeline \
-  --top-n-symbols 18 \
+  --top-n-symbols 77 \
   --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
   --interval day 60min 30min 15min 5min min \
   --start 2010-01-01 \
@@ -203,7 +265,8 @@ python3 -m cta.model.model_pipeline \
   --window-mode expanding \
   --max-walk-forward-windows 3 \
   --by-signal-type \
-  --generic-mode auto
+  --generic-mode auto \
+  --seed 20260512
 ```
 
 ### 4.2.1 多 symbol **池化**训练（一个共享模型）
@@ -213,7 +276,7 @@ top-N 品种的样本合并训出**一个**共享模型，跨品种泛化更稳�
 
 ```bash
 python3 -m cta.model.model_pipeline \
-  --top-n-symbols 18 \
+  --top-n-symbols 77 \
   --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
   --interval day 60min \
   --start 2010-01-01 --end 2025-12-31 \
@@ -221,13 +284,19 @@ python3 -m cta.model.model_pipeline \
   --window-mode expanding --max-walk-forward-windows 3 \
   --by-signal-type --generic-mode auto \
   --pool                                    # ← 关键 flag
+  --min-used-symbols 2                      # ← 至少 2 个真实品种参与训练
+  --seed 20260512
 ```
 
 输出目录：``cta/report/backtest/{run_date}_POOL_{interval}_{side}_model_pipeline/``，
 内含：
-- ``..._pool_members.csv`` — 参与池化的 (symbol, exchange) 列表
+- ``..._pool_members.csv`` — 参与池化的 (symbol, exchange) 列表，含 ``used_in_training`` 标识
 - ``..._feature_table.csv`` — 拼接后的样本（含 ``symbol`` 列保留来源）
 - ``..._metrics.csv`` / ``..._predictions.csv`` / ``models/*.joblib``
+- ``..._oot_trade_details.csv`` — 逐笔成交（含 `pos_id/layer_id`、`throttle_level_at_entry`）
+- ``..._throttle_log.csv`` — 风控档位时序（drawdown/level/score_threshold）
+- ``..._oot_position_lifetime.csv`` — 按 `pos_id` 聚合的持仓生命周期
+- ``report_*.html`` — 统一 `cta/report/render` HTML 绩效报告（OOT 真实成交净值口径）
 
 **应用模型时与单 symbol 完全一致**：
 ```python
@@ -243,13 +312,45 @@ adapter.order_filter = make_trade_filter(
 ```
 
 注意事项：
-1. 池化训练要求各 symbol 的特征列**完全一致**（来自同一份 ``prepare_master_feature_frame``
-   + ``cta/data/feature/`` 离线 parquet schema）；缺特征的 symbol 自动跳过 + 写日志，
-   不阻塞整体。
-2. 单 symbol 任务规模不足时（如 day interval RB0 仅 ~150 笔候选）才推荐池化；
+1. 池化训练默认只使用**真实本地数据**；缺失分钟原始数据的品种会跳过（不回退 synthetic）。
+   但若仅缺 `cta/data/feature/<interval>/<symbol>` 通用特征目录，pipeline 会自动补
+   候选衍生的 `generic_auto_*` 与 `generic_model_*` 特征继续训练，不会中断。
+   可在 ``..._pool_members.csv`` 里查看 ``used_in_training``。
+   若 `used_in_training < --min-used-symbols`，pipeline 会直接报错，防止误把单品种结果当作池化模型。
+2. 池化训练要求各 symbol 的特征列**完全一致**（来自同一份 ``prepare_master_feature_frame``
+   + ``cta/data/feature/`` 离线 parquet schema）；缺特征的 symbol 自动跳过，不阻塞整体。
+3. 单 symbol 任务规模不足时（如 day interval RB0 仅 ~150 笔候选）才推荐池化；
    分钟级单品种已有足够样本时不必。
-3. ``--pool`` 与 ``--top-n-symbols`` 配合使用；只用 ``--symbol RB0`` 加 ``--pool``
+4. ``--pool`` 与 ``--top-n-symbols`` 配合使用；只用 ``--symbol RB0`` 加 ``--pool``
    退化为单品种（与不加 ``--pool`` 等价但路径多一层 ``POOL`` 目录）。
+
+### 4.2.2 多 symbol **分组池化**训练（每组一个共享模型）
+
+当 70+ 品种希望“先分类再训练”时，用 `--group-pool`：
+
+```bash
+python3 -m cta.model.model_pipeline \
+  --group-pool \
+  --group-by cluster \
+  --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
+  --top-n-symbols 0 \
+  --include-disabled-symbols \
+  --group-min-size 2 \
+  --interval day 60min \
+  --start 2010-01-01 --end 2025-12-31 \
+  --train-end 2020-12-31 --valid-end 2023-12-31 \
+  --window-mode expanding --max-walk-forward-windows 3 \
+  --by-signal-type --generic-mode auto \
+  --min-used-symbols 2 \
+  --seed 2026051520
+```
+
+要点：
+- `--group-by tier`：按 ranking 的 `tier`（A/B/C/D）分组。
+- `--group-by cluster`：按 `cta/config/symbol_cluster_config.py` 的板块映射分组。
+- 也可传 ranking 的其他列名，如 `exchange` / `recommended_stage`。
+- 输出目录按组区分：`..._GRP_<GROUP>_<interval>_..._model_pipeline/`。
+- 预测文件同目录下的 `*_predictions.csv`，直接就是该组模型的离线预测结果。
 
 ### 4.3 离线评估结果快速查看
 
@@ -262,6 +363,25 @@ ls -lah cta/report/backtest/*_model_pipeline/
 ```bash
 cat cta/report/backtest/*_model_pipeline/*_last_oot_decile_returns.csv
 ```
+
+查看 OOT 真实成交月收益与 Sharpe 汇总：
+
+```bash
+cat cta/report/backtest/*_model_pipeline/*_oot_monthly_returns.csv
+cat cta/report/backtest/*_model_pipeline/*_oot_summary.csv
+cat cta/report/backtest/*_model_pipeline/*_oot_trade_details.csv
+cat cta/report/backtest/*_model_pipeline/*_throttle_log.csv
+cat cta/report/backtest/*_model_pipeline/*_oot_position_lifetime.csv
+ls -lah cta/report/backtest/*_model_pipeline/report_*.html
+```
+
+OOT 绩效参数配置文件：
+- `cta/config/model_oot_eval_config.py`
+- 关键参数示例：
+  - `max_single_loss_pct = 0.002`（单笔最大亏损，默认 0.2%）
+  - `trade_filter_threshold` / `use_regime_gate` / `min_pred_edge_atr`（各模型过滤阈值）
+  - `use_portfolio_logic_runtime`（是否启用组合层运行时）
+  - `portfolio_logic.enable_*`（HTF gate / ranker / trailing / pyramid / throttle 分项开关）
 
 `*_metrics.csv` 内含 IC / Sharpe / hit-rate 等离线指标，是判断模型是否值得进入回测阶段的门槛。
 经验阈值：``oos_ic > 0.02`` 且 ``oos_hit_rate > 0.52`` 才推到下一步。
@@ -316,6 +436,29 @@ adapter.order_filter = make_trade_filter(
     "cta/report/backtest/20260509_RB0_60min_model_pipeline/models/trade_filter_xyz.joblib",
     threshold=0.55,
     feature_provider=loader,           # ← 关键：从 cta/data/feature 加载完整特征
+)
+```
+
+分组模型上线（按 symbol 自动路由）：
+
+```python
+from cta.live.model_filter import make_group_trade_filter
+from cta.live.online_feature import OnlineFeatureLoader
+
+loader = OnlineFeatureLoader(feature_root="cta/data/feature")
+adapter.order_filter = make_group_trade_filter(
+    group_model_paths={
+        "tier_a": "cta/report/backtest/<run_a>/models/trade_filter_xxx.joblib",
+        "tier_b": "cta/report/backtest/<run_b>/models/trade_filter_xxx.joblib",
+    },
+    symbol_to_group={
+        "RB0": "tier_a",
+        "HC0": "tier_a",
+        "AU0": "tier_b",
+        "AG0": "tier_b",
+    },
+    feature_provider=loader,
+    threshold=0.55,
 )
 ```
 
@@ -692,6 +835,18 @@ PY
 > Parity 失配率 ``> 5%`` 应触发告警；常见原因是滑点 / 撮合规则差异，
 > 在 ``backtest_on_same_bars(engine_cfg=EngineConfig(slippage_ticks=...))`` 里调整对齐。
 
+也可直接用日运维命令（CSV → 报告）：
+
+```bash
+python3 -m cta.sim.daily_parity_report \
+  --live-signals-csv cta/report/live/signals/live_$(date +%Y%m%d).csv \
+  --replay-signals-csv cta/report/live/signals/replay_$(date +%Y%m%d).csv \
+  --out-dir cta/report/live/parity \
+  --title "Parity Daily $(date +%Y%m%d)" \
+  --mismatch-alert-threshold 0.05 \
+  --time-tolerance 1min
+```
+
 ### 7.3 连接守护（Supervisor）
 
 ```bash
@@ -722,6 +877,63 @@ PY
 
 每次断线（gateway.connected=False 或 query_account 抛错）``Supervisor`` 自动重连，
 日志写在 vnpy loguru 中；超过 ``max_reconnects`` 次数后返回 ``give_up`` 不再尝试。
+
+### 7.4 实盘启动（`live_runner`，TDD 落地版）
+
+```bash
+python3 - <<'PY'
+from cta.live.live_runner import LiveCtpSetting, LiveRunConfig, run_live, serve_live
+from cta.strategy.cta_tight_range import SkillTightRangeBreakoutCta
+
+cfg = LiveRunConfig(
+    strategy_class=SkillTightRangeBreakoutCta,
+    strategy_name="TightRangeRB_live",
+    vt_symbol="rb888.SHFE",
+    setting={"lookback": 10, "alpha": 1.5, "min_count": 5, "trade_side_mode": "both"},
+    warmup_days=10,
+    warmup_interval="1m",
+    portfolio_logic_flags={
+        "enable_htf_gate": True,
+        "enable_ranker": True,
+        "enable_trailing": True,
+        "enable_pyramid": True,
+        "enable_score_calibration": True,
+        "enable_risk_throttle": True,
+    },
+    # 启用订单幂等 reference（策略侧下单时使用 order_reference_prefix）
+    enable_order_idempotency=True,
+    order_reference_prefix="TightRangeRB_live",
+    # 组合状态快照（重启恢复/核对）
+    state_snapshot_path="cta/report/live/TightRangeRB_live_state_snapshot.json",
+    # 启动前 broker 持仓核对（不一致直接阻断启动）
+    enable_broker_reconciliation=True,
+    broker_positions_provider=lambda: [
+        # 实盘里替换成你的 broker REST / query_position 结果
+        # {"symbol": "RB0", "exchange": "SHFE", "direction": "long"},
+    ],
+)
+
+ctp = LiveCtpSetting(
+    userid="你的CTP账号",
+    password="你的CTP密码",
+    brokerid="你的券商代码",
+    td_address="tcp://你的交易前置",
+    md_address="tcp://你的行情前置",
+    auth_code="你的授权码",
+    appid="你的APPID",
+)
+
+main_engine = run_live(cfg, ctp, gateway_name="CTP")
+serve_live(
+    main_engine,
+    connect_setting=ctp.to_vnpy(),
+    gateway_name="CTP",
+    enable_supervisor=True,
+    supervisor_check_interval=10.0,
+    supervisor_max_reconnects=100,
+)
+PY
+```
 
 ---
 

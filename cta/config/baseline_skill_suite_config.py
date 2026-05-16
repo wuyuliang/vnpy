@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+import pandas as pd
+
 from cta.config.skill_tight_range_breakout_config import CTA_ROOT
 
 BASELINE_SIGNAL_TYPES: Final[tuple[str, ...]] = (
@@ -36,6 +38,9 @@ TRAINING_FEATURE_COLUMNS: Final[tuple[str, ...]] = (
     "atr_value",
     "atr_upper",
     "atr_lower",
+    "is_one_way_bar",
+    "is_limit_up_close",
+    "is_limit_down_close",
     "bp_breakout_level",
     "bp_bars_since_breakout",
     "bp_confirmed",
@@ -52,6 +57,9 @@ OPPORTUNITY_CLASS_A_BREAK: Final[float] = 1.2
 OPPORTUNITY_CLASS_B_BREAK: Final[float] = 0.6
 
 
+_VALID_BASELINE_SIDE_MODES: Final[frozenset[str]] = frozenset({"both", "long", "short"})
+
+
 @dataclass(frozen=True)
 class BaselineSuiteConfig:
     """High-level parameters for baseline suite run."""
@@ -66,6 +74,28 @@ class BaselineSuiteConfig:
     periods_per_year: int | None = None
     signal_types: tuple[str, ...] = BASELINE_SIGNAL_TYPES
     output_root: Path = DEFAULT_REPORT_ROOT
+
+    def __post_init__(self) -> None:
+        # P2.1：值域校验，把"参数写错少打一个 0"这种 bug 在配置加载时就拦住，
+        # 不再让它沉到下游 backtest / OOT 才报错。
+        if not str(self.symbol).strip():
+            raise ValueError("symbol must not be empty")
+        if str(self.trade_side_mode).strip().lower() not in _VALID_BASELINE_SIDE_MODES:
+            raise ValueError(
+                f"trade_side_mode must be one of {sorted(_VALID_BASELINE_SIDE_MODES)}: "
+                f"got {self.trade_side_mode!r}"
+            )
+        if float(self.initial_capital) <= 0:
+            raise ValueError(f"initial_capital must be > 0: {self.initial_capital}")
+        if self.periods_per_year is not None and int(self.periods_per_year) <= 0:
+            raise ValueError(f"periods_per_year must be > 0 or None: {self.periods_per_year}")
+        if not self.signal_types:
+            raise ValueError("signal_types must not be empty")
+        if pd.Timestamp(self.start_date) >= pd.Timestamp(self.end_date):
+            raise ValueError(
+                f"start_date must be earlier than end_date: "
+                f"start={self.start_date} end={self.end_date}"
+            )
 
 
 __all__ = [

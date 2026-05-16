@@ -2,6 +2,7 @@
 cta/data
 cta/data_code/empty.csv
 cta/data_code/finished.csv
+cta/report/backtest
 
 # Python
 *.pyc

@@ -1,0 +1,4 @@
+ts_code,file_safe_name,name,role,description
+000001.SH,000001_SH,上证指数,macro_reference,A 股大盘风向标
+000852.SH,000852_SH,中证1000,macro_reference,小盘成长指数
+000300.SH,000300_SH,沪深300,macro_reference,大盘核心指数（与 IF 现货）

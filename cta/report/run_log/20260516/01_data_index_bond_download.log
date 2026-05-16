@@ -1,0 +1,71 @@
+2026-05-16 17:49:18,870 [INFO] ======================================================================
+2026-05-16 17:49:18,870 [INFO] CTA 商品期货批量下载
+2026-05-16 17:49:18,871 [INFO]   code dir:      /Users/wuyuliang/code/vnpy/cta/data_code
+2026-05-16 17:49:18,871 [INFO]   排名文件:      /Users/wuyuliang/code/vnpy/cta/feature/symbols_research_ranking.csv
+2026-05-16 17:49:18,871 [INFO]   数据根目录:    /Users/wuyuliang/code/vnpy/cta/data
+2026-05-16 17:49:18,871 [INFO]   tracking date: 20260516
+2026-05-16 17:49:18,871 [INFO]   finished csv:  /Users/wuyuliang/code/vnpy/cta/data/finished_20260516.csv
+2026-05-16 17:49:18,871 [INFO]   empty csv:     /Users/wuyuliang/code/vnpy/cta/data/empty_20260516.csv
+2026-05-16 17:49:18,871 [INFO]   下载频率:      ['day', 'minute60', 'minute30', 'minute15', 'minute5', 'minute']
+2026-05-16 17:49:18,871 [INFO]   日期范围:      [2010-01-01, 2025-12-31]
+2026-05-16 17:49:18,871 [INFO]   worker 数:     4
+2026-05-16 17:49:18,871 [INFO]   rate limit:    450/min
+2026-05-16 17:49:18,871 [INFO]   max_empty:     2026-04-17
+2026-05-16 17:49:18,871 [INFO]   include_fin:   True
+2026-05-16 17:49:18,871 [INFO]   include_index: True
+2026-05-16 17:49:18,871 [INFO]   build_macro:   True
+2026-05-16 17:49:18,871 [INFO]   only symbols:  ['IF0', 'IH0', 'IC0', 'IM0', 'T0', 'TF0', 'TS0']
+2026-05-16 17:49:18,871 [INFO] ======================================================================
+2026-05-16 17:49:18,897 [INFO] 已完成记录: 82 条 (按 symbol+interval)
+2026-05-16 17:49:19,276 [ERROR] index download failed: 'functools.partial' object has no attribute '__name__'
+Traceback (most recent call last):
+  File "/Users/wuyuliang/code/vnpy/cta/data_code/futures_downloader.py", line 153, in _safe_retry
+    return func(*args, **kwargs)
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/tushare/pro/client.py", line 46, in query
+    raise Exception(result['msg'])
+Exception: 抱歉，您没有接口(index_daily)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/wuyuliang/code/vnpy/cta/data_code/download_all.py", line 685, in main
+    idx_dl.fetch_all(start=args.start, end=args.end)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wuyuliang/code/vnpy/cta/data_code/index_downloader.py", line 124, in fetch_all
+    self.fetch_index_day(ts_code, start, end)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wuyuliang/code/vnpy/cta/data_code/index_downloader.py", line 72, in fetch_index_day
+    raw = _safe_retry(self.pro.index_daily, **params)
+  File "/Users/wuyuliang/code/vnpy/cta/data_code/futures_downloader.py", line 156, in _safe_retry
+    logger.warning(f"  call {func.__name__} failed ({i+1}/{retries}): {e}")
+                             ^^^^^^^^^^^^^
+AttributeError: 'functools.partial' object has no attribute '__name__'. Did you mean: '__ne__'?
+2026-05-16 17:49:19,278 [INFO] ----------------------------------------------------------------------
+2026-05-16 17:49:19,278 [INFO] [1/7] rank=72 IF0 (CFFEX)
+2026-05-16 17:49:20,569 [INFO]   [day] error rows=0 range=[~] 1.3s
+2026-05-16 18:28:41,224 [INFO] ======================================================================
+2026-05-16 18:28:41,224 [INFO] CTA 商品期货批量下载
+2026-05-16 18:28:41,224 [INFO]   code dir:      /Users/wuyuliang/code/vnpy/cta/data_code
+2026-05-16 18:28:41,224 [INFO]   排名文件:      /Users/wuyuliang/code/vnpy/cta/feature/symbols_research_ranking.csv
+2026-05-16 18:28:41,224 [INFO]   数据根目录:    /Users/wuyuliang/code/vnpy/cta/data
+2026-05-16 18:28:41,224 [INFO]   tracking date: 20260516
+2026-05-16 18:28:41,224 [INFO]   finished csv:  /Users/wuyuliang/code/vnpy/cta/data/finished_20260516.csv
+2026-05-16 18:28:41,224 [INFO]   empty csv:     /Users/wuyuliang/code/vnpy/cta/data/empty_20260516.csv
+2026-05-16 18:28:41,224 [INFO]   下载频率:      ['day', 'minute60', 'minute30', 'minute15', 'minute5', 'minute']
+2026-05-16 18:28:41,224 [INFO]   日期范围:      [2010-01-01, 2025-12-31]
+2026-05-16 18:28:41,224 [INFO]   worker 数:     4
+2026-05-16 18:28:41,224 [INFO]   rate limit:    450/min
+2026-05-16 18:28:41,224 [INFO]   max_empty:     2026-04-17
+2026-05-16 18:28:41,224 [INFO]   include_fin:   True
+2026-05-16 18:28:41,224 [INFO]   include_index: True
+2026-05-16 18:28:41,224 [INFO]   build_macro:   True
+2026-05-16 18:28:41,224 [INFO]   only symbols:  ['IF0', 'IH0', 'IC0', 'IM0', 'T0', 'TF0', 'TS0']
+2026-05-16 18:28:41,224 [INFO] ======================================================================
+2026-05-16 18:28:41,246 [INFO] 已完成记录: 82 条 (按 symbol+interval)
+2026-05-16 18:28:41,581 [INFO] index day saved: /Users/wuyuliang/code/vnpy/cta/data/origin_index/day/000001_SH.csv rows=3886
+2026-05-16 18:28:41,789 [INFO] index day saved: /Users/wuyuliang/code/vnpy/cta/data/origin_index/day/000852_SH.csv rows=3886
+2026-05-16 18:28:42,043 [INFO] index day saved: /Users/wuyuliang/code/vnpy/cta/data/origin_index/day/000300_SH.csv rows=3886
+2026-05-16 18:28:42,043 [INFO] ----------------------------------------------------------------------
+2026-05-16 18:28:42,043 [INFO] [1/7] rank=72 IF0 (CFFEX)
+2026-05-16 18:28:49,247 [INFO] financial day saved: /Users/wuyuliang/code/vnpy/cta/data/origin/day/IF0.csv rows=2674
+2026-05-16 18:28:49,249 [INFO]   [day] success rows=2674 range=[2015-01-05~2025-12-31] 7.2s

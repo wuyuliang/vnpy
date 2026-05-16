@@ -69,8 +69,32 @@ class TestBaselineSkillSuite(unittest.TestCase):
             "breakout_score",
             "bp_valid",
             "bp_breakout_level",
+            "is_one_way_bar",
+            "is_limit_up_close",
+            "is_limit_down_close",
         ):
             self.assertIn(col, self.frame.columns)
+
+    def test_prepare_master_feature_frame_limit_move_flags(self) -> None:
+        # P0.2 修正后语义：一字板 + close 相对前收变化 ≥ cluster 涨跌停 - 0.1%。
+        # 默认 symbol="" 走 other cluster 的 5% limit，所以测试要造 +5% / -5% 的 close。
+        bars = pd.DataFrame(
+            {
+                "datetime": pd.date_range("2024-01-01", periods=3, freq="D"),
+                "open": [100.0, 105.0, 99.75],
+                "high": [100.0, 105.0, 99.75],
+                "low": [100.0, 105.0, 99.75],
+                "close": [100.0, 105.0, 99.75],
+                "volume": [100.0, 200.0, 300.0],
+            }
+        )
+        out = prepare_master_feature_frame(bars, interval="day", symbol="RB0")
+        # symbol=RB0 → black cluster → limit_pct=0.06；test bar 1 涨 5%，不够 5.9% 阈值
+        # 这条测试切换到 symbol="other" 模式（默认 5%）+ close 5% 涨跌
+        out2 = prepare_master_feature_frame(bars, interval="day")  # symbol=None → 5% limit
+        self.assertTrue((out2["is_one_way_bar"].astype(int) == 1).all())
+        self.assertEqual(int(out2["is_limit_up_close"].iloc[1]), 1)
+        self.assertEqual(int(out2["is_limit_down_close"].iloc[2]), 1)
 
     def test_strategy_factory_all_signal_types(self) -> None:
         self.assertGreaterEqual(len(BASELINE_SIGNAL_TYPES), 4)
@@ -180,10 +204,13 @@ class TestBaselineSkillSuite(unittest.TestCase):
             "exchange",
             "interval",
             "datetime",
+            "signal_datetime",
+            "exit_datetime",
             "signal_type",
             "side",
             "entry_i",
             "entry_price",
+            "exit_price_ref",
             "stop_price",
             "future_mfe_atr",
             "future_mae_atr",
@@ -266,6 +293,47 @@ class TestBaselineSkillSuite(unittest.TestCase):
         self.assertAlmostEqual(float(filled.iloc[0]["future_mfe_atr"]), 0.5, places=6)
         # entry_bar atr14 是有效值 => atr_warmed=1
         self.assertEqual(int(filled.iloc[0]["atr_warmed"]), 1)
+
+    def test_generate_candidate_label_uses_stop_aware_execution_path(self) -> None:
+        """P0.5: 标签应按执行路径计算，先止损后反弹不能记成正样本。"""
+        frame = pd.DataFrame(
+            {
+                "datetime": pd.date_range("2020-01-01", periods=5, freq="D"),
+                "open": [100.0, 100.0, 106.0, 96.0, 118.0],
+                "high": [101.0, 105.0, 106.0, 120.0, 119.0],
+                "low": [99.0, 99.0, 95.0, 95.0, 117.0],
+                "close": [100.0, 105.0, 96.0, 118.0, 118.0],
+                "volume": [1000, 1000, 1000, 1000, 1000],
+                "open_interest": [1000, 1000, 1000, 1000, 1000],
+                "turnover": [1e6, 1e6, 1e6, 1e6, 1e6],
+                "atr14": [2.0, 2.0, 10.0, 10.0, 10.0],
+                "trend_score": [0.0, 0.0, 0.0, 0.0, 0.0],
+                "trend_dir": [0, 0, 0, 0, 0],
+                "don_upper_entry": [104.0, 104.0, 104.0, 104.0, 104.0],
+                "don_lower_entry": [95.0, 95.0, 95.0, 95.0, 95.0],
+                "don_upper_exit": [120.0, 120.0, 120.0, 120.0, 120.0],
+                "don_lower_exit": [80.0, 80.0, 80.0, 80.0, 80.0],
+            }
+        )
+        candidate = generate_candidate_opportunities(
+            frame=frame,
+            symbol="RB0",
+            exchange="SHFE",
+            interval="day",
+            signal_type="donchian_breakout",
+            horizon_bars=2,
+            trade_side_mode="both",
+            label_stop_loss_pct=0.02,
+        )
+        filled = candidate.loc[candidate["candidate_status"] == "filled"].copy()
+        self.assertGreaterEqual(len(filled), 1)
+        row = filled.iloc[0]
+        # entry=106, stop=103.88, entry bar low=95 -> 先触发止损；
+        # 虽然后续 bar 高点到 120，也不能把标签当成正样本。
+        self.assertEqual(int(row["label_class"]), 0)
+        self.assertLess(float(row["future_pnl_atr"]), 0.0)
+        # 真实执行在 entry bar 已止损，未来 MFE 不应吃到后续 120 的高点。
+        self.assertLess(float(row["future_mfe_atr"]), 0.2)
 
     def test_prepare_master_feature_frame_drop_duplicate_datetime(self) -> None:
         bars = self.bars.copy()

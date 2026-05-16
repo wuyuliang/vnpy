@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 import joblib
 import numpy as np
@@ -13,6 +13,7 @@ from sklearn.dummy import DummyRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.metrics import roc_auc_score
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.pipeline import Pipeline
 
@@ -23,6 +24,7 @@ class MfeMaeModel:
 
     random_state: int = 42
     min_samples: int = 10
+    model_params: dict[str, Any] | None = None
     estimator: Pipeline | None = None
     model_kind: str = "uninitialized"
 
@@ -32,6 +34,7 @@ class MfeMaeModel:
         feature_columns: Iterable[str],
         mfe_column: str = "future_mfe_atr",
         mae_column: str = "future_mae_atr",
+        sample_weight: np.ndarray | pd.Series | None = None,
     ) -> "MfeMaeModel":
         feats = list(feature_columns)
         x = df[feats].copy()
@@ -44,9 +47,23 @@ class MfeMaeModel:
                     ("model", DummyRegressor(strategy="mean")),
                 ]
             )
-            self.estimator.fit(x, y)
+            if sample_weight is None:
+                self.estimator.fit(x, y)
+            else:
+                sw = np.asarray(sample_weight, dtype=float).reshape(-1)
+                if sw.shape[0] != len(df):
+                    raise ValueError(f"sample_weight length mismatch: {sw.shape[0]} != {len(df)}")
+                self.estimator.fit(x, y, model__sample_weight=sw)
             self.model_kind = "dummy"
             return self
+
+        # 过拟合缓解：对目标做轻度 winsorize，降低极端尾部样本对树模型的噪声放大。
+        y_clean = np.asarray(y, dtype=float)
+        y_clean = np.nan_to_num(y_clean, nan=0.0, posinf=0.0, neginf=0.0)
+        if len(y_clean) >= 50:
+            q_low = np.nanquantile(y_clean, 0.01, axis=0)
+            q_high = np.nanquantile(y_clean, 0.99, axis=0)
+            y_clean = np.clip(y_clean, q_low, q_high)
 
         pre = ColumnTransformer(
             transformers=[
@@ -58,16 +75,27 @@ class MfeMaeModel:
             ],
             remainder="drop",
         )
-        base = RandomForestRegressor(
-            n_estimators=320,
-            max_depth=10,
-            min_samples_leaf=4,
-            random_state=self.random_state,
-            n_jobs=-1,
-        )
+        params: dict[str, Any] = {
+            "n_estimators": 200,
+            "max_depth": 5,
+            "min_samples_leaf": 20,
+            "min_samples_split": 80,
+            "max_features": 0.35,
+            "random_state": self.random_state,
+            "n_jobs": -1,
+        }
+        if self.model_params:
+            params.update(dict(self.model_params))
+        base = RandomForestRegressor(**params)
         reg = MultiOutputRegressor(base)
         self.estimator = Pipeline([("pre", pre), ("model", reg)])
-        self.estimator.fit(x, y)
+        if sample_weight is None:
+            self.estimator.fit(x, y_clean)
+        else:
+            sw = np.asarray(sample_weight, dtype=float).reshape(-1)
+            if sw.shape[0] != len(df):
+                raise ValueError(f"sample_weight length mismatch: {sw.shape[0]} != {len(df)}")
+            self.estimator.fit(x, y_clean, model__sample_weight=sw)
         self.model_kind = "random_forest"
         return self
 
@@ -158,6 +186,8 @@ def evaluate_mfe_mae_model(
     feature_columns: Iterable[str],
     mfe_column: str = "future_mfe_atr",
     mae_column: str = "future_mae_atr",
+    mae_penalty: float = 1.0,
+    direction_threshold: float = 0.0,
 ) -> dict[str, float]:
     y_true = df[[mfe_column, mae_column]].astype(float).to_numpy()
     pred_df = model.predict(df, feature_columns)
@@ -170,7 +200,16 @@ def evaluate_mfe_mae_model(
     mfe_r2 = float(r2_score(y_true[:, 0], y_pred[:, 0]))
     mae_r2 = float(r2_score(y_true[:, 1], y_pred[:, 1]))
 
+    true_edge = y_true[:, 0] - float(mae_penalty) * y_true[:, 1]
+    pred_edge = y_pred[:, 0] - float(mae_penalty) * y_pred[:, 1]
+    true_direction = (true_edge > float(direction_threshold)).astype(int)
+    if len(np.unique(true_direction)) >= 2:
+        direction_auc = float(roc_auc_score(true_direction, pred_edge))
+    else:
+        direction_auc = float("nan")
+
     return {
+        "direction_auc": direction_auc,
         "mfe_mae_mae": mfe_mae,
         "mae_mae": mae_mae,
         "mfe_rmse": mfe_rmse,

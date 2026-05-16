@@ -6,7 +6,7 @@
 # ----
 #   bash cta/run.sh <step>
 #
-#   step ∈ {data, validate, feature, candidate, train, pool, all}
+#   step ∈ {data, data_index_bond, validate, feature, candidate, train, pool, group_pool, index_pool, summary, all}
 #
 # 也可以直接 `bash cta/run.sh all` 一把跑完。各步骤通过环境变量调参，缺省覆盖
 # run.md 中的推荐值，保持可复现。
@@ -17,12 +17,13 @@
 #
 # 可选环境变量（带默认值）
 # ----------------------
-#   TOP_N            取 ranking 前 N 品种（默认 18）
+#   TOP_N            取 ranking 前 N 品种（默认 77，覆盖商品+金融期货）
 #   RANKING_CSV      ranking 文件路径
 #   INTERVALS_DOWN   下载频率，空格分隔（默认包含全频率）
+#   INDEX_BOND_SYMBOLS  指数/国债专项下载品种（默认 IF0 IH0 IC0 IM0 T0 TF0 TS0）
 #   INTERVALS_FEAT   特征生成频率（默认 all）
 #   INTERVALS_MODEL  训练 / 候选样本频率（默认 day 60min 30min 15min 5min min）
-#   START / END      数据范围（默认 2010-01-01 / 2025-12-31）
+#   START / END      数据范围（默认 2010-01-01 / 当天 YYYY-MM-DD）
 #   TRAIN_END        训练截止日（默认 2020-12-31）
 #   VALID_END        验证截止日（默认 2023-12-31）
 #   TRADE_SIDE       交易方向（默认 both）
@@ -30,6 +31,14 @@
 #   RATE_LIMIT       tushare 每分钟限速（默认 450）
 #   RUN_TAG          实验 tag（默认 YYYYMMDD）
 #   POOL_INTERVALS   池化训练频率（默认 day 60min；day 单品种样本不足）
+#   GROUP_BY         分组池化分组键（默认 tier）
+#   GROUP_MIN_SIZE   分组池化最小组样本数（默认 2）
+#   GROUP_INTERVALS  分组池化训练频率（默认 day 60min）
+#   INDEX_GROUP_INTERVALS  股指期货专项训练频率（默认 day 60min 30min 15min）
+#   USE_PORTFOLIO_LOGIC_RUNTIME  OOT 评估走 portfolio_logic 真实逻辑（默认 0；
+#                       设 1 时启用 HTF gate + ranker + trailing + pyramid +
+#                       score_calibration + risk_throttle，与 sim/live 一致）
+#   INCLUDE_DISABLED 是否包含 symbol_disable_manifest 禁用品种（1=包含，默认 0）
 #   LOG_DIR          日志目录（默认 cta/report/run_log/${RUN_TAG}）
 #   PYTHON           Python 可执行文件（默认 python3）
 #
@@ -42,20 +51,29 @@ set -euo pipefail
 # ============================================================================
 # 配置
 # ============================================================================
-TOP_N="${TOP_N:-18}"
+TOP_N="${TOP_N:-77}"
 RANKING_CSV="${RANKING_CSV:-cta/feature/symbols_research_ranking.csv}"
 INTERVALS_DOWN="${INTERVALS_DOWN:-day minute60 minute30 minute15 minute5 minute}"
+INDEX_BOND_SYMBOLS="${INDEX_BOND_SYMBOLS:-IF0 IH0 IC0 IM0 T0 TF0 TS0}"
 INTERVALS_FEAT="${INTERVALS_FEAT:-all}"
 INTERVALS_MODEL="${INTERVALS_MODEL:-day 60min 30min 15min 5min min}"
 START="${START:-2010-01-01}"
-END="${END:-2025-12-31}"
+END="${END:-$(date +%Y-%m-%d)}"
 TRAIN_END="${TRAIN_END:-2020-12-31}"
 VALID_END="${VALID_END:-2023-12-31}"
 TRADE_SIDE="${TRADE_SIDE:-both}"
 WORKERS="${WORKERS:-4}"
 RATE_LIMIT="${RATE_LIMIT:-450}"
 RUN_TAG="${RUN_TAG:-$(date +%Y%m%d)}"
+GLOBAL_SEED="${GLOBAL_SEED:-${RUN_TAG}}"
 POOL_INTERVALS="${POOL_INTERVALS:-day 60min}"
+GROUP_BY="${GROUP_BY:-cluster}"
+GROUP_MIN_SIZE="${GROUP_MIN_SIZE:-2}"
+GROUP_INTERVALS="${GROUP_INTERVALS:-day 60min}"
+# 股指期货专项分组训练频率（IF/IH/IC/IM，日内流动性极佳，可加密到 15min）
+INDEX_GROUP_INTERVALS="${INDEX_GROUP_INTERVALS:-day 60min 30min 15min}"
+USE_PORTFOLIO_LOGIC_RUNTIME="${USE_PORTFOLIO_LOGIC_RUNTIME:-0}"
+INCLUDE_DISABLED="${INCLUDE_DISABLED:-0}"
 LOG_DIR="${LOG_DIR:-cta/report/run_log/${RUN_TAG}}"
 PYTHON="${PYTHON:-python3}"
 
@@ -81,6 +99,7 @@ require_ranking() {
 
 ensure_dirs() {
     mkdir -p "${LOG_DIR}" "${DATA_REPORT_DIR}"
+    export CTA_GLOBAL_SEED="${GLOBAL_SEED}"
 }
 
 run_step() {
@@ -89,6 +108,7 @@ run_step() {
     local logfile="${LOG_DIR}/${name}.log"
     log "=> step ${name}"
     log "   logfile: ${logfile}"
+    log "   seed: ${CTA_GLOBAL_SEED:-unset}"
     log "   cmd: $*"
     # 用 tee 同时输出，pipefail 保证 python 失败时整体非 0
     "$@" 2>&1 | tee -a "${logfile}"
@@ -113,7 +133,28 @@ step_data() {
             --intervals ${INTERVALS_DOWN} \
             --max-rank "${TOP_N}" \
             --workers "${WORKERS}" \
-            --rate-limit "${RATE_LIMIT}"
+            --rate-limit "${RATE_LIMIT}" \
+            --include-financial \
+            --include-index \
+            --build-macro
+}
+
+step_data_index_bond() {
+    require_token
+    ensure_dirs
+    log "data_index_bond: downloading index futures + bond futures + reference index, symbols=[${INDEX_BOND_SYMBOLS}] intervals=[${INTERVALS_DOWN}]"
+    # shellcheck disable=SC2086
+    run_step "01_data_index_bond_download" \
+        ${PYTHON} -m cta.data_code.download_all \
+            --intervals ${INTERVALS_DOWN} \
+            --only-symbols ${INDEX_BOND_SYMBOLS} \
+            --start "${START}" \
+            --end "${END}" \
+            --workers "${WORKERS}" \
+            --rate-limit "${RATE_LIMIT}" \
+            --include-financial \
+            --include-index \
+            --build-macro
 }
 
 step_validate() {
@@ -179,7 +220,8 @@ step_train() {
             --window-mode expanding \
             --max-walk-forward-windows 3 \
             --by-signal-type \
-            --generic-mode auto
+            --generic-mode auto \
+            --seed "${GLOBAL_SEED}"
 }
 
 step_pool() {
@@ -198,7 +240,77 @@ step_pool() {
             --max-walk-forward-windows 3 \
             --by-signal-type \
             --generic-mode auto \
-            --pool
+            --pool \
+            --seed "${GLOBAL_SEED}"
+}
+
+step_group_pool() {
+    require_ranking
+    ensure_dirs
+    log "group_pool: grouped pooled model_pipeline by ${GROUP_BY}, intervals=[${GROUP_INTERVALS}] use_pl_runtime=${USE_PORTFOLIO_LOGIC_RUNTIME}"
+    local include_flag=()
+    if [[ "${INCLUDE_DISABLED}" == "1" ]]; then
+        include_flag+=(--include-disabled-symbols)
+    fi
+    local pl_runtime_flag=()
+    if [[ "${USE_PORTFOLIO_LOGIC_RUNTIME}" == "1" ]]; then
+        pl_runtime_flag+=(--use-portfolio-logic-runtime)
+    fi
+    # shellcheck disable=SC2086
+    run_step "06_train_group_pool" \
+        ${PYTHON} -m cta.model.model_pipeline \
+            --group-pool \
+            --group-by "${GROUP_BY}" \
+            --group-min-size "${GROUP_MIN_SIZE}" \
+            --symbols-ranking-path "${RANKING_CSV}" \
+            --top-n-symbols "${TOP_N}" \
+            --interval ${GROUP_INTERVALS} \
+            --start "${START}" --end "${END}" \
+            --train-end "${TRAIN_END}" --valid-end "${VALID_END}" \
+            --window-mode expanding \
+            --max-walk-forward-windows 3 \
+            --by-signal-type \
+            --generic-mode auto \
+            --min-used-symbols 2 \
+            "${include_flag[@]}" \
+            "${pl_runtime_flag[@]}" \
+            --seed "${GLOBAL_SEED}"
+}
+
+step_index_pool() {
+    # 仅训练股指期货 group（IF0/IH0/IC0/IM0 → cluster_index）
+    # 适合快速验证 cluster_index 端到端：训练 → 注册 → OOT → sim/live
+    require_ranking
+    ensure_dirs
+    log "index_pool: training cluster_index ONLY (IF0/IH0/IC0/IM0), intervals=[${INDEX_GROUP_INTERVALS}] use_pl_runtime=${USE_PORTFOLIO_LOGIC_RUNTIME}"
+    local include_flag=()
+    if [[ "${INCLUDE_DISABLED}" == "1" ]]; then
+        include_flag+=(--include-disabled-symbols)
+    fi
+    local pl_runtime_flag=()
+    if [[ "${USE_PORTFOLIO_LOGIC_RUNTIME}" == "1" ]]; then
+        pl_runtime_flag+=(--use-portfolio-logic-runtime)
+    fi
+    # shellcheck disable=SC2086
+    run_step "06_train_index_pool" \
+        ${PYTHON} -m cta.model.model_pipeline \
+            --group-pool \
+            --group-by cluster \
+            --group-min-size 2 \
+            --only-clusters index \
+            --symbols-ranking-path "${RANKING_CSV}" \
+            --top-n-symbols "${TOP_N}" \
+            --interval ${INDEX_GROUP_INTERVALS} \
+            --start "${START}" --end "${END}" \
+            --train-end "${TRAIN_END}" --valid-end "${VALID_END}" \
+            --window-mode expanding \
+            --max-walk-forward-windows 3 \
+            --by-signal-type \
+            --generic-mode auto \
+            --min-used-symbols 2 \
+            "${include_flag[@]}" \
+            "${pl_runtime_flag[@]}" \
+            --seed "${GLOBAL_SEED}"
 }
 
 step_summary() {
@@ -219,6 +331,7 @@ run_all() {
     step_candidate
     step_train
     step_pool
+    step_group_pool
     step_summary
 }
 
@@ -228,11 +341,14 @@ run_all() {
 ACTION="${1:-all}"
 case "${ACTION}" in
     data)        step_data ;;
+    data_index_bond) step_data_index_bond ;;
     validate)    step_validate ;;
     feature)     step_feature ;;
     candidate)   step_candidate ;;
     train)       step_train ;;
     pool)        step_pool ;;
+    group_pool)  step_group_pool ;;
+    index_pool)  step_index_pool ;;
     summary)     step_summary ;;
     all)         run_all ;;
     -h|--help|help)

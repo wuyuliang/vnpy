@@ -99,6 +99,7 @@ class TestCandidateTrainingDataset(unittest.TestCase):
             "entry_price_virtual",
             "stop_price_virtual",
             "future_return_atr",
+            "atr_pct_at_entry",
             "executed_flag",
             "is_good_opportunity",
             "opportunity_class",
@@ -115,6 +116,9 @@ class TestCandidateTrainingDataset(unittest.TestCase):
         self.assertEqual(out.loc[2, "block_reason"], "next_bar_not_triggered")
         # C2: when entry_price is NaN, fall back to trigger (3500), NEVER stop_price (3450).
         self.assertAlmostEqual(float(out.loc[1, "entry_price_virtual"]), 3500.0, places=6)
+        # W2.1: atr_pct_at_entry = atr14 / entry_price_virtual
+        self.assertAlmostEqual(float(out.loc[0, "atr_pct_at_entry"]), 20.0 / 3510.0, places=9)
+        self.assertAlmostEqual(float(out.loc[1, "atr_pct_at_entry"]), 21.0 / 3500.0, places=9)
         # 文档要求机会质量标签独立于是否成交，filtered 样本也允许成为好机会。
         self.assertEqual(int(out.loc[1, "is_good_opportunity"]), 1)
 
@@ -175,6 +179,70 @@ class TestCandidateTrainingDataset(unittest.TestCase):
             self.assertIn("generic_sma_20", merged.columns)
             self.assertIn("generic_rsi_14", merged.columns)
             self.assertIn("sample_status", merged.columns)
+
+    def test_build_and_save_candidate_training_dataset_merges_macro_features(self) -> None:
+        candidate = pd.DataFrame(
+            {
+                "symbol": ["RB0"],
+                "exchange": ["SHFE"],
+                "interval": ["minute60"],
+                "datetime": pd.to_datetime(["2019-01-02 09:00:00"]),
+                "signal_datetime": pd.to_datetime(["2019-01-02 08:00:00"]),
+                "signal_type": ["donchian_breakout"],
+                "side": ["long"],
+                "candidate_status": ["filled"],
+                "filtered_reason": [""],
+                "trigger": [3510.0],
+                "entry_price": [3510.0],
+                "stop_price": [3508.0],
+                "future_mfe_atr": [0.9],
+                "future_mae_atr": [0.2],
+                "atr_warmed": [1],
+                "feature_close": [3510.0],
+                "feature_atr14": [20.0],
+            }
+        )
+
+        with tempfile.TemporaryDirectory(prefix="cta_candidate_macro_") as td:
+            root = Path(td)
+            feature_root = root / "feature"
+            generic_dir = feature_root / "minute60" / "RB0"
+            generic_dir.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(
+                {
+                    "datetime": pd.to_datetime(["2019-01-02 08:00:00"]),
+                    "sma_20": [3490.0],
+                }
+            ).to_parquet(generic_dir / "2019-01-02.parquet", index=False)
+
+            macro_path = root / "feature" / "macro" / "macro_daily.parquet"
+            macro_path.parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(
+                {
+                    "trade_date": pd.to_datetime(["2019-01-02"]),
+                    "macro_sse_ret_5d": [0.0123],
+                    "macro_csi300_vol_20d": [0.0234],
+                }
+            ).to_parquet(macro_path, index=False)
+
+            out = build_and_save_candidate_training_dataset(
+                candidate_df=candidate,
+                symbol="RB0",
+                interval="60min",
+                output_root=root / "model_feature",
+                feature_root=feature_root,
+                run_tag="20260427",
+                generic_columns=("sma_20",),
+                enable_macro_features=True,
+                macro_feature_path=macro_path,
+            )
+
+            merged = pd.read_parquet(out.training_samples_parquet)
+            self.assertIn("candidate_trade_date", merged.columns)
+            self.assertIn("macro_sse_ret_5d", merged.columns)
+            self.assertIn("macro_csi300_vol_20d", merged.columns)
+            self.assertEqual(str(merged.iloc[0]["candidate_trade_date"]), "2019-01-02")
+            self.assertAlmostEqual(float(merged.iloc[0]["macro_sse_ret_5d"]), 0.0123, places=9)
 
     # ------------------ C1 + C12: candidate_id 在两个落盘文件之间必须一致 -------
     def test_candidate_id_stable_between_candidate_events_and_training_samples(self) -> None:

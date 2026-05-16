@@ -26,6 +26,7 @@ from typing import Iterable
 
 import pandas as pd
 
+from cta.config.trading_session_config import get_session_for_symbol
 from cta.data_code.futures_downloader import (
     DATA_DIR,
     DAY_DIR,
@@ -46,6 +47,8 @@ class ValidationReport:
     ohlc_bad: int = 0
     zero_volume: int = 0
     out_of_order: int = 0
+    out_of_session_bars: int = 0
+    short_session_days: int = 0
     date_start: str = ""
     date_end: str = ""
     notes: list[str] = field(default_factory=list)
@@ -60,6 +63,8 @@ class ValidationReport:
             "ohlc_bad": self.ohlc_bad,
             "zero_volume": self.zero_volume,
             "out_of_order": self.out_of_order,
+            "out_of_session_bars": self.out_of_session_bars,
+            "short_session_days": self.short_session_days,
             "date_start": self.date_start,
             "date_end": self.date_end,
             "notes": " | ".join(self.notes),
@@ -136,6 +141,18 @@ def validate_minute_dir(symbol: str, interval: str) -> ValidationReport:
     ohlc_bad = 0
     zero_vol = 0
     ooo = 0
+    out_of_session = 0
+    short_days = 0
+    interval_to_minutes = {
+        "minute": 1,
+        "minute5": 5,
+        "minute15": 15,
+        "minute30": 30,
+        "minute60": 60,
+    }
+    freq_minutes = interval_to_minutes.get(interval, 1)
+    session = get_session_for_symbol(symbol)
+    expected_bars = session.expected_bar_count(freq_minutes)
     for fp in files:
         try:
             df = pd.read_parquet(fp)
@@ -150,6 +167,12 @@ def validate_minute_dir(symbol: str, interval: str) -> ValidationReport:
             df = df.dropna(subset=["datetime"]).sort_values("datetime")
             dup += int(df.duplicated(subset=["datetime"]).sum())
             ooo += int((df["datetime"].diff().dt.total_seconds() < 0).sum())
+            if not df.empty:
+                within = df["datetime"].map(session.is_within)
+                out_of_session += int((~within).sum())
+                actual = int(within.sum())
+                if expected_bars > 0 and actual < int(expected_bars * 0.95):
+                    short_days += 1
         ohlc_bad += _check_ohlc(df)
         if "volume" in df.columns:
             zero_vol += int((df["volume"].astype(float) <= 0).sum())
@@ -158,10 +181,16 @@ def validate_minute_dir(symbol: str, interval: str) -> ValidationReport:
     rep.ohlc_bad = ohlc_bad
     rep.zero_volume = zero_vol
     rep.out_of_order = ooo
+    rep.out_of_session_bars = out_of_session
+    rep.short_session_days = short_days
 
     expected = pd.bdate_range(rep.date_start, rep.date_end)
     actual = pd.DatetimeIndex(pd.to_datetime([f.stem for f in files]))
     rep.missing_business_days = int(len(expected.difference(actual)))
+    if expected_bars > 0:
+        rep.notes.append(
+            f"session={session.name}, expected_bars_per_day={expected_bars}, tolerance=95%"
+        )
     return rep
 
 

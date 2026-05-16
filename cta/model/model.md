@@ -26,6 +26,19 @@
 
 说明：以下命令中的 `RB0` 仅为示例，替换为任意本地可用品种（如 `CU0`/`AU0`）即可运行。
 
+`model_pipeline` 内部执行顺序已固定为：
+1. 先生成候选样本；
+2. 再拼接候选对应通用特征与模型特征；
+3. 再按 train/valid 选参并训练三类模型；
+4. 最后仅用 OOT(test) 做评估与收益分档。
+
+实现拆分（便于局部 review）：
+- `cta/model/model_pipeline.py`：主流程编排 + CLI
+- `cta/model/pipeline_feature_enrichment.py`：候选特征自动补齐（`generic_auto_*` / `generic_model_*`）
+- `cta/model/pipeline_pooling.py`：多品种池化样本构建
+- `cta/model/pipeline_oot_evaluation.py`：OOT 真实成交评估
+- `cta/model/pipeline_html_report.py`：OOT 结果桥接到 `cta/report/render` HTML 报告
+
 ### Step A：生成通用特征（vn.py 特征）
 
 ```bash
@@ -95,11 +108,25 @@ python3 -m cta.model.feature.candidate_training_dataset \
 - `cta/data/model_feature/minute60/RB0/20260427/*_dataset_summary.parquet`
 - `cta/data/model_feature/day/RB0/20260427/*_candidate_events.parquet`
 
-### Step C：训练三类模型（Trade Filter / Regime / MFE-MAE）
+### Step C：训练四层模型（命名可辨识）
 
 训练口径说明：
-- `Trade Filter` / `Regime Classifier`：使用全量候选样本训练（包含已成交 + 未成交样本）。
+- `Trade Filter`：使用全量候选样本训练（包含已成交 + 未成交样本）。
+  - 当前默认是融合模型：`ensemble_histgb_elasticnet_avg`
+  - 输出文件名：`trade_filter.joblib`
+- `Regime Classifier`：使用全量候选样本训练（包含已成交 + 未成交样本）。
+  - 输出文件名：`regime_classifier.joblib`
 - `MFE/MAE`：仅在 `is_executed==1` 样本上训练。
+  - 输出文件名：`mfe_mae.joblib`
+- `Final Decision Stack`：将前三层输出作为 meta 特征，再训练最终决策模型。
+  - meta 特征：`meta_trade_filter_prob / meta_regime_code / meta_pred_mfe_atr / meta_pred_mae_atr / meta_pred_edge_atr / meta_edge_side`
+  - 输出文件名：`final_decision_stack.joblib`
+- 参数搜索与过拟合控制：
+  - 前三类基础模型做参数网格搜索；
+  - 仅使用 `train + valid` 进行选参，约束 `abs(train_auc-valid_auc) <= 3%`（默认，可用 `--max-auc-gap` 调整）；
+  - `OOT(test)` 严格不参与选参，只用于最终效果评估。
+
+OOT 执行评估默认优先使用 `final_decision_score` 作为 gate（可通过配置回退到旧三段 gate）。
 
 #### 通用特征拼接策略（`--generic-mode`）
 
@@ -119,6 +146,9 @@ python3 -m cta.model.model_pipeline --symbol RB0 --interval 60min --start 2018-0
 
 # 锁定 18 列白名单
 python3 -m cta.model.model_pipeline --symbol RB0 --interval 60min --generic-mode whitelist
+
+# 显式设置选参约束（示例：AUC gap <= 1.5%）
+python3 -m cta.model.model_pipeline --symbol RB0 --interval 60min --max-auc-gap 0.015
 ```
 
 程序化：
@@ -136,6 +166,25 @@ run_model_pipeline(symbol="RB0", interval="60min", generic_mode="whitelist")
 - 单品种：`--symbol RB0 --exchange SHFE`
 - topN 品种：`--top-n-symbols N`（自动从 `cta/feature/symbols_research_ranking.csv` 读取前 N 名）
 
+`POOL` 模式（共享跨品种模型）：
+- CLI 加 `--pool` 后，会把 topN 品种样本拼成一个训练集，只产出一套 `POOL_*` 模型。
+- **重要变更**：
+  - 缺分钟原始数据的品种会跳过（不回退 synthetic）；
+  - 缺 `cta/data/feature/<interval>/<symbol>` 通用特征目录时，不中断训练，会自动从候选样本构造 `generic_auto_*` 与 `generic_model_*` 特征继续训练。
+- 输出的 `*_pool_members.csv` 会新增 `used_in_training` 列，标识哪些品种实际参与训练。
+- 新增 `--min-used-symbols`（默认 `2`）：若实际参与训练的品种数低于阈值会直接报错，避免“披着 POOL 的单品种模型”。
+- 训练阶段会自动按 `symbol_cluster` 做样本权重平衡（`sqrt(total_symbols / symbols_in_cluster)`），降低单一板块样本过多导致的偏置。
+- 训练前会读取 `cta/feature/causality_manifest.csv`，将显式标记为 `causal=0` 的特征剔除。
+
+`GROUP-POOL` 模式（分组池化）：
+- CLI 加 `--group-pool` 后，会先把 ranking 里的品种按 `--group-by` 分类，再按“组 × interval”分别训练。
+- 默认 `--group-by tier`（A/B/C/D），也支持：
+  - `--group-by cluster`（按 `symbol_cluster_config` 推断板块）
+  - 或 ranking csv 任意列名（如 `exchange` / `recommended_stage`）。
+- 每个组输出目录会带组名：`..._GRP_<GROUP>_<interval>_..._model_pipeline/`，模型命名可直接看出来源组别。
+- 默认会应用 `symbol_disable_manifest` 过滤；若要覆盖 ranking 里的 70+ 全量品种，增加 `--include-disabled-symbols`。
+- `--group-min-size` 控制最小组样本数（默认 2），过小组会被跳过。
+
 ```bash
 # 单一 interval（保留旧用法）
 python3 -m cta.model.model_pipeline \
@@ -149,6 +198,22 @@ python3 -m cta.model.model_pipeline \
   --window-mode expanding \
   --max-walk-forward-windows 3 \
   --by-signal-type
+
+# rolling 3y/1y/1y（每 1 年滚动一次）
+python3 -m cta.model.model_pipeline \
+  --symbol RB0 \
+  --exchange SHFE \
+  --interval day \
+  --start 2010-01-01 \
+  --end 2025-12-31 \
+  --train-end 2014-12-31 \
+  --valid-end 2015-12-31 \
+  --window-mode rolling \
+  --rolling-train-years 3 \
+  --rolling-valid-years 1 \
+  --rolling-test-years 1 \
+  --rolling-step-years 1 \
+  --max-walk-forward-windows 6
 
 # 多个 interval 一次跑完（空格分隔）
 python3 -m cta.model.model_pipeline \
@@ -175,17 +240,89 @@ python3 -m cta.model.model_pipeline \
   --interval 60min \
   --start 2010-01-01 \
   --end 2019-12-31
+
+# POOL 共享模型（真实数据优先）
+python3 -m cta.model.model_pipeline \
+  --top-n-symbols 10 \
+  --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
+  --interval 60min \
+  --start 2010-01-01 \
+  --end 2025-12-31 \
+  --train-end 2018-12-31 \
+  --valid-end 2020-12-31 \
+  --window-mode expanding \
+  --max-walk-forward-windows 3 \
+  --by-signal-type \
+  --generic-mode auto \
+  --pool \
+  --min-used-symbols 2 \
+  --seed 20260512
+
+# GROUP-POOL：按 tier 分组，分别训练（覆盖全量 ranking 品种）
+python3 -m cta.model.model_pipeline \
+  --group-pool \
+  --group-by tier \
+  --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
+  --top-n-symbols 0 \
+  --include-disabled-symbols \
+  --group-min-size 2 \
+  --interval day 60min \
+  --start 2010-01-01 \
+  --end 2025-12-31 \
+  --train-end 2020-12-31 \
+  --valid-end 2023-12-31 \
+  --window-mode expanding \
+  --max-walk-forward-windows 3 \
+  --by-signal-type \
+  --generic-mode auto \
+  --min-used-symbols 2 \
+  --seed 20260515
 ```
 
 输出示例：
 - `*_candidates.csv`
 - `*_feature_table.csv`
 - `*_predictions.csv`
+  - 含 `final_decision_score`（最终决策分）
 - `*_metrics.csv`
+  - 含 `model=final_decision_stack`
 - `*_top10_feature_importance.csv`（每个 signal/window/model 的 Top10 特征重要性，含 `feature_meaning`）
 - `*_last_oot_decile_returns.csv`（最后 OOT 集合按模型分十档收益，仅统计已成交样本）
+- `*_oot_monthly_returns.csv`（OOT 真实成交按月收益）
+- `*_oot_summary.csv`（OOT 真实成交汇总：Sharpe / 回撤 / 年化）
+- `*_oot_trade_details.csv`（OOT 真实成交逐笔明细：净值前后、单笔收益、成本等）
+- `*_throttle_log.csv`（portfolio_logic 风控档位时序日志：equity/drawdown/level/score_threshold）
+- `*_oot_position_lifetime.csv`（按 `pos_id` 聚合的持仓生命周期：layer_count/peak_notional）
+- `report_*.html`（通过 `cta/report/render` 统一渲染的 OOT 绩效 HTML 报告）
 - `models/<signal_type>/window_xx/*.joblib`
+- `models/<signal_type>/window_xx/*_calibration.joblib`
+  - `trade_filter_calibration.joblib`
+  - `regime_classifier_calibration.joblib`
+  - `mfe_mae_calibration.joblib`
+  - `final_decision_stack_calibration.joblib`
 - `models/<signal_type>/window_xx/<model>_features.csv`（**每个模型的全量特征清单**，按 importance 降序）
+
+OOT 评估参数集中在：
+- `cta/config/model_oot_eval_config.py`
+- 包含：`max_single_loss_pct`、`trade_filter_threshold`、`use_regime_gate`、`min_pred_edge_atr`、
+  `use_roll_cost` / `default_roll_cost_pct_per_year`（展期成本扣减）、
+  `use_stacking_gate` / `stacking_score_threshold`（最终决策 gate）、
+  `weekly_dd_position_scale_after_breach`（周回撤后缩仓系数）、
+  `monthly_max_drawdown_pct`（月回撤硬熔断）等。
+- 当前默认：`weekly_max_drawdown_pct=0.03`（3%）。
+
+portfolio_logic 运行时开关（默认向后兼容关闭）：
+- `use_portfolio_logic_runtime=False`
+- 打开后会启用 `portfolio_logic` 模块中的能力（按配置开关）：
+  - HTF gate（`blocked_htf_gate`）
+  - ranker 机会排序（`blocked_ranker`）
+  - risk throttle（`blocked_throttle_halt`）
+  - pyramid 分层持仓（`pos_id` / `layer_id`）
+  - trailing stop（`trailing_stop_exit_rows`）
+
+`*_model_report.md` 会额外打印：
+- `Process Steps`：候选生成 → 特征拼接 → 训练 → OOT 评估的全过程
+- `Split Diagnostics`：train/valid/test 时间区间、样本数、特征空值统计、IC 统计
 
 训练日志会同步打印每个模型的 Top10 特征重要性（便于快速复盘）。
 
@@ -223,6 +360,9 @@ required_features = manifest["feature"].astype(str).tolist()
 # 严格按训练时的特征清单 + 顺序做推理（避免列漏 / 列错位 / 列穿越）
 prob = m.predict_proba(df_runtime, feature_columns=required_features)
 ```
+
+若启用 cluster 路由推理（`ClusterModelRegistry`），会自动加载同目录下
+`*_calibration.joblib`，并在输出里追加对应 `_pctl` 百分位列（例如 `trade_filter_prob_pctl`）。
 
 mfe_mae 模型在该 signal/window 没有成交样本（`_train_mfe_mae_or_skip` 返回 None）
 时 joblib 不写出，对应 `mfe_mae_features.csv` 也不会写出（无孤儿文件）。

@@ -1,0 +1,2 @@
+﻿symbol,day_rows,minute_trade_days,overlap_days,sampled_days,mismatch_days,max_rel_error,disabled,notes
+RB0,4127,3954,3933,2,2,0.0601079608294087,1,mismatch_days=2>0

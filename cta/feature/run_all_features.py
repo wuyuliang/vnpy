@@ -783,6 +783,16 @@ def main() -> None:
                         help="只写盘 >=该日期的特征 (YYYY-MM-DD)")
     parser.add_argument("--end-date", default=None,
                         help="只写盘 <=该日期的特征 (YYYY-MM-DD)")
+    parser.add_argument(
+        "--build-macro",
+        action="store_true",
+        help="构建宏观 reference 特征 cta/data/feature/macro/macro_daily.parquet",
+    )
+    parser.add_argument(
+        "--macro-feature-path",
+        default=str(CTA_ROOT / "data" / "feature" / "macro" / "macro_daily.parquet"),
+        help="macro feature output parquet path",
+    )
     args = parser.parse_args()
 
     # 简单校验日期格式
@@ -854,6 +864,13 @@ def main() -> None:
         logger.info(f"[{itv:8s}] success={ok}, fail={fail}, skip={skip}")
     logger.info(f"全部完成！总耗时 {time.time()-t_total:.1f}s")
     logger.info(f"截面特征请执行: python3 -m cta.feature.run_all_features --cross-section")
+    if args.build_macro:
+        from cta.feature.macro_feature import MacroFeatureBuilder
+
+        builder = MacroFeatureBuilder()
+        macro_df = builder.build()
+        out_path = builder.save(macro_df, out_path=Path(args.macro_feature_path))
+        logger.info("macro feature saved: %s rows=%s cols=%s", out_path, len(macro_df), len(macro_df.columns))
 
 
 if __name__ == "__main__":

@@ -44,13 +44,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import pandas as pd
 
@@ -60,9 +61,13 @@ from cta.data_code.futures_downloader import (
     DAY_DIR,
     DownloadResult,
     FuturesDownloader,
+    RateLimiter,
     MINUTE_INTERVALS,
     alpha_prefix,
 )
+from cta.data_code.financial_futures_downloader import FinancialFuturesDownloader
+from cta.data_code.index_downloader import IndexDownloader
+from cta.feature.macro_feature import MacroFeatureBuilder
 
 # =============================================================================
 # 日志
@@ -109,6 +114,64 @@ EMPTY_COLS = [
 # empty.csv 聚合参数
 MAX_EMPTY_DATE = "2026-04-17"     # 晚于此日期的空日不记录（视为数据尚未落地）
 EMPTY_GAP_DAYS = 60               # 连续空日区间的最大间隙
+
+_INTERVAL_ALIAS: Dict[str, str] = {
+    "day": "day",
+    "min": "minute",
+    "minute": "minute",
+    "1min": "minute",
+    "minute5": "minute5",
+    "5min": "minute5",
+    "minute15": "minute15",
+    "15min": "minute15",
+    "minute30": "minute30",
+    "30min": "minute30",
+    "minute60": "minute60",
+    "60min": "minute60",
+}
+
+
+def _normalize_interval_tokens(tokens: List[str]) -> List[str]:
+    out: List[str] = []
+    seen: Set[str] = set()
+    for raw in tokens:
+        key = str(raw).strip().lower()
+        if key not in _INTERVAL_ALIAS:
+            raise ValueError(f"unsupported interval token: {raw}")
+        canon = _INTERVAL_ALIAS[key]
+        if canon in seen:
+            continue
+        seen.add(canon)
+        out.append(canon)
+    return out
+
+
+def _is_financial_symbol(symbol: str) -> bool:
+    return alpha_prefix(symbol) in set(FinancialFuturesDownloader.SUPPORTED_PREFIXES)
+
+
+def _resolve_macro_build_symbols(
+    *,
+    index_day_dir: Path,
+    references: Sequence[tuple[str, str]] | None = None,
+) -> List[str]:
+    """Return index ts_code list whose day csv already exists locally.
+
+    用于避免在没有指数原始数据时直接调用 macro builder 报错。
+    """
+    refs = list(references) if references is not None else IndexDownloader.load_reference_symbols()
+    day_dir = Path(index_day_dir)
+    if not day_dir.exists():
+        return []
+    out: List[str] = []
+    for ts_code, _ in refs:
+        code = str(ts_code).upper().strip()
+        if not code:
+            continue
+        safe = code.replace(".", "_")
+        if (day_dir / f"{safe}.csv").exists():
+            out.append(code)
+    return out
 
 
 # =============================================================================
@@ -320,7 +383,7 @@ def finished_pairs(df: pd.DataFrame) -> Set[Tuple[str, str]]:
 # =============================================================================
 def _existing_dates(symbol: str, interval: str) -> Set[str]:
     """逐日 parquet 已存在的日期集合"""
-    d = DATA_DIR / interval / alpha_prefix(symbol)
+    d = DATA_DIR / "origin" / interval / alpha_prefix(symbol)
     if not d.exists():
         return set()
     return {p.stem for p in d.glob("*.parquet")}
@@ -482,13 +545,12 @@ def load_ranking() -> pd.DataFrame:
 # =============================================================================
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="按 research_rank 批量下载中国商品期货全频率数据"
+        description="按 research_rank 批量下载期货（商品+金融）和指数 reference 数据"
     )
     parser.add_argument(
         "--intervals", nargs="+",
         default=list(ALL_INTERVALS),
-        choices=list(ALL_INTERVALS),
-        help=f"下载频率列表 (默认全部: {list(ALL_INTERVALS)})",
+        help=f"下载频率列表，支持 day/minute/minute5/15/30/60 及别名 (默认全部: {list(ALL_INTERVALS)})",
     )
     parser.add_argument(
         "--workers", type=int, default=4,
@@ -510,9 +572,55 @@ def main() -> None:
         "--token", type=str, default=None,
         help="tushare token（默认从 TUSHARE_TOKEN 环境变量读取）",
     )
+    parser.add_argument("--start", type=str, default="2010-01-01", help="下载开始日期 YYYY-MM-DD")
+    parser.add_argument(
+        "--end",
+        type=str,
+        default=datetime.now().strftime("%Y-%m-%d"),
+        help="下载结束日期 YYYY-MM-DD（默认: 当天）",
+    )
+    parser.add_argument(
+        "--include-financial",
+        dest="include_financial",
+        action="store_true",
+        default=True,
+        help="是否下载金融期货（IF/IH/IC/IM/T/TF/TS），默认开启",
+    )
+    parser.add_argument(
+        "--exclude-financial",
+        dest="include_financial",
+        action="store_false",
+        help="关闭金融期货下载",
+    )
+    parser.add_argument(
+        "--include-index",
+        dest="include_index",
+        action="store_true",
+        default=True,
+        help="是否下载 reference 指数（000001/000852/000300），默认开启",
+    )
+    parser.add_argument(
+        "--exclude-index",
+        dest="include_index",
+        action="store_false",
+        help="关闭 reference 指数下载",
+    )
+    parser.add_argument(
+        "--build-macro",
+        dest="build_macro",
+        action="store_true",
+        default=True,
+        help="是否构建 macro_daily.parquet，默认开启",
+    )
+    parser.add_argument(
+        "--no-build-macro",
+        dest="build_macro",
+        action="store_false",
+        help="关闭 macro 特征构建",
+    )
     args = parser.parse_args()
 
-    intervals: List[str] = list(dict.fromkeys(args.intervals))
+    intervals: List[str] = _normalize_interval_tokens(list(args.intervals))
     minute_intervals = [i for i in intervals if i in MINUTE_INTERVALS]
     want_day = "day" in intervals
 
@@ -529,9 +637,13 @@ def main() -> None:
     logger.info(f"  finished csv:  {FINISHED_CSV}")
     logger.info(f"  empty csv:     {EMPTY_CSV}")
     logger.info(f"  下载频率:      {intervals}")
+    logger.info(f"  日期范围:      [{args.start}, {args.end}]")
     logger.info(f"  worker 数:     {args.workers}")
     logger.info(f"  rate limit:    {args.rate_limit}/min")
     logger.info(f"  max_empty:     {MAX_EMPTY_DATE}")
+    logger.info(f"  include_fin:   {args.include_financial}")
+    logger.info(f"  include_index: {args.include_index}")
+    logger.info(f"  build_macro:   {args.build_macro}")
     if args.max_rank:
         logger.info(f"  max rank:      {args.max_rank}")
     if args.only_symbols:
@@ -560,6 +672,24 @@ def main() -> None:
         rate_limit=args.rate_limit,
         workers=args.workers,
     )
+    shared_rl = RateLimiter(args.rate_limit)
+    fdl: Optional[FinancialFuturesDownloader] = None
+    idx_dl: Optional[IndexDownloader] = None
+    has_tushare_token = bool(str(args.token or os.getenv("TUSHARE_TOKEN", "")).strip())
+
+    if (args.include_financial or args.include_index) and has_tushare_token:
+        if args.include_financial:
+            fdl = FinancialFuturesDownloader(rate_limiter=shared_rl)
+        if args.include_index:
+            idx_dl = IndexDownloader(rate_limiter=shared_rl)
+    elif args.include_financial or args.include_index:
+        logger.warning("no tushare token, skip financial/index download")
+
+    if args.include_index and idx_dl is not None:
+        try:
+            idx_dl.fetch_all(start=args.start, end=args.end)
+        except Exception as e:  # noqa: BLE001
+            logger.error("index download failed: %s", e, exc_info=True)
 
     t_total = time.time()
     total_sym = len(ranking)
@@ -569,6 +699,110 @@ def main() -> None:
         rank = int(row["research_rank"])
         logger.info("-" * 70)
         logger.info(f"[{idx+1}/{total_sym}] rank={rank} {symbol} ({exchange})")
+        is_financial = _is_financial_symbol(symbol)
+
+        if is_financial and not args.include_financial:
+            logger.info("  financial disabled, skip symbol=%s", symbol)
+            continue
+
+        if is_financial:
+            prefix = alpha_prefix(symbol)
+            if fdl is None:
+                logger.error("  no tushare token; financial symbol skipped: %s", symbol)
+                for itv in intervals:
+                    if (symbol, itv) in done_pairs:
+                        continue
+                    r = DownloadResult(
+                        symbol=symbol,
+                        exchange=exchange,
+                        interval=itv,
+                        status="error",
+                        detail="no tushare token for financial downloader",
+                    )
+                    append_finished(r)
+                    done_pairs.add((symbol, itv))
+                continue
+
+            if want_day and (symbol, "day") not in done_pairs:
+                t0 = time.time()
+                try:
+                    day_df = fdl.fetch_continuous_day(prefix, args.start, args.end)
+                    if day_df.empty:
+                        r = DownloadResult(
+                            symbol=symbol,
+                            exchange=exchange,
+                            interval="day",
+                            status="empty",
+                            detail="financial day empty",
+                        )
+                    else:
+                        r = DownloadResult(
+                            symbol=symbol,
+                            exchange=exchange,
+                            interval="day",
+                            status="success",
+                            rows=int(len(day_df)),
+                            date_start=str(day_df["datetime"].min())[:10],
+                            date_end=str(day_df["datetime"].max())[:10],
+                        )
+                except Exception as e:  # noqa: BLE001
+                    r = DownloadResult(
+                        symbol=symbol,
+                        exchange=exchange,
+                        interval="day",
+                        status="error",
+                        detail=f"financial day unexpected: {e}",
+                    )
+                append_finished(r)
+                done_pairs.add((symbol, "day"))
+                logger.info(
+                    f"  [day] {r.status} rows={r.rows} "
+                    f"range=[{r.date_start}~{r.date_end}] {time.time()-t0:.1f}s"
+                )
+            elif want_day:
+                logger.info("  [day] 已完成，跳过")
+
+            need_minute_fin = [i for i in minute_intervals if (symbol, i) not in done_pairs]
+            for itv in need_minute_fin:
+                t0 = time.time()
+                try:
+                    fdl.fetch_continuous_minute(prefix, itv, args.start, args.end)
+                    base = DATA_DIR / "origin" / itv / prefix
+                    files = sorted(base.glob("*.parquet")) if base.exists() else []
+                    if files:
+                        r = DownloadResult(
+                            symbol=symbol,
+                            exchange=exchange,
+                            interval=itv,
+                            status="success",
+                            rows=0,
+                            date_start=files[0].stem,
+                            date_end=files[-1].stem,
+                            detail=f"files={len(files)}",
+                        )
+                    else:
+                        r = DownloadResult(
+                            symbol=symbol,
+                            exchange=exchange,
+                            interval=itv,
+                            status="empty",
+                            detail="financial minute empty",
+                        )
+                except Exception as e:  # noqa: BLE001
+                    r = DownloadResult(
+                        symbol=symbol,
+                        exchange=exchange,
+                        interval=itv,
+                        status="error",
+                        detail=f"financial minute unexpected: {e}",
+                    )
+                append_finished(r)
+                done_pairs.add((symbol, itv))
+                logger.info(
+                    f"  [{itv}] {r.status} rows={r.rows} "
+                    f"range=[{r.date_start}~{r.date_end}] {time.time()-t0:.1f}s detail={r.detail}"
+                )
+            continue
 
         # -------- 日线 --------
         if want_day and (symbol, "day") not in done_pairs:
@@ -640,6 +874,33 @@ def main() -> None:
                 f"range=[{r.date_start}~{r.date_end}] detail={r.detail}"
             )
         logger.info(f"  symbol minutes total: {time.time()-t0:.1f}s")
+
+    if args.build_macro:
+        try:
+            builder = MacroFeatureBuilder()
+            refs = IndexDownloader.load_reference_symbols()
+            available_symbols = _resolve_macro_build_symbols(
+                index_day_dir=builder.index_root,
+                references=refs,
+            )
+            if not available_symbols:
+                logger.warning(
+                    "skip macro feature build: no index day csv found under %s "
+                    "(expected e.g. 000001_SH.csv). Run with --include-index (and valid token) first.",
+                    builder.index_root,
+                )
+            else:
+                macro_df = builder.build(symbols=available_symbols)
+                out_path = builder.save(macro_df)
+                logger.info(
+                    "macro feature built: %s rows=%s cols=%s (symbols=%s)",
+                    out_path,
+                    len(macro_df),
+                    len(macro_df.columns),
+                    available_symbols,
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.error("macro feature build failed: %s", e, exc_info=True)
 
     elapsed = time.time() - t_total
     logger.info("=" * 70)

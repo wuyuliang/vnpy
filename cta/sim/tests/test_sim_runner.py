@@ -151,6 +151,43 @@ class TestRunSim(unittest.TestCase):
         self.assertEqual(setting["交易服务器"], "tcp://1.2.3.4:5")
         self.assertEqual(setting["行情服务器"], "tcp://6.7.8.9:0")
 
+    def test_injects_portfolio_logic_flags_into_strategy_setting(self) -> None:
+        me = FakeMainEngine()
+        cfg = SimRunConfig(
+            strategy_class=_DummyStrategyClass,
+            strategy_name="dummy_rb",
+            vt_symbol="rb888.SHFE",
+            setting={"lookback": 5},
+            portfolio_logic_flags={
+                "enable_htf_gate": True,
+                "enable_ranker": True,
+                "enable_trailing": True,
+                "enable_pyramid": False,
+                "enable_score_calibration": True,
+                "enable_risk_throttle": True,
+            },
+        )
+        run_sim(cfg, self._new_simnow(), main_engine_factory=lambda: me)
+        strategy_setting = me.cta_engine.added[0][3]
+        self.assertIn("portfolio_logic_flags", strategy_setting)
+        self.assertEqual(strategy_setting["portfolio_logic_flags"]["enable_pyramid"], False)
+
+    def test_injects_state_snapshot_and_order_reference_config(self) -> None:
+        me = FakeMainEngine()
+        cfg = SimRunConfig(
+            strategy_class=_DummyStrategyClass,
+            strategy_name="dummy_rb",
+            vt_symbol="rb888.SHFE",
+            setting={"lookback": 5},
+            state_snapshot_path="/tmp/portfolio_state.json",
+            enable_order_idempotency=True,
+            order_reference_prefix="LIVEA",
+        )
+        run_sim(cfg, self._new_simnow(), main_engine_factory=lambda: me)
+        strategy_setting = me.cta_engine.added[0][3]
+        self.assertEqual(strategy_setting["portfolio_state_snapshot_path"], "/tmp/portfolio_state.json")
+        self.assertEqual(strategy_setting["order_reference_prefix"], "LIVEA")
+
 
 class TestSimnowDefaults(unittest.TestCase):
     def test_default_addresses_present(self) -> None:

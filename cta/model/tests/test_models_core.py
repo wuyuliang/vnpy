@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import joblib
 import numpy as np
 import pandas as pd
 
@@ -63,6 +64,31 @@ class TestModelsCore(unittest.TestCase):
         self.assertEqual(len(top), 3)
         self.assertListEqual(list(top.columns), ["feature", "importance"])
         self.assertTrue((top["importance"].to_numpy()[:-1] >= top["importance"].to_numpy()[1:]).all())
+        # P1.4: trade filter 默认应为“树+线性”融合模型，命名可识别
+        self.assertIn("ensemble", str(m.model_kind))
+        self.assertIn("histgb", str(m.model_kind))
+        self.assertIn("elasticnet", str(m.model_kind))
+
+    def test_trade_filter_load_legacy_joblib_warns_estimator_tree_fallback(self) -> None:
+        df = _mk_df(n=80)
+        feats = ["feature_x1", "feature_x2", "feature_x3"]
+        m = TradeFilterModel(random_state=7).fit(df, feature_columns=feats, label_column="label_class")
+        with tempfile.TemporaryDirectory(prefix="cta_trade_filter_legacy_") as td:
+            path = Path(td) / "legacy.joblib"
+            # 模拟旧格式：没有 estimator_tree 字段
+            joblib.dump(
+                {
+                    "random_state": 7,
+                    "model_kind": "legacy_no_tree",
+                    "estimator": m.estimator,
+                    "estimator_linear": m.estimator_linear,
+                },
+                path,
+            )
+            with self.assertLogs("cta.model.trade_filter_model", level="WARNING") as cm:
+                loaded = TradeFilterModel.load(path)
+            self.assertIsNotNone(loaded.estimator_tree)
+            self.assertTrue(any("estimator_tree fallback" in line for line in cm.output))
 
     def test_regime_classifier_model(self) -> None:
         df = _mk_df()
@@ -75,11 +101,25 @@ class TestModelsCore(unittest.TestCase):
         metrics = evaluate_regime_model(m, test, feature_columns=feats, label_column="regime_label")
         self.assertIn("accuracy", metrics)
         self.assertIn("macro_f1", metrics)
+        self.assertIn("auc", metrics)
+        self.assertTrue(np.isfinite(float(metrics["auc"])) or np.isnan(float(metrics["auc"])))
 
         top = m.get_top_feature_importance(feature_columns=feats, top_k=3)
         self.assertEqual(len(top), 3)
         self.assertListEqual(list(top.columns), ["feature", "importance"])
         self.assertTrue((top["importance"].to_numpy()[:-1] >= top["importance"].to_numpy()[1:]).all())
+        model_step = m.estimator.named_steps["model"]  # type: ignore[union-attr]
+        self.assertEqual(int(model_step.n_estimators), 200)
+        self.assertEqual(int(model_step.max_depth), 5)
+        self.assertEqual(int(model_step.min_samples_leaf), 20)
+
+    def test_regime_classifier_warns_on_unexpected_labels(self) -> None:
+        df = _mk_df(n=120)
+        df.loc[0, "regime_label"] = "weird_state"
+        feats = ["feature_x1", "feature_x2", "feature_x3"]
+        with self.assertLogs("cta.model.regime_classifier_model", level="WARNING") as cm:
+            RegimeClassifierModel(random_state=13).fit(df, feature_columns=feats, label_column="regime_label")
+        self.assertTrue(any("unexpected values" in line for line in cm.output))
 
     def test_mfe_mae_model(self) -> None:
         df = _mk_df()
@@ -107,11 +147,18 @@ class TestModelsCore(unittest.TestCase):
         )
         self.assertIn("mfe_mae_mae", metrics)
         self.assertIn("mae_mae", metrics)
+        self.assertIn("direction_auc", metrics)
+        self.assertTrue(np.isfinite(float(metrics["direction_auc"])) or np.isnan(float(metrics["direction_auc"])))
 
         top = m.get_top_feature_importance(feature_columns=feats, top_k=3)
         self.assertEqual(len(top), 3)
         self.assertListEqual(list(top.columns), ["feature", "importance"])
         self.assertTrue((top["importance"].to_numpy()[:-1] >= top["importance"].to_numpy()[1:]).all())
+        mo = m.estimator.named_steps["model"]  # type: ignore[union-attr]
+        base = mo.estimator
+        self.assertEqual(int(base.n_estimators), 200)
+        self.assertEqual(int(base.max_depth), 5)
+        self.assertEqual(int(base.min_samples_leaf), 20)
 
     def test_mfe_mae_model_kind_reflects_dummy_vs_rf(self) -> None:
         """T-G: when training rows < min_samples, MfeMaeModel falls back to dummy and reports model_kind."""
@@ -172,6 +219,27 @@ class TestModelsCore(unittest.TestCase):
         )
         pred = mfe_model.predict(small_df, feature_columns=feats)
         self.assertEqual(len(pred), len(small_df))
+
+    def test_mfe_mae_model_handles_nan_targets_without_crash(self) -> None:
+        """P0: y 含 NaN 时训练不应报错（winsorize 前先清洗 NaN/inf）。"""
+        feats = ["feature_x1", "feature_x2", "feature_x3"]
+        df = _mk_df(n=120).copy()
+        df.loc[:10, "future_mfe_atr"] = np.nan
+        df.loc[5:15, "future_mae_atr"] = np.nan
+        df.loc[20, "future_mfe_atr"] = np.inf
+        df.loc[21, "future_mae_atr"] = -np.inf
+
+        m = MfeMaeModel(random_state=11)
+        m.fit(
+            df,
+            feature_columns=feats,
+            mfe_column="future_mfe_atr",
+            mae_column="future_mae_atr",
+        )
+        pred = m.predict(df.iloc[:20], feature_columns=feats)
+        self.assertEqual(pred.shape[0], 20)
+        self.assertTrue(np.isfinite(pred["pred_mfe_atr"]).all())
+        self.assertTrue(np.isfinite(pred["pred_mae_atr"]).all())
 
 
 if __name__ == "__main__":

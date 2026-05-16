@@ -55,7 +55,7 @@ class TestBuildPooledFeatureDf(unittest.TestCase):
         symbols = [("RB0", "SHFE"), ("HC0", "SHFE"), ("I0", "DCE")]
 
         def fake_candidate(symbol: str, exchange, interval, start_date, end_date,
-                          trade_side_mode, synthetic_periods):
+                          trade_side_mode, synthetic_periods, **kwargs):
             return _fake_candidate_df(symbol, n=20), str(exchange or "")
 
         def fake_features(candidate_df: pd.DataFrame, symbol: str, interval: str,
@@ -66,8 +66,8 @@ class TestBuildPooledFeatureDf(unittest.TestCase):
             return df
 
         with mock.patch.object(mp, "_build_candidate_table", side_effect=fake_candidate), \
-             mock.patch.object(mp, "build_training_feature_table", side_effect=fake_features):
-            pooled = mp._build_pooled_feature_df(
+             mock.patch.object(mp, "_build_training_feature_table_with_auto_fallback", side_effect=fake_features):
+            pooled_cand, pooled_feat = mp._build_pooled_feature_df(
                 pool_symbols=symbols,
                 interval="day",
                 start_date="2018-01-01",
@@ -77,12 +77,13 @@ class TestBuildPooledFeatureDf(unittest.TestCase):
                 feature_root=Path("/tmp/no"),
                 generic_columns=None,
             )
-        self.assertEqual(len(pooled), 60)  # 3 × 20
-        self.assertSetEqual(set(pooled["symbol"].unique()), {"RB0", "HC0", "I0"})
+        self.assertEqual(len(pooled_cand), 60)  # 3 × 20
+        self.assertEqual(len(pooled_feat), 60)
+        self.assertSetEqual(set(pooled_feat["symbol"].unique()), {"RB0", "HC0", "I0"})
         # datetime 排序
-        self.assertTrue(pooled["datetime"].is_monotonic_increasing)
+        self.assertTrue(pooled_feat["datetime"].is_monotonic_increasing)
         # feature 列存在
-        self.assertIn("feature_extra", pooled.columns)
+        self.assertIn("feature_extra", pooled_feat.columns)
 
     def test_skips_failed_symbol(self) -> None:
         """单 symbol 拉数据失败时整体不应崩；池化继续用其他 symbol。"""
@@ -95,14 +96,14 @@ class TestBuildPooledFeatureDf(unittest.TestCase):
             return candidate_df.copy()
 
         with mock.patch.object(mp, "_build_candidate_table", side_effect=fake_candidate), \
-             mock.patch.object(mp, "build_training_feature_table", side_effect=fake_features):
-            pooled = mp._build_pooled_feature_df(
+             mock.patch.object(mp, "_build_training_feature_table_with_auto_fallback", side_effect=fake_features):
+            _pooled_cand, pooled_feat = mp._build_pooled_feature_df(
                 pool_symbols=[("RB0", "SHFE"), ("BAD", "SHFE"), ("HC0", "SHFE")],
                 interval="day", start_date="2018-01-01", end_date="2019-12-31",
                 trade_side_mode="both", synthetic_periods=0,
                 feature_root=Path("/tmp/no"), generic_columns=None,
             )
-        self.assertSetEqual(set(pooled["symbol"].unique()), {"RB0", "HC0"})
+        self.assertSetEqual(set(pooled_feat["symbol"].unique()), {"RB0", "HC0"})
 
 
 class TestRunModelPipelinePoolMode(unittest.TestCase):
@@ -114,7 +115,8 @@ class TestRunModelPipelinePoolMode(unittest.TestCase):
             parts = [_fake_candidate_df(sym, n=120) for sym, _ in pool_symbols]
             for p, (sym, _) in zip(parts, pool_symbols):
                 p["symbol"] = sym
-            return pd.concat(parts, ignore_index=True).sort_values("datetime").reset_index(drop=True)
+            pooled = pd.concat(parts, ignore_index=True).sort_values("datetime").reset_index(drop=True)
+            return pooled.copy(), pooled.copy()
 
         with tempfile.TemporaryDirectory() as tmp, \
              mock.patch.object(mp, "_build_pooled_feature_df", side_effect=fake_pooled):

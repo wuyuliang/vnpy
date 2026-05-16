@@ -101,6 +101,34 @@ class TestValidateDayCsv(unittest.TestCase):
             self.assertEqual(rep.rows, 0)
             self.assertTrue(any("missing" in n for n in rep.notes))
 
+    def test_validate_minute_dir_session_checks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "origin" / "minute60" / "RB"
+            base.mkdir(parents=True, exist_ok=True)
+            df = pd.DataFrame(
+                {
+                    "datetime": [
+                        "2024-01-02 09:00:00",  # in session
+                        "2024-01-02 03:00:00",  # out of session
+                    ],
+                    "open": [100, 101],
+                    "high": [101, 102],
+                    "low": [99, 100],
+                    "close": [100, 101],
+                    "volume": [10, 10],
+                }
+            )
+            df.to_parquet(base / "2024-01-02.parquet", index=False)
+            old_data_dir = V.DATA_DIR
+            try:
+                V.DATA_DIR = Path(tmp)
+                rep = V.validate_minute_dir("RB0", "minute60")
+            finally:
+                V.DATA_DIR = old_data_dir
+            self.assertGreaterEqual(rep.rows, 2)
+            self.assertGreaterEqual(rep.out_of_session_bars, 1)
+            self.assertGreaterEqual(rep.short_session_days, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

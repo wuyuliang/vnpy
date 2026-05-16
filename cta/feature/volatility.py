@@ -203,6 +203,8 @@ def compute_volatility_features(df: pd.DataFrame) -> pd.DataFrame:
     # ATR
     for w in [3, 5, 14, 20]:
         result[f"atr_{w}"] = atr(h, l, c, w)
+    # W2.1: 入场 ATR 百分比（与组合层 trailing 风控对齐）
+    result["atr_pct_14"] = result["atr_14"] / c.replace(0, np.nan)
     result["natr_14"] = natr(h, l, c, 14)
 
     # 布林带

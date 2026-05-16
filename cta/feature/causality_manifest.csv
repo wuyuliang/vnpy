@@ -1,0 +1,14 @@
+feature,causal,reason
+feature_close,1,signal bar observable
+feature_open,1,signal bar observable
+feature_high,1,signal bar observable
+feature_low,1,signal bar observable
+feature_volume,1,signal bar observable
+feature_atr14,1,past-window volatility
+feature_breakout_score,1,rule-based signal quality
+feature_setup_quality,1,rule-based setup quality
+generic_centered_swing,0,centered swing needs future bars
+generic_centered_ma_20,0,centered window likely lookahead
+generic_rollingmax_5,0,naming flagged as potential lookahead
+feature_next_bar_gap,0,explicit next-bar lookahead
+feature_forward_return,0,forward return is target-like

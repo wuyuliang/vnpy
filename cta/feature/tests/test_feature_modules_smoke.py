@@ -85,6 +85,7 @@ class TestFeatureModuleSmoke(unittest.TestCase):
         self.assertIn("macd_dif", trend.columns)
         self.assertIn("rsi_14", momentum.columns)
         self.assertIn("atr_14", vol.columns)
+        self.assertIn("atr_pct_14", vol.columns)
         self.assertIn("obv", volume.columns)
         self.assertIn("inside_bar", pattern.columns)
         self.assertIn("dow", cal.columns)

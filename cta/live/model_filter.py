@@ -149,4 +149,84 @@ def make_trade_filter(
     return _filter
 
 
-__all__ = ["make_trade_filter"]
+def make_group_trade_filter(
+    group_model_paths: dict[str, str],
+    *,
+    symbol_to_group: dict[str, str] | Callable[[str], str | None],
+    feature_columns_csv_by_group: dict[str, str] | None = None,
+    threshold: float = 0.5,
+    proba_index: int = 1,
+    feature_provider: Callable[[Any, list[str]], pd.DataFrame | None] | None = None,
+    allow_if_group_missing: bool = True,
+) -> Callable[[dict, Any], bool]:
+    """Build symbol-group aware order filter for online/sim trading.
+
+    典型场景：70+ 品种先分组（tier/cluster）各训一套模型，上线时按 symbol 路由到
+    对应组模型；若 symbol 没有映射，默认放行（可通过 ``allow_if_group_missing=False``
+    改为阻断）。
+    """
+    if not group_model_paths:
+        raise ValueError("group_model_paths is empty")
+
+    fc_map_raw = feature_columns_csv_by_group or {}
+
+    def _norm_key(v: str) -> str:
+        return str(v).strip().lower()
+
+    model_filter_by_group: dict[str, Callable[[dict, Any], bool]] = {}
+    for raw_group, model_path in group_model_paths.items():
+        gk = _norm_key(raw_group)
+        fc = fc_map_raw.get(raw_group) or fc_map_raw.get(gk)
+        model_filter_by_group[gk] = make_trade_filter(
+            model_path,
+            feature_columns_csv=fc,
+            threshold=threshold,
+            proba_index=proba_index,
+            feature_provider=feature_provider,
+        )
+
+    if callable(symbol_to_group):
+        resolver = symbol_to_group
+    else:
+        mapping = {str(k).strip().upper(): str(v).strip() for k, v in symbol_to_group.items()}
+
+        def resolver(symbol: str) -> str | None:
+            return mapping.get(str(symbol).strip().upper())
+
+    def _extract_symbol(order: dict, adapter: Any) -> str:
+        vt = str(order.get("vt_symbol", "") or "").strip()
+        if not vt:
+            vt = str(getattr(adapter, "vt_symbol", "") or "").strip()
+        if not vt:
+            return ""
+        return vt.split(".")[0].upper()
+
+    def _log(adapter: Any, msg: str) -> None:
+        log = getattr(adapter, "write_log", None)
+        if callable(log):
+            log(msg)
+        else:
+            logger.info(msg)
+
+    def _filter(order: dict, adapter: Any) -> bool:
+        side = str(order.get("side", "")).lower()
+        if side == "flat":
+            return True
+        symbol = _extract_symbol(order, adapter)
+        if not symbol:
+            return bool(allow_if_group_missing)
+        group_raw = resolver(symbol)
+        if not group_raw:
+            _log(adapter, f"group_model_filter: symbol={symbol} has no group mapping; allow={allow_if_group_missing}")
+            return bool(allow_if_group_missing)
+        gk = _norm_key(group_raw)
+        filt = model_filter_by_group.get(gk)
+        if filt is None:
+            _log(adapter, f"group_model_filter: group={group_raw} has no model; allow={allow_if_group_missing}")
+            return bool(allow_if_group_missing)
+        return bool(filt(order, adapter))
+
+    return _filter
+
+
+__all__ = ["make_trade_filter", "make_group_trade_filter"]

@@ -66,13 +66,14 @@
 	•	is_executed / is_filtered / filtered_reason
 	•	future_mfe_atr / future_mae_atr / future_pnl_atr
 	•	atr_warmed   ← 0/1 标志，0 表示 entry_bar 的 ATR 还在 warmup（前 ~14 根）
-	•	label_class（仅 `is_executed==1 & atr_warmed==1` 时根据 `(mfe-0.7·mae)>0.2` 判正）
+	•	label_class（仅 `is_executed==1 & atr_warmed==1` 时，按**止损跟踪后的真实执行收益**判正）
 	•	regime_label
 
 > **口径细节（2026-04-26 二修）**：
 > 1. `future_mfe_atr / future_mae_atr` 用 **entry_bar** 的 `atr14` 做归一化；entry_bar 缺失时回退到 signal_bar，再失败用 high-low 兜底；
 > 2. `atr_warmed=0` 的样本必须在训练前 drop（pipeline 已在 `run_model_pipeline` 内自动处理）；
-> 3. `label_class` **只有在** `is_executed==1 & atr_warmed==1` 时才能根据 `(mfe - 0.7 * mae) > 0.2` 判正；not_triggered/filtered/warmup 行的 label 必须保持 0。
+> 3. `label_class` **只有在** `is_executed==1 & atr_warmed==1` 时才可判正，口径为“入场后逐 bar 跟踪止损的真实执行收益 > 0”；not_triggered/filtered/warmup 行的 label 必须保持 0。
+> 4. `generate_candidate_opportunities(..., label_stop_loss_pct=...)` 可控制标签模拟止损线（默认 0.1%）。
 
 这张表才是后面所有模型训练、分析、评分的核心资产。
 其中训练样本的特征(包括两大类，第一类是候选机会相关的特征，第二类是cta/data/feature里面的通用特征)拼接起来。
@@ -102,6 +103,7 @@
 
 	•	`window_mode="expanding"`（默认）：train 起点固定为最早样本，每个窗口的 train_end 单调右移；
 	•	`window_mode="sliding"`：train 长度恒定（首个窗口的 train 长度），每窗按 step=valid_end-train_end 整体滑动。
+	•	`window_mode="rolling"`：固定 train/valid/test 年数窗口（默认 3y/1y/1y），按 `rolling_step_years` 年滚动。
 
 CLI: `python3 -m cta.model.model_pipeline --window-mode sliding ...`
 
