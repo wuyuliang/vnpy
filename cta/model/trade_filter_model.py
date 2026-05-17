@@ -152,6 +152,28 @@ class TradeFilterModel:
                     # 向后兼容：未加前缀参数默认给树模型。
                     tree_params[key] = v
 
+        # 极端不平衡保护：HistGradientBoostingClassifier 在 early_stopping=True
+        # 时内部用 stratified train_test_split 切 validation_fraction，
+        # 任一类样本 <2 都会抛
+        #   "The least populated classes in y have only 1 member, ..."
+        # 这种场景常见于 OOT walk-forward 个别窗口（例如某 split 里
+        # label_class==1 只有 1 个样本）。这里关掉 early_stopping 让 fit
+        # 跑完，模型质量会退化但不会让整个 pipeline 崩。注意必须在 user
+        # override（self.model_params）之后做，user 显式开 early_stopping
+        # 时也强制覆盖以避免崩溃。
+        min_class_count = min(pos, neg) if (pos > 0 and neg > 0) else 0
+        if min_class_count < 2 and bool(tree_params.get("early_stopping", False)):
+            logger.warning(
+                "trade_filter: min class count=%d < 2 (pos=%d, neg=%d); "
+                "disabling early_stopping to avoid HGBT stratified split ValueError",
+                min_class_count,
+                pos,
+                neg,
+            )
+            tree_params["early_stopping"] = False
+            tree_params.pop("validation_fraction", None)
+            tree_params.pop("n_iter_no_change", None)
+
         tree_model = HistGradientBoostingClassifier(**tree_params)
         tree_est = Pipeline([("pre", pre_tree), ("model", tree_model)])
         tree_est.fit(x, y, model__sample_weight=fit_weight)

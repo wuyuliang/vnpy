@@ -291,9 +291,17 @@ python3 -m cta.model.model_pipeline \
 - `*_oot_monthly_returns.csv`（OOT 真实成交按月收益）
 - `*_oot_summary.csv`（OOT 真实成交汇总：Sharpe / 回撤 / 年化）
 - `*_oot_trade_details.csv`（OOT 真实成交逐笔明细：净值前后、单笔收益、成本等）
+  - 新增 `position_notional_after_trade`：每笔交易结束后的组合持仓资金（名义金额）
 - `*_throttle_log.csv`（portfolio_logic 风控档位时序日志：equity/drawdown/level/score_threshold）
 - `*_oot_position_lifetime.csv`（按 `pos_id` 聚合的持仓生命周期：layer_count/peak_notional）
 - `report_*.html`（通过 `cta/report/render` 统一渲染的 OOT 绩效 HTML 报告）
+- `oot_{YYYYMMDD_HHMMSS}_{run_tag}/`（结构化 OOT 目录，见 `cta/docs/oot_output.md`）
+  - `00_overview/`：`headline_metrics.csv`、`executive_summary.md`
+  - `01_aggregate/`：月/周/summary 聚合
+  - `02_by_cluster/`、`03_by_symbol/`、`04_by_interval/`、`05_by_signal_type/`
+  - `06_drilldown/`：`gate_funnel.csv`、`block_reason_breakdown.csv`、`outlier_trades.csv`
+  - `09_diagnostics/auc_per_window.csv`
+  - `reports/executive.html`、`reports/analyst.html`、`reports/brief.md`
 - `models/<signal_type>/window_xx/*.joblib`
 - `models/<signal_type>/window_xx/*_calibration.joblib`
   - `trade_filter_calibration.joblib`
@@ -319,6 +327,14 @@ portfolio_logic 运行时开关（默认向后兼容关闭）：
   - risk throttle（`blocked_throttle_halt`）
   - pyramid 分层持仓（`pos_id` / `layer_id`）
   - trailing stop（`trailing_stop_exit_rows`）
+- 多 interval（如 `day,60min`）场景下，pipeline 会在各 interval 首轮评估后，
+  自动用“跨 interval 合并预测表”重算一次 OOT HTF gate，
+  让 `day` 与 `60min` 互相提供趋势状态，避免单 interval 评估出现整批 `htf_missing`。
+- 当运行 `--group-pool --use-portfolio-logic-runtime` 时，额外生成上层目录：  
+  `*_GROUP_POOL_{GROUP_BY}_{side}_portfolio_logic_runtime/`，用于汇总所有 symbol group 的
+  交易明细与每组详细文件索引（`*_all_symbol_group_oot_trade_details.csv` /
+  `*_symbol_group_run_manifest.csv` / `symbol_group_details/*/group_detail_manifest.json`）。
+  并在同级自动生成 `oot_..._{group}_{side}/` 结构化 OOT 总报告目录。
 
 `*_model_report.md` 会额外打印：
 - `Process Steps`：候选生成 → 特征拼接 → 训练 → OOT 评估的全过程
@@ -453,7 +469,7 @@ python3 -m cta.strategy.baseline_skill_suite \
 from pathlib import Path
 import pandas as pd
 from cta.model.trade_filter_model import TradeFilterModel
-from cta.model.model_pipeline import _select_feature_columns
+from cta.model.pipeline_dataset_prep import _select_feature_columns
 
 model_path = Path("cta/report/backtest/<run>/models/donchian_breakout/window_00/trade_filter.joblib")
 model = TradeFilterModel.load(model_path)
@@ -473,7 +489,7 @@ print(score[:10])
 python3 - <<'PY'
 from pathlib import Path
 import pandas as pd
-from cta.model.model_pipeline import _build_last_oot_decile_table
+from cta.model.pipeline_diagnostics import _build_last_oot_decile_table
 
 p = Path("cta/report/backtest/<run>/<...>_predictions.csv")
 df = pd.read_csv(p)
@@ -496,7 +512,13 @@ python3 -m unittest cta.strategy.tests.test_baseline_skill_suite -v
 
 # 模型测试
 python3 -m unittest cta.model.tests.test_models_core -v
-python3 -m unittest cta.model.tests.test_model_pipeline -v
+python3 -m unittest cta.model.tests.test_model_pipeline_part01 -v
+python3 -m unittest cta.model.tests.test_model_pipeline_part02 -v
+python3 -m unittest cta.model.tests.test_model_pipeline_part03 -v
+python3 -m unittest cta.model.tests.test_model_pipeline_part04 -v
+python3 -m unittest cta.model.tests.test_model_pipeline_part05 -v
+python3 -m unittest cta.model.tests.test_model_pipeline_part06 -v
+python3 -m unittest cta.model.tests.test_model_pipeline_part07 -v
 
 # 特征拼接与样本构建测试
 python3 -m unittest cta.model.feature.tests.test_model_feature_builder -v

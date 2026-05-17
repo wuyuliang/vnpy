@@ -84,6 +84,36 @@ class TestPortfolioState(unittest.TestCase):
         self.assertAlmostEqual(restored.total_open_notional, 80_000.0, places=6)
         self.assertTrue(restored.has_open_or_picked(("JM0", "DCE"), "short"))
 
+    def test_rollback_restores_begin_snapshot_even_if_committed_mutated(self) -> None:
+        state = PortfolioState(equity=1_000_000.0)
+        state.add_position(
+            {
+                "pos_id": "p1",
+                "symbol": "RB0",
+                "exchange": "SHFE",
+                "cluster": "black",
+                "direction": "long",
+                "notional": 120_000.0,
+            }
+        )
+        state.begin_allocation()
+        state.tentative_apply(("CU0", "SHFE"), "metal", 80_000.0, "short")
+        self.assertEqual(state.tentative_total_positions(), 2)
+
+        # 模拟 begin 之后 committed 被外部路径污染；rollback 应回到 begin 快照。
+        state.total_positions = 99
+        state.total_open_notional = 9_900_000.0
+        state.symbol_counts = {}
+        state.cluster_counts = {}
+        state.symbol_notional = {}
+        state.cluster_notional = {}
+        state.open_symbol_direction = set()
+
+        state.rollback_allocation()
+        self.assertEqual(state.tentative_total_positions(), 1)
+        self.assertAlmostEqual(state.tentative_total_notional(), 120_000.0, places=6)
+        self.assertTrue(state.has_open_or_picked(("RB0", "SHFE"), "long"))
+
 
 if __name__ == "__main__":
     unittest.main()

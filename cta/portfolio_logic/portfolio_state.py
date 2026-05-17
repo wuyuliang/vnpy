@@ -47,10 +47,30 @@ class PortfolioState:
     _tentative_total_positions: int = field(default=0, init=False)
     _tentative_total_notional: float = field(default=0.0, init=False)
     _tentative_symbol_direction: set[tuple[tuple[str, str], str]] = field(default_factory=set, init=False)
+    _committed_symbol_counts: dict[tuple[str, str], int] = field(default_factory=dict, init=False)
+    _committed_cluster_counts: dict[str, int] = field(default_factory=dict, init=False)
+    _committed_symbol_notional: dict[tuple[str, str], float] = field(default_factory=dict, init=False)
+    _committed_cluster_notional: dict[str, float] = field(default_factory=dict, init=False)
+    _committed_total_positions: int = field(default=0, init=False)
+    _committed_total_notional: float = field(default=0.0, init=False)
+    _committed_symbol_direction: set[tuple[tuple[str, str], str]] = field(default_factory=set, init=False)
 
     def begin_allocation(self) -> None:
         """Start allocation transaction from committed state."""
-        self.snapshot_for_allocation()
+        self._committed_symbol_counts = dict(self.symbol_counts)
+        self._committed_cluster_counts = dict(self.cluster_counts)
+        self._committed_symbol_notional = dict(self.symbol_notional)
+        self._committed_cluster_notional = dict(self.cluster_notional)
+        self._committed_total_positions = int(self.total_positions)
+        self._committed_total_notional = float(self.total_open_notional)
+        self._committed_symbol_direction = set(self.open_symbol_direction)
+        self._tentative_symbol_counts = dict(self._committed_symbol_counts)
+        self._tentative_cluster_counts = dict(self._committed_cluster_counts)
+        self._tentative_symbol_notional = dict(self._committed_symbol_notional)
+        self._tentative_cluster_notional = dict(self._committed_cluster_notional)
+        self._tentative_total_positions = int(self._committed_total_positions)
+        self._tentative_total_notional = float(self._committed_total_notional)
+        self._tentative_symbol_direction = set(self._committed_symbol_direction)
 
     def snapshot_for_allocation(self) -> None:
         """Take a copy used for tentative allocation updates."""
@@ -71,10 +91,23 @@ class PortfolioState:
         self.total_positions = int(self._tentative_total_positions)
         self.total_open_notional = float(self._tentative_total_notional)
         self.open_symbol_direction = set(self._tentative_symbol_direction)
+        self._committed_symbol_counts = dict(self.symbol_counts)
+        self._committed_cluster_counts = dict(self.cluster_counts)
+        self._committed_symbol_notional = dict(self.symbol_notional)
+        self._committed_cluster_notional = dict(self.cluster_notional)
+        self._committed_total_positions = int(self.total_positions)
+        self._committed_total_notional = float(self.total_open_notional)
+        self._committed_symbol_direction = set(self.open_symbol_direction)
 
     def rollback_allocation(self) -> None:
         """Discard tentative edits and reload from committed state."""
-        self.snapshot_for_allocation()
+        self._tentative_symbol_counts = dict(self._committed_symbol_counts)
+        self._tentative_cluster_counts = dict(self._committed_cluster_counts)
+        self._tentative_symbol_notional = dict(self._committed_symbol_notional)
+        self._tentative_cluster_notional = dict(self._committed_cluster_notional)
+        self._tentative_total_positions = int(self._committed_total_positions)
+        self._tentative_total_notional = float(self._committed_total_notional)
+        self._tentative_symbol_direction = set(self._committed_symbol_direction)
 
     def has_open_or_picked(self, sym_key: tuple[str, str], direction: str) -> bool:
         key = (_sym_key(sym_key[0], sym_key[1]), _norm_direction(direction))
@@ -256,4 +289,3 @@ class PortfolioState:
                 out.open_symbol_direction.add((sym_key, direction))
         out.snapshot_for_allocation()
         return out
-

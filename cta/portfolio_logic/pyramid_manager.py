@@ -1,6 +1,7 @@
 """Pyramid position manager for layered entries."""
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -31,9 +32,19 @@ class Layer:
     @property
     def effective_stop(self) -> float:
         """Risk floor/ceiling stop after combining hard + trailing stops."""
+        hard = float(self.hard_stop_price)
+        trail = float(self.trail_stop_price)
+        hard_ok = math.isfinite(hard)
+        trail_ok = math.isfinite(trail)
+        if not hard_ok and not trail_ok:
+            return float("nan")
+        if not hard_ok:
+            return trail
+        if not trail_ok:
+            return hard
         if str(self.direction).lower() == "short":
-            return float(min(self.hard_stop_price, self.trail_stop_price))
-        return float(max(self.hard_stop_price, self.trail_stop_price))
+            return float(min(hard, trail))
+        return float(max(hard, trail))
 
     def to_dict(self) -> dict[str, Any]:
         return {

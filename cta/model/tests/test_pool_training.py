@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 import cta.model.model_pipeline as mp
+import cta.model.pipeline_orchestrator as _impl
 
 
 def _fake_candidate_df(symbol: str, n: int = 80) -> pd.DataFrame:
@@ -65,8 +66,8 @@ class TestBuildPooledFeatureDf(unittest.TestCase):
             df["feature_extra"] = 1.0
             return df
 
-        with mock.patch.object(mp, "_build_candidate_table", side_effect=fake_candidate), \
-             mock.patch.object(mp, "_build_training_feature_table_with_auto_fallback", side_effect=fake_features):
+        with mock.patch.object(_impl, "_build_candidate_table", side_effect=fake_candidate), \
+             mock.patch.object(_impl, "_build_training_feature_table_with_auto_fallback", side_effect=fake_features):
             pooled_cand, pooled_feat = mp._build_pooled_feature_df(
                 pool_symbols=symbols,
                 interval="day",
@@ -95,8 +96,8 @@ class TestBuildPooledFeatureDf(unittest.TestCase):
         def fake_features(candidate_df, symbol, interval, feature_root, generic_columns=None):
             return candidate_df.copy()
 
-        with mock.patch.object(mp, "_build_candidate_table", side_effect=fake_candidate), \
-             mock.patch.object(mp, "_build_training_feature_table_with_auto_fallback", side_effect=fake_features):
+        with mock.patch.object(_impl, "_build_candidate_table", side_effect=fake_candidate), \
+             mock.patch.object(_impl, "_build_training_feature_table_with_auto_fallback", side_effect=fake_features):
             _pooled_cand, pooled_feat = mp._build_pooled_feature_df(
                 pool_symbols=[("RB0", "SHFE"), ("BAD", "SHFE"), ("HC0", "SHFE")],
                 interval="day", start_date="2018-01-01", end_date="2019-12-31",
@@ -119,7 +120,7 @@ class TestRunModelPipelinePoolMode(unittest.TestCase):
             return pooled.copy(), pooled.copy()
 
         with tempfile.TemporaryDirectory() as tmp, \
-             mock.patch.object(mp, "_build_pooled_feature_df", side_effect=fake_pooled):
+             mock.patch.object(_impl, "_build_pooled_feature_df", side_effect=fake_pooled):
             res = mp.run_model_pipeline(
                 pool_symbols=[("RB0", "SHFE"), ("HC0", "SHFE")],
                 interval="day", start_date="2018-01-01", end_date="2019-12-31",
@@ -148,7 +149,7 @@ class TestCliPoolFlag(unittest.TestCase):
                 "--start", "2018-01-01", "--end", "2019-12-31",
                 "--train-end", "2018-09-30", "--valid-end", "2018-11-30",
                 "--pool"]
-        with mock.patch.object(mp, "run_model_pipeline", side_effect=fake_run), \
+        with mock.patch.object(_impl, "run_model_pipeline", side_effect=fake_run), \
              redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             mp.main(argv)
         # pool 模式：每个 interval 调 run_model_pipeline 一次（而非每 symbol×interval）

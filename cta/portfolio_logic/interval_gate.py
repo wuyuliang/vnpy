@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 from cta.portfolio_logic.config import IntervalGateConfig, normalize_portfolio_interval
+from cta.model.block_reasons import BR_HTF_CONFLICT, BR_HTF_MISSING, BR_HTF_OPPOSITE, BR_HTF_UNKNOWN
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +210,7 @@ class HtfGate:
                     align_list.append("neutral")
                 else:
                     allowed_list.append(False)
-                    reason_list.append("htf_missing")
+                    reason_list.append(BR_HTF_MISSING)
                     align_list.append("neutral")
                 continue
 
@@ -221,25 +222,32 @@ class HtfGate:
                 continue
             if state == "none":
                 allowed_list.append(False)
-                reason_list.append("htf_conflict")
+                reason_list.append(BR_HTF_CONFLICT)
                 align_list.append("opposite")
                 continue
             if state == "long_only":
                 ok = direction == "long"
                 allowed_list.append(ok)
-                reason_list.append("" if ok else "htf_opposite")
+                reason_list.append("" if ok else BR_HTF_OPPOSITE)
                 align_list.append("aligned" if ok else "opposite")
                 continue
             if state == "short_only":
                 ok = direction == "short"
                 allowed_list.append(ok)
-                reason_list.append("" if ok else "htf_opposite")
+                reason_list.append("" if ok else BR_HTF_OPPOSITE)
                 align_list.append("aligned" if ok else "opposite")
                 continue
 
-            logger.warning("Unknown HTF state=%s for %s", state, key)
+            # Unknown state 表示 _state_from_regimes 出现了未覆盖的 case，
+            # 通常意味着上游 regime label 落到了 _UP_REGIMES/_DOWN_REGIMES/
+            # _RANGE_REGIMES 三个集合之外。详见 cta/docs/block_reason.md §8.3。
+            logger.warning(
+                "Unknown HTF state=%r for %s (entry=%s); falling back to block (htf_unknown). "
+                "This indicates a bug in HtfGate._state_from_regimes — please file an issue.",
+                state, key, dict(entry) if entry else None,
+            )
             allowed_list.append(False)
-            reason_list.append("htf_unknown")
+            reason_list.append(BR_HTF_UNKNOWN)
             align_list.append("neutral")
 
         out["htf_allowed"] = allowed_list

@@ -1,143 +1,240 @@
-# CTA 项目 — AI Agent 操作指引
+# 项目目标
+本仓库用于基于 vn.py 开发中国商品 CTA 策略。
+当前仅允许在 `cta/` 目录内开发、修改和新增文件。
+目标是：
+1. 开发可解释、可回测、可迁移的商品 CTA 策略
+2. 支持日线与未来分钟级数据
+3. 保持数据、策略、回测、报告分层清晰
+4. 严格控制修改范围，避免污染 vn.py 主框架
 
-> 给 Claude Code 等 AI 代理使用。读取顺序：本文 → `cta/README.md` →
-> `cta/feature/FEATURES.md` / `cta/model/model.md` →
-> `cta/report/change_log.md`（最近 3 条）。
+# 硬性边界
+你只能修改以下路径：
+- `cta/**`
+- 禁止删除、移动、重命名现有非cta目录文件。
+- 禁止改交易网关、主框架、数据库底层。
+- 所有新增代码优先放到 cta/strategy, cta/backtest, cta/utils, cta/config。
+- 数据只读目录：cta/data/, day/。除非我明确要求，否则不得覆盖原始数据。
+- 分钟级数据统一放 cta/data/minute/。
 
----
+# 目录职责
+`cta/` 目录约定如下：
 
-## 1. 修改边界
+- `cta/data/`
+  - 数据目录
+  - 当前用于存放 CTA 研究数据
+  - 日线数据可放在 `cta/data/day/`
+  - 将来分钟级数据统一放在 `cta/data/minute/`
+  - 原始数据默认只读，除非我明确要求生成新文件
 
-只修改 `cta/**`。**禁止**修改：
+- `cta/data/*.py`
+  - 数据下载、清洗、转换脚本
+  - 保持脚本职责单一
+  - 文件名应体现用途，例如：
+    - `download_day_data.py`
+    - `convert_csv_to_parquet.py`
+    - `build_continuous_contract.py`
 
-- `vnpy/**` (vn.py 主框架)
-- 仓库根的 `pyproject.toml` / `examples/` / `docs/` / `tests/` （非 cta）
-- 任何 gateway / API 接入代码
+- `cta/strategy/`
+  - 策略实现
+  - 每个策略一个独立文件
+  - 文件名示例：
+    - `donchian_breakout.py`
+    - `ma_cross_with_atr.py`
 
-如需新依赖（如 `vnpy_ctp`、`vnpy_ctabacktester`、`alphalens-reloaded`），**先和用户确认**，
-不要自动 `pip install` 或修改 `pyproject.toml`。
+- `cta/backtest/`
+  - 回测入口
+  - 参数扫描
+  - 样本内/样本外测试
+  - 多品种批量回测脚本
 
----
+- `cta/config/`
+  - 参数配置
+  - 品种配置
+  - 路径配置
+  - 手续费、滑点、交易时段等配置
 
-## 2. Git 工作流
+- `cta/report/`
+  - 回测结果
+  - 实验记录
+  - 变更说明
+  - 图表和结论摘要
 
-- **分支**：固定 `feature` 分支，**不要新建分支**。
-- **Commit**：**不要自动 commit**；改完后只列出修改清单等用户审视后亲自提交。
-- 若有 worktree 名称包含 `cta` 但实际不含 `cta/` 目录（已知 Claude Code 默认 worktree 行为），
-  直接在 `/Users/wuyuliang/code/vnpy` 主仓 `feature` 分支编辑，不要尝试在 worktree 内创建 `cta/`。
-
----
-
-## 3. 数据布局
-
-```
-cta/data/origin/day/{SYMBOL}.csv                          # akshare 日线
-cta/data/origin/{interval}/{ALPHA_PREFIX}/{YYYY-MM-DD}.parquet  # tushare 分钟
-    interval ∈ {minute, minute5, minute15, minute30, minute60}
-    ALPHA_PREFIX = symbol 的字母前缀（CU0 → CU）
-cta/data/feature/...                                      # 特征产物
-cta/data/model_feature/...                                # 候选样本
-```
-
-字段统一：`symbol, exchange, interval, datetime, open, high, low, close, volume, open_interest, turnover`。
-
-数据下载需要 `TUSHARE_TOKEN` 环境变量。
-
----
-
-## 4. 关键模块
-
-| 用途 | 模块路径 | 入口 |
-|------|---------|------|
-| 数据下载（akshare + tushare） | `cta/data_code/futures_downloader.py` | `FuturesDownloader` |
-| 批量下载脚本 | `cta/data_code/download_all.py` | `python3 -m cta.data_code.download_all` |
-| 数据校验 | `cta/data_code/validate.py` | `python3 -m cta.data_code.validate` |
-| 主力分钟扩展 | `cta/data_code/expand_minute.py` | `python3 -m cta.data_code.expand_minute` |
-| 特征引擎 | `cta/feature/` | `python3 -m cta.feature.run_all_features` |
-| 模型管道 | `cta/model/model_pipeline.py` | 见 `cta/model/model.md` |
-| 事件驱动回测引擎 | `cta/skills/data_backtest/event_driven_backtest.py` | `run_backtest()` |
-| 回测 + 报告 runner | `cta/run/runner.py` | `run_event_driven_backtest()` |
-| 综合 HTML 报告 | `cta/report/render/` | `write_html_report()` |
-| 统一 CLI | `cta/cli.py` | `python3 -m cta.cli {backtest\|validate\|expand-minute}` |
-| 策略实现 | `cta/strategy/` | 现有 4 类（Donchian/ATR/TightRange/PriceAction） |
-
----
-
-## 5. 策略接口约定
-
-现有策略（v1 接口，event-driven 回测专用）：
-
-```python
-class Strategy:
-    def on_bar(self, i: int, bar: pd.Series, position: int) -> list[dict]:
-        """返回订单列表，订单字段：
-        side ∈ {long, short, flat}
-        order_type ∈ {market, limit, stop}
-        lots, price?, symbol, multiplier, commission_rate, tick_size
-        """
-```
-
-M2 起会**新增**一份 `vnpy_ctastrategy.CtaTemplate` 子类（接口 `on_bar(self, bar)` + 内部
-`buy/sell/short/cover` 调用），用于 `vnpy_ctabacktester` / SimNow / 实盘。
-两套接口共享纯函数式信号计算（位于 `cta/skills/`）。
+- `cta/tests/`
+  - 单元测试
+  - 回归测试
+  - 最小可复现实验
 
 ---
 
-## 6. 跑回测的标准流程
+# 数据规则
+## 当前数据情况
+- `cta/data/day/` 当前存放中国商品 CTA 日线数据
+- 该目录视为输入数据源，默认只读
+- 如需转换格式，应输出到 `cta/data/` 下的新目录，不覆盖原始文件
 
-```bash
-# (1) 用 CLI（推荐）
-python3 -m cta.cli backtest \
-    --strategy cta.strategy.demos:make_double_ma \
-    --bars cta/data/origin/day/RB0.csv \
-    --out-dir cta/report/backtest/$(date +%Y%m%d)_double_ma_rb0 \
-    --title "DoubleMA / RB0 / day" \
-    --limit-move-pct 0.07 \
-    --liquidity-ratio 0.1
+## 推荐数据输出格式
+优先使用：
+1. `parquet`
+2. `csv`
 
-# (2) 在 strategy/tests/test_*.py 内（已有风格）
-from cta.run.runner import run_event_driven_backtest
-res = run_event_driven_backtest(strategy, bars, out_dir=..., title=..., cost_fn=estimate_cost)
-```
+统一字段尽量保持：
+- `symbol`
+- `exchange`
+- `interval`
+- `datetime`
+- `open`
+- `high`
+- `low`
+- `close`
+- `volume`
+- `open_interest`
+- `turnover`
 
-输出目录约定：`cta/report/backtest/{YYYYMMDD}_{strategy}_{symbol}_{interval}_{tag}/`
-内含 `report_*.html`、`metrics_*.json`、可选 `trade_log.csv`。
+---
+# 开发规则
+## 基本要求
+- Python 3.10+
+- 必须写类型注解
+- 必须有清晰函数边界
+- 必须有日志
+- 不允许硬编码路径
+- 不允许硬编码账户、密码、API key
+- 不允许无说明地修改已有文件的外部接口
+
+## 文件组织
+- 新增功能优先新建文件，不要把所有逻辑堆在一个脚本里
+- 公共函数放到 `cta/utils/`
+- 策略逻辑、数据处理、回测逻辑必须分离
+
+## 代码风格
+- 优先写可直接运行的代码
+- 优先写小函数、少副作用
+- 每个脚本都要有 `if __name__ == "__main__":`
+- 每个关键函数要有 docstring
+- 尽量保证在 Linux 云服务器和本地电脑都能运行
 
 ---
 
-## 7. 测试与代码质量
+# 策略开发规范
+每个新增策略必须包含：
 
-- **TDD**：先写 / 改测试，再写实现。每个 `cta/{module}/` 都对应 `tests/` 子目录。
-- **跑测试**：`python3 -m pytest cta/{module}/tests -q` 局部；`python3 -m pytest cta -q` 全量
-  （注意 `cta/data/download_*_test.py` 需要 `TUSHARE_TOKEN`，CI 中可跳过）。
-- **日志风格**：业务逻辑用 `loguru`/`logging.getLogger(__name__)`；不要 `print`，CLI 例外。
-- **类型注解**：尽量加；不强制 mypy strict。
-- **不写多余注释**：函数行为已被名字 + docstring 表达；不要写 "TODO"/"removed"/"used by X" 之类的注释。
-- **不破坏向后兼容**：扩展 `EngineConfig` 等公共结构必须用 `default=None` 字段，不修改既有默认行为。
+1. 策略假设
+2. 适用品种
+3. 适用周期
+4. 信号定义
+5. 开仓规则
+6. 平仓规则
+7. 止损规则
+8. 仓位管理规则
+9. 手续费与滑点假设
+10. 可能失效的市场环境
 
----
-
-## 8. 实验记录
-
-每次有意义的改动追加一条到 [`cta/report/change_log.md`](report/change_log.md) 顶部，格式参考最近条目：
-- 标题包含日期、分支、一句话主题
-- 章节：任务 / 范围（代码） / 验证 / 不在本次范围
-
-回测产物落 `cta/report/backtest/`，命名 `{YYYYMMDD}_{strategy}_{symbol}_{interval}_{tag}/`。
+每个策略文件顶部都应写简短说明。
 
 ---
 
-## 9. 三阶段路线（当前位置）
+# 回测规范
+每次新增或修改策略后，至少提供：
 
-```
-[M1 离线评估] ─→ [M2 SimNow 仿真] ─→ [M3 实盘]
-   ✓ 已交付            进行中              未启动
-```
+1. 最小可运行回测命令
+2. 使用的数据路径
+3. 使用的配置文件
+4. 输出结果位置
+5. 至少以下指标：
+   - 总收益
+   - 年化收益
+   - 最大回撤
+   - Sharpe
+   - Calmar
+   - 胜率
+   - 盈亏比
+6. 已知限制
 
-- **M1 已交付**：回测引擎涨跌停/流动性过滤、HTML 综合报告（含 Sortino / 蒙特卡洛 / 容量）、
-  数据校验、主力分钟扩展工具、统一 CLI、本文 AGENTS.md。
-- **M2 进行中**：把现有 4 个策略改造为 `CtaTemplate` 子类、接入 `vnpy_ctabacktester`、
-  搭建 SimNow runner 与 parity_check 一致性校验。
-- **M3 未启动**：风控规则、kill switch、守护进程、每日对账报告。
+禁止只改代码不说明如何运行。
 
-不要跳过阶段。M2 完成且仿真稳定 5 个交易日后再考虑 M3 实盘。
+---
+
+# 变更管理
+每次完成任务后，必须同时输出：
+
+1. 修改了哪些文件
+2. 每个文件改了什么
+3. 如何运行
+4. 结果输出到哪里
+5. 风险点或待确认项
+
+并更新：
+- `cta/report/change_log.md`
+
+建议记录格式：
+- 日期
+- 分支名
+- 任务名称
+- 修改文件列表
+- 主要结论
+
+---
+
+# Git 规则
+- 默认在当前分支工作
+- 不要擅自切换、创建、删除 Git 远程
+- 不要执行危险命令，例如：
+  - `git reset --hard`
+  - `git clean -fd`
+  - `git push --force`
+- 不要覆盖我未提交的本地改动
+- 如果发现工作区脏，先汇报，不要自行清理
+
+---
+
+# 执行习惯
+对于每个任务，按以下顺序执行：
+1. 先阅读本文件
+2. 再阅读 `cta/README.md`
+3. 先给出实施方案
+4. 再开始改代码
+5. 改完后给出运行命令
+6. 最后给出影响文件列表和注意事项
+
+---
+
+# 输出要求
+你的回复要尽量结构化，推荐格式：
+
+## 任务理解
+## 修改方案
+## 修改文件
+## 运行命令
+## 输出位置
+## 风险与后续建议
+
+---
+
+# 默认原则
+- 保守修改
+- 优先不破坏现有结构
+- 优先可运行
+- 优先可复现
+- 优先可迁移
+- 绝不越过 `cta/` 边界
+# 编码规范
+- Python 3.10+
+- 必须加类型注解
+- 必须有日志
+- 参数与路径放 config
+- 不允许硬编码账户、密码、API key
+- 输出文件名带日期
+- 新策略必须附：
+  1. 策略假设
+  2. 信号定义
+  3. 风控规则
+  4. 手续费/滑点假设
+  5. 回测命令
+  6. 已知局限
+
+# 完成标准
+- 代码可运行
+- 至少给出运行命令
+- 至少给出一个最小可复现实验
+- 修改说明写入 cta/report/change_log.md--
+

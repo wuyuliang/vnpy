@@ -115,6 +115,14 @@ class OotEvaluationConfig:
     risk_free_annual_return: float = 0.02
 
     annualization_factor: float = 12.0
+    # portfolio_logic.interval_gate.fallback_when_htf_missing:
+    #   "skip"（默认，严格）：缺 HTF 共识即拒单，emit block_reason=htf_missing。
+    #   "both"              ：缺 HTF 时中性放行（视为 long/short 皆可）。
+    # 单 interval 跑批（如 --interval day）一般不需要手动改这里 ——
+    # cta/model/pipeline_oot_evaluation_source.py.txt 的 Fix-A 会按
+    # htf_reference 实际包含的 interval 自动窄化 htf_intervals，避免误判 htf_missing。
+    # 仅当某 interval 数据**应当存在但偶发缺失**时才考虑切到 "both"。
+    # 详见 cta/docs/block_reason.md §4-§6。
     portfolio_logic: PortfolioLogicConfig = field(default_factory=PortfolioLogicConfig)
     stop_loss_consistency_tolerance: float = 0.005
     # 研究/单测场景经常会临时扫不同止损；默认不强制。

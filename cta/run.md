@@ -351,6 +351,17 @@ python3 -m cta.model.model_pipeline \
 - 也可传 ranking 的其他列名，如 `exchange` / `recommended_stage`。
 - 输出目录按组区分：`..._GRP_<GROUP>_<interval>_..._model_pipeline/`。
 - 预测文件同目录下的 `*_predictions.csv`，直接就是该组模型的离线预测结果。
+- 当同时开启 `--use-portfolio-logic-runtime` 时，会额外生成一个**上层聚合目录**：  
+  `cta/report/backtest/{run_tag}_GROUP_POOL_{GROUP_BY}_{side}_portfolio_logic_runtime/`
+  - `*_all_symbol_group_oot_trade_details.csv`：所有 symbol group 的逐笔交易明细聚合表
+  - `*_symbol_group_run_manifest.csv`：每个 group/interval 对应的模型目录与源文件路径
+  - `symbol_group_details/*/group_detail_manifest.json`：每个组的细化文件索引（含模型路径）
+  - 同级新增结构化 OOT 总报告目录：`oot_{YYYYMMDD_HHMMSS}_{group}_{side}/`
+    - `00_overview/headline_metrics.csv`
+    - `01_aggregate/monthly_metrics.csv|weekly_metrics.csv|summary.csv`
+    - `02_by_cluster/_comparison.csv`
+    - `06_drilldown/gate_funnel.csv|block_reason_breakdown.csv`
+    - `reports/executive.html|analyst.html|brief.md`
 
 ### 4.3 离线评估结果快速查看
 
@@ -373,6 +384,16 @@ cat cta/report/backtest/*_model_pipeline/*_oot_trade_details.csv
 cat cta/report/backtest/*_model_pipeline/*_throttle_log.csv
 cat cta/report/backtest/*_model_pipeline/*_oot_position_lifetime.csv
 ls -lah cta/report/backtest/*_model_pipeline/report_*.html
+
+# group-pool + portfolio_logic runtime 的上层聚合目录
+ls -lah cta/report/backtest/*_GROUP_POOL_*_portfolio_logic_runtime/
+cat cta/report/backtest/*_GROUP_POOL_*_portfolio_logic_runtime/*_all_symbol_group_oot_trade_details.csv
+cat cta/report/backtest/*_GROUP_POOL_*_portfolio_logic_runtime/*_symbol_group_run_manifest.csv
+
+# 新版结构化 OOT 报告目录
+ls -lah cta/report/backtest/oot_*_*/
+cat cta/report/backtest/oot_*_*/00_overview/headline_metrics.csv
+cat cta/report/backtest/oot_*_*/06_drilldown/gate_funnel.csv
 ```
 
 OOT 绩效参数配置文件：

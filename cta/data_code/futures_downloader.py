@@ -1,57 +1,25 @@
-"""
-中国商品期货数据下载核心模块（可离线批量 + 在线单次复用）
-
-提供:
-    - FuturesDownloader: 统一下载入口
-        * download_day(symbol)                        -> akshare 连续合约日线 CSV
-        * fetch_fut_mapping(symbol, exchange)         -> tushare 主力映射（带交易所兜底）
-        * fetch_1min_day(contract, trade_date)        -> tushare 某交易日 1 分钟全量
-        * download_minute_symbol(symbol, exchange, intervals, ...)
-            下载某品种的全部历史分钟数据，自动完成:
-                1) fut_mapping 获取主力映射
-                2) 按日期并发下载 1min
-                3) 本地重采样得到 5/15/30/60min
-    - 交易所代码兜底工具（SHFE<->SHF, CZCE<->CZC<->ZCE, DCE, INE, GFEX<->GFE）
-    - 简单令牌桶速率限制器（兼容 tushare 付费版约 500 req/min）
-
-统一字段（与 loader.py 一致）:
-    datetime, open, high, low, close, volume, open_interest, turnover, symbol, exchange
-
-目录约定:
-    cta/data/origin/day/{SYMBOL}.csv
-    cta/data/origin/{interval}/{alpha_prefix}/{YYYY-MM-DD}.parquet
-        interval ∈ {minute, minute5, minute15, minute30, minute60}
-        alpha_prefix = 品种字母前缀（CU0 -> CU, I0 -> I）
-
-使用方式:
-    # 离线批量见 download_all.py
-    # 在线单次:
-    >>> dl = FuturesDownloader()
-    >>> dl.download_day("CU0")                              # 日线 csv
-    >>> df_1min = dl.fetch_1min_day("CU2501.SHF",
-    ...                             "2025-01-15")           # 单日 1min
-    >>> df_5min = dl.resample_minute(df_1min, "5min")
-"""
+"""FuturesDownloader for day + minute data under ``cta/data/origin``."""
 from __future__ import annotations
 
 import logging
 import os
-import re
 import threading
-import time
-from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
 
+from cta.data_code.tushare_client import (
+    RateLimiter,
+    _safe_retry,
+    alpha_prefix,
+    tushare_exchange_variants,
+)
+
 logger = logging.getLogger(__name__)
 
 
-# =============================================================================
-# 目录常量
-# =============================================================================
 CTA_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = CTA_ROOT / "data"
 DATA_ORIGIN_DIR = DATA_DIR / "origin"
@@ -74,94 +42,6 @@ RESAMPLE_FREQ: Dict[str, str] = {
 COMMODITY_EXCHANGES = {"DCE", "CZCE", "SHFE", "INE", "GFEX"}
 
 
-# =============================================================================
-# 工具函数
-# =============================================================================
-_ALPHA_PREFIX_RE = re.compile(r"^([A-Za-z]+)")
-
-
-def alpha_prefix(symbol: str) -> str:
-    """
-    取品种字母前缀（用于目录命名）
-    'CU0' -> 'CU', 'I0' -> 'I', 'SC0' -> 'SC', 'C0.DCE' -> 'C'
-    """
-    m = _ALPHA_PREFIX_RE.match(str(symbol).strip())
-    return m.group(1).upper() if m else str(symbol).strip().upper()
-
-
-# 交易所变体映射，用于 tushare ts_code 后缀尝试
-# 顺序：先 tushare 官方命名，再业务常见写法
-EXCHANGE_VARIANTS: Dict[str, List[str]] = {
-    "SHFE": ["SHF", "SHFE"],
-    "SHF":  ["SHF", "SHFE"],
-    "CZCE": ["CZC", "ZCE", "CZCE"],
-    "CZC":  ["CZC", "ZCE", "CZCE"],
-    "ZCE":  ["ZCE", "CZC", "CZCE"],
-    "DCE":  ["DCE"],
-    "INE":  ["INE"],
-    "GFEX": ["GFE", "GFEX"],
-    "GFE":  ["GFE", "GFEX"],
-    "CFFEX": ["CFX", "CFFEX"],
-}
-
-
-def tushare_exchange_variants(exchange: str) -> List[str]:
-    """返回该交易所的 tushare 后缀候选，按优先级排序"""
-    key = str(exchange).strip().upper()
-    if key in EXCHANGE_VARIANTS:
-        return EXCHANGE_VARIANTS[key]
-    return [key]
-
-
-# =============================================================================
-# 令牌桶速率限制器（线程安全）
-# =============================================================================
-class RateLimiter:
-    """
-    简单令牌桶：max_per_min 次/分钟。
-    线程安全，acquire() 会阻塞直到可以发出下一次请求。
-    """
-
-    def __init__(self, max_per_min: int = 480):
-        self.max = max(1, int(max_per_min))
-        self._lock = threading.Lock()
-        self._calls: deque[float] = deque()
-
-    def acquire(self) -> None:
-        while True:
-            with self._lock:
-                now = time.time()
-                # 清掉 60s 之前的
-                while self._calls and now - self._calls[0] > 60.0:
-                    self._calls.popleft()
-                if len(self._calls) < self.max:
-                    self._calls.append(now)
-                    return
-                # 需要等待多久
-                wait = 60.0 - (now - self._calls[0])
-            if wait > 0:
-                time.sleep(min(wait, 5.0))
-
-
-# =============================================================================
-# Tushare 客户端（延迟初始化 + 重试）
-# =============================================================================
-def _safe_retry(func, *args, retries: int = 5, wait: float = 2.0, **kwargs):
-    last_err: Optional[Exception] = None
-    for i in range(retries):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:  # noqa: BLE001
-            last_err = e
-            logger.warning(f"  call {func.__name__} failed ({i+1}/{retries}): {e}")
-            time.sleep(wait)
-    assert last_err is not None
-    raise last_err
-
-
-# =============================================================================
-# 下载器主类
-# =============================================================================
 @dataclass
 class DownloadResult:
     symbol: str
@@ -174,27 +54,8 @@ class DownloadResult:
     detail: str = ""                # 失败或空数据原因
 
 
-@dataclass
-class MinuteDownloadReport:
-    symbol: str
-    exchange: str
-    intervals: List[str] = field(default_factory=list)
-    # interval -> DownloadResult
-    results: Dict[str, DownloadResult] = field(default_factory=dict)
-    # 逐日 empty 列表，用于 empty.csv
-    empties: List[Tuple[str, str]] = field(default_factory=list)  # (interval, trade_date)
-
-
 class FuturesDownloader:
-    """
-    离线/在线统一下载器
-
-    参数
-    ----
-    token : tushare token，默认从环境变量 TUSHARE_TOKEN 读取
-    rate_limit : tushare 每分钟最大请求数，付费用户 ~500，默认 450 略留余量
-    workers : 并发线程数（按日并发），默认 4
-    """
+    """离线/在线统一下载器。"""
 
     def __init__(
         self,
@@ -535,9 +396,6 @@ class FuturesDownloader:
         return results
 
 
-# =============================================================================
-# 辅助：归一化函数
-# =============================================================================
 def _normalize_daily_df(raw_df: pd.DataFrame, symbol: str, exchange: str) -> pd.DataFrame:
     """akshare futures_main_sina 结果 -> 统一 CSV 格式"""
     if raw_df is None or raw_df.empty:

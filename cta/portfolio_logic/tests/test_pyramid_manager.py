@@ -137,6 +137,8 @@ class TestPyramidManager(unittest.TestCase):
         self.assertLess(float(layer.trail_stop_price), float(layer.hard_stop_price))
         layer.trail_stop_price = 99.5
         self.assertAlmostEqual(float(layer.effective_stop), 99.5, places=6)
+        layer.trail_stop_price = float("nan")
+        self.assertAlmostEqual(float(layer.effective_stop), float(layer.hard_stop_price), places=6)
 
     def test_force_close_all_marks_active_layers_exited(self) -> None:
         manager = PyramidManager(

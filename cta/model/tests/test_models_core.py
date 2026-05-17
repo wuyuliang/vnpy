@@ -121,6 +121,16 @@ class TestModelsCore(unittest.TestCase):
             RegimeClassifierModel(random_state=13).fit(df, feature_columns=feats, label_column="regime_label")
         self.assertTrue(any("unexpected values" in line for line in cm.output))
 
+    def test_regime_classifier_warns_when_class_count_below_min_leaf(self) -> None:
+        df = _mk_df(n=180).copy()
+        # 强制制造极端稀有类别：trend_down 只有 2 条
+        df["regime_label"] = "trend_up"
+        df.loc[:1, "regime_label"] = "trend_down"
+        feats = ["feature_x1", "feature_x2", "feature_x3"]
+        with self.assertLogs("cta.model.regime_classifier_model", level="WARNING") as cm:
+            RegimeClassifierModel(random_state=13).fit(df, feature_columns=feats, label_column="regime_label")
+        self.assertTrue(any("minority class count below min_samples_leaf" in line for line in cm.output))
+
     def test_mfe_mae_model(self) -> None:
         df = _mk_df()
         train = df.iloc[:160]
@@ -240,6 +250,69 @@ class TestModelsCore(unittest.TestCase):
         self.assertEqual(pred.shape[0], 20)
         self.assertTrue(np.isfinite(pred["pred_mfe_atr"]).all())
         self.assertTrue(np.isfinite(pred["pred_mae_atr"]).all())
+
+    def test_mfe_mae_predict_clips_negative_outputs(self) -> None:
+        """预测阶段必须保证 pred_mfe_atr/pred_mae_atr 非负，避免仓位公式异常。"""
+        feats = ["feature_x1", "feature_x2", "feature_x3"]
+        df = _mk_df(n=4).copy()
+
+        class _FakeEstimator:
+            def predict(self, _x: pd.DataFrame) -> np.ndarray:
+                return np.array(
+                    [
+                        [-1.0, -2.0],
+                        [0.5, -0.1],
+                        [-0.3, 0.2],
+                        [0.0, 0.0],
+                    ],
+                    dtype=float,
+                )
+
+        m = MfeMaeModel(random_state=1)
+        m.estimator = _FakeEstimator()  # type: ignore[assignment]
+        pred = m.predict(df, feature_columns=feats)
+        self.assertTrue((pred["pred_mfe_atr"] >= 0.0).all())
+        self.assertTrue((pred["pred_mae_atr"] >= 0.0).all())
+
+    def test_mfe_mae_model_accepts_configurable_winsorize_percentiles(self) -> None:
+        feats = ["feature_x1", "feature_x2", "feature_x3"]
+        df = _mk_df(n=180).copy()
+        # 加一些长尾值，确保 winsorize 参数会被实际用到。
+        df.loc[:2, "future_mfe_atr"] = [20.0, 25.0, 30.0]
+        df.loc[:2, "future_mae_atr"] = [15.0, 18.0, 22.0]
+        model = MfeMaeModel(
+            random_state=19,
+            model_params={
+                "winsorize_pct_low": 0.05,
+                "winsorize_pct_high": 0.95,
+            },
+        )
+        model.fit(
+            df,
+            feature_columns=feats,
+            mfe_column="future_mfe_atr",
+            mae_column="future_mae_atr",
+        )
+        pred = model.predict(df.iloc[:10], feature_columns=feats)
+        self.assertEqual(pred.shape[0], 10)
+        self.assertTrue(np.isfinite(pred["pred_mfe_atr"]).all())
+        self.assertTrue(np.isfinite(pred["pred_mae_atr"]).all())
+
+    def test_trade_filter_fit_when_one_class_has_single_sample(self) -> None:
+        """极端不平衡样本下 fit 不应因 early_stopping 的分层切分而抛错。"""
+        n = 100
+        df = pd.DataFrame(
+            {
+                "feature_x1": np.linspace(-1.0, 1.0, n),
+                "feature_x2": np.linspace(0.0, 2.0, n),
+                "feature_x3": np.linspace(1.0, 3.0, n),
+                "label_class": np.array([1] + [0] * (n - 1), dtype=int),
+            }
+        )
+        feats = ["feature_x1", "feature_x2", "feature_x3"]
+        model = TradeFilterModel(random_state=7)
+        model.fit(df, feature_columns=feats, label_column="label_class")
+        self.assertNotEqual(str(model.model_kind), "uninitialized")
 
 
 if __name__ == "__main__":

@@ -70,6 +70,20 @@ class TestRiskThrottle(unittest.TestCase):
         self.assertFalse(out.enabled)
         self.assertEqual(int(out.max_active_layers), 0)
 
+    def test_boundary_drawdown_values_map_to_expected_levels(self) -> None:
+        throttle = RiskThrottle(RiskThrottleConfig())
+        snap_10 = throttle.make_snapshot(
+            drawdown_pct=0.10, weekly_return_pct=0.0, monthly_return_pct=0.0, equity=100.0
+        )
+        level_10 = throttle.compute(snap_10, current_level=None)
+        self.assertEqual(level_10.name, "conservative")
+
+        snap_100 = throttle.make_snapshot(
+            drawdown_pct=1.00, weekly_return_pct=0.0, monthly_return_pct=0.0, equity=100.0
+        )
+        level_100 = throttle.compute(snap_100, current_level=None)
+        self.assertEqual(level_100.name, "halt")
+
 
 if __name__ == "__main__":
     unittest.main()

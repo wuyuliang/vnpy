@@ -90,6 +90,15 @@ class RegimeClassifierModel:
         }
         if self.model_params:
             params.update(dict(self.model_params))
+        min_leaf = max(1, int(params.get("min_samples_leaf", 1)))
+        class_counts = pd.Series(y).value_counts(dropna=False)
+        if not class_counts.empty and int(class_counts.min()) < min_leaf:
+            logger.warning(
+                "minority class count below min_samples_leaf: min_count=%d min_samples_leaf=%d class_counts=%s",
+                int(class_counts.min()),
+                int(min_leaf),
+                {str(k): int(v) for k, v in class_counts.items()},
+            )
         model = RandomForestClassifier(**params)
         self.estimator = Pipeline([("pre", pre), ("model", model)])
         if sample_weight is None:

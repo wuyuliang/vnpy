@@ -60,9 +60,18 @@ class MfeMaeModel:
         # 过拟合缓解：对目标做轻度 winsorize，降低极端尾部样本对树模型的噪声放大。
         y_clean = np.asarray(y, dtype=float)
         y_clean = np.nan_to_num(y_clean, nan=0.0, posinf=0.0, neginf=0.0)
+        winsorize_pct_low = 0.01
+        winsorize_pct_high = 0.99
+        model_params = dict(self.model_params or {})
+        if "winsorize_pct_low" in model_params:
+            winsorize_pct_low = float(model_params.pop("winsorize_pct_low"))
+        if "winsorize_pct_high" in model_params:
+            winsorize_pct_high = float(model_params.pop("winsorize_pct_high"))
+        if not (0.0 <= winsorize_pct_low < winsorize_pct_high <= 1.0):
+            winsorize_pct_low, winsorize_pct_high = 0.01, 0.99
         if len(y_clean) >= 50:
-            q_low = np.nanquantile(y_clean, 0.01, axis=0)
-            q_high = np.nanquantile(y_clean, 0.99, axis=0)
+            q_low = np.nanquantile(y_clean, winsorize_pct_low, axis=0)
+            q_high = np.nanquantile(y_clean, winsorize_pct_high, axis=0)
             y_clean = np.clip(y_clean, q_low, q_high)
 
         pre = ColumnTransformer(
@@ -84,8 +93,8 @@ class MfeMaeModel:
             "random_state": self.random_state,
             "n_jobs": -1,
         }
-        if self.model_params:
-            params.update(dict(self.model_params))
+        if model_params:
+            params.update(model_params)
         base = RandomForestRegressor(**params)
         reg = MultiOutputRegressor(base)
         self.estimator = Pipeline([("pre", pre), ("model", reg)])
@@ -106,6 +115,9 @@ class MfeMaeModel:
         pred = np.asarray(self.estimator.predict(x), dtype=float)
         if pred.ndim == 1:
             pred = pred.reshape(-1, 2)
+        # 风险约束：MFE/MAE 都是非负幅度，预测阶段强制裁剪，避免下游仓位公式异常。
+        pred[:, 0] = np.maximum(pred[:, 0], 0.0)
+        pred[:, 1] = np.maximum(pred[:, 1], 0.0)
         return pd.DataFrame(
             {
                 "pred_mfe_atr": pred[:, 0],

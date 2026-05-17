@@ -112,7 +112,7 @@ class TestGroupPoolHelpers(unittest.TestCase):
 
     def test_only_clusters_filter_keeps_index_drops_others(self) -> None:
         """--only-clusters index 仅保留 cluster_index 组，drop cluster_black 等。"""
-        from cta.model.model_pipeline import _safe_name
+        from cta.model.pipeline_feature_curation import _safe_name
         all_groups: list[tuple[str, list[tuple[str, str | None]]]] = [
             ("cluster_index", [("IF0", "CFFEX"), ("IH0", "CFFEX"), ("IC0", "CFFEX"), ("IM0", "CFFEX")]),
             ("cluster_black", [("RB0", "SHFE"), ("HC0", "SHFE")]),
@@ -124,6 +124,174 @@ class TestGroupPoolHelpers(unittest.TestCase):
         kept = [(g, m) for g, m in all_groups if g in wanted]
         self.assertEqual([g for g, _ in kept], ["cluster_index"])
         self.assertEqual(len(kept[0][1]), 4)
+
+    def test_write_group_pool_runtime_bundle_writes_aggregate_trade_details(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="cta_group_runtime_bundle_") as td:
+            root = Path(td)
+            run_records: list[dict[str, Any]] = []
+            for group_name, pool_name, px in (
+                ("cluster_black", "GRP_CLUSTER_BLACK", 100.0),
+                ("cluster_metal", "GRP_CLUSTER_METAL", 200.0),
+            ):
+                out_dir = root / f"20260516_{pool_name}_minute60_both_model_pipeline"
+                out_dir.mkdir(parents=True, exist_ok=True)
+                oot_trades = out_dir / f"20260516_{pool_name}_minute60_both_oot_trade_details.csv"
+                pd.DataFrame(
+                    {
+                        "datetime": [pd.Timestamp("2020-01-02 09:00:00")],
+                        "symbol": ["RB0"],
+                        "exchange": ["SHFE"],
+                        "interval": ["60min"],
+                        "side": ["long"],
+                        "entry_price": [px],
+                        "open_notional_at_entry": [1_000_000.0],
+                        "open_notional_after_exit": [750_000.0],
+                    }
+                ).to_csv(oot_trades, index=False, encoding="utf-8-sig")
+
+                # 其余路径给占位文件，模拟真实 ModelPipelineResult。
+                def _touch(name: str) -> Path:
+                    p = out_dir / name
+                    p.write_text("x", encoding="utf-8")
+                    return p
+
+                res = mp.ModelPipelineResult(
+                    output_dir=out_dir,
+                    candidate_path=_touch("candidates.csv"),
+                    feature_table_path=_touch("feature_table.parquet"),
+                    prediction_path=_touch("predictions.csv"),
+                    metrics_path=_touch("metrics.csv"),
+                    oot_monthly_path=_touch("oot_monthly_returns.csv"),
+                    oot_summary_path=_touch("oot_summary.csv"),
+                    oot_trades_path=oot_trades,
+                    html_report_path=_touch("report.html"),
+                    top_feature_importance_path=_touch("top10_feature_importance.csv"),
+                    report_path=_touch("model_report.md"),
+                )
+                run_records.append(
+                    {
+                        "interval": "60min",
+                        "group_name": group_name,
+                        "pool_name": pool_name,
+                        "members": [("RB0", "SHFE")],
+                        "result": res,
+                    }
+                )
+
+            bundle_dir = mp._write_group_pool_runtime_bundle(
+                root=root,
+                run_date_tag="20260516",
+                group_by="cluster",
+                trade_side_mode="both",
+                run_records=run_records,
+            )
+            self.assertIsNotNone(bundle_dir)
+            assert bundle_dir is not None
+            self.assertTrue(bundle_dir.exists())
+
+            agg_csv = bundle_dir / "20260516_group_pool_cluster_both_all_symbol_group_oot_trade_details.csv"
+            self.assertTrue(agg_csv.exists())
+            agg_df = pd.read_csv(agg_csv, encoding="utf-8-sig")
+            self.assertEqual(len(agg_df), 2)
+            self.assertEqual(set(agg_df["group_name"].astype(str)), {"cluster_black", "cluster_metal"})
+            self.assertIn("position_notional_after_trade", agg_df.columns)
+            self.assertTrue((pd.to_numeric(agg_df["position_notional_after_trade"], errors="coerce") == 750000.0).all())
+
+            manifest_csv = bundle_dir / "20260516_group_pool_cluster_both_symbol_group_run_manifest.csv"
+            self.assertTrue(manifest_csv.exists())
+            manifest_df = pd.read_csv(manifest_csv, encoding="utf-8-sig")
+            self.assertEqual(len(manifest_df), 2)
+            self.assertIn("model_dir", manifest_df.columns)
+            self.assertIn("group_detail_manifest", manifest_df.columns)
+
+            oot_reports = sorted(root.glob("oot_*_cluster_both"))
+            self.assertGreaterEqual(len(oot_reports), 1)
+            latest = oot_reports[-1]
+            self.assertTrue((latest / "00_overview" / "headline_metrics.csv").exists())
+            self.assertTrue((latest / "06_drilldown" / "gate_funnel.csv").exists())
+
+    def test_recompute_oot_with_shared_htf_reference_rewrites_blocked_htf(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="cta_recompute_htf_") as td:
+            root = Path(td)
+
+            def _mk_result(tag: str, interval: str, path_id: str) -> mp.ModelPipelineResult:
+                out = root / f"{tag}_{interval}"
+                out.mkdir(parents=True, exist_ok=True)
+                pred_path = out / f"{path_id}_predictions.csv"
+                pd.DataFrame(
+                    {
+                        "datetime": [pd.Timestamp("2020-01-06 09:00:00")],
+                        "entry_datetime": [pd.Timestamp("2020-01-06 09:00:00")],
+                        "exit_datetime": [pd.Timestamp("2020-01-06 11:00:00")],
+                        "symbol": ["RB0"],
+                        "exchange": ["SHFE"],
+                        "interval": [interval],
+                        "signal_type": ["donchian_breakout"],
+                        "side": ["long"],
+                        "pred_regime_label": ["trend_up"],
+                        "pred_split": ["test"],
+                        "window_id": [0],
+                        "is_executed": [1],
+                        "entry_price": [100.0],
+                        "future_mfe_atr": [1.0],
+                        "future_mae_atr": [0.2],
+                    }
+                ).to_csv(pred_path, index=False, encoding="utf-8-sig")
+
+                def _touch(name: str) -> Path:
+                    p = out / name
+                    p.write_text("x", encoding="utf-8")
+                    return p
+
+                return mp.ModelPipelineResult(
+                    output_dir=out,
+                    candidate_path=_touch(f"{path_id}_candidates.csv"),
+                    feature_table_path=_touch(f"{path_id}_feature_table.parquet"),
+                    prediction_path=pred_path,
+                    metrics_path=_touch(f"{path_id}_metrics.csv"),
+                    oot_monthly_path=out / f"{path_id}_oot_monthly_returns.csv",
+                    oot_summary_path=out / f"{path_id}_oot_summary.csv",
+                    oot_trades_path=out / f"{path_id}_oot_trade_details.csv",
+                    html_report_path=_touch(f"{path_id}_report.html"),
+                    top_feature_importance_path=_touch(f"{path_id}_top10.csv"),
+                    report_path=_touch(f"{path_id}_model_report.md"),
+                )
+
+            r_day = _mk_result("run", "day", "day")
+            r_60 = _mk_result("run", "60min", "m60")
+
+            from cta.config.model_oot_eval_config import OotEvaluationConfig
+            from cta.portfolio_logic.config import PortfolioLogicConfig
+
+            cfg = OotEvaluationConfig(
+                use_trade_filter_gate=False,
+                use_regime_gate=False,
+                use_mfe_mae_gate=False,
+                use_test_split_only=True,
+                require_executed_only=True,
+                use_intrabar_stop_tracking=False,
+                use_portfolio_constraints=False,
+                use_position_sizing=False,
+                use_portfolio_logic_runtime=True,
+                portfolio_logic=PortfolioLogicConfig(
+                    enable_htf_gate=True,
+                    enable_ranker=False,
+                    enable_risk_throttle=False,
+                    enable_pyramid=False,
+                ),
+            )
+            rewritten = mp._recompute_oot_with_shared_htf_reference([r_day, r_60], cfg)
+            self.assertEqual(rewritten, 2)
+
+            s_day = pd.read_csv(r_day.oot_summary_path, encoding="utf-8-sig")
+            s_60 = pd.read_csv(r_60.oot_summary_path, encoding="utf-8-sig")
+            self.assertEqual(int(s_day.iloc[0]["blocked_htf_rows"]), 0)
+            self.assertEqual(int(s_60.iloc[0]["blocked_htf_rows"]), 0)
+
+            t_day = pd.read_csv(r_day.oot_trades_path, encoding="utf-8-sig")
+            t_60 = pd.read_csv(r_60.oot_trades_path, encoding="utf-8-sig")
+            self.assertEqual(str(t_day.iloc[0]["execution_status"]), "executed")
+            self.assertEqual(str(t_60.iloc[0]["execution_status"]), "executed")
 
 
 class TestGroupPoolCliDispatch(unittest.TestCase):
@@ -161,8 +329,13 @@ class TestGroupPoolCliDispatch(unittest.TestCase):
             "day",
             "60min",
         ]
-        with mock.patch.object(mp, "_load_symbol_groups_from_ranking", return_value=fake_groups), \
-             mock.patch.object(mp, "run_model_pipeline", side_effect=fake_run), \
+        # W4 重构后 `run_model_pipeline` / `_load_symbol_groups_from_ranking` 的真实定义在
+        # `cta.model.pipeline_orchestrator`，而 `cta.model.model_pipeline` 只是 shim。
+        # `pipeline_orchestrator.main()` 内部按模块本地名字查找这两个符号，因此必须 patch
+        # 到 orchestrator 上才能生效；patch shim 是无效操作（会让真模型走真训练）。
+        import cta.model.pipeline_orchestrator as _impl
+        with mock.patch.object(_impl, "_load_symbol_groups_from_ranking", return_value=fake_groups), \
+             mock.patch.object(_impl, "run_model_pipeline", side_effect=fake_run), \
              redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             mp.main(argv)
 
@@ -175,4 +348,3 @@ class TestGroupPoolCliDispatch(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

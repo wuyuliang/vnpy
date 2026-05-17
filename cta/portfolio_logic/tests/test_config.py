@@ -1,6 +1,7 @@
 """Unit tests for portfolio logic configuration."""
 from __future__ import annotations
 
+import dataclasses
 import unittest
 
 from cta.portfolio_logic.config import (
@@ -19,6 +20,11 @@ class TestPortfolioLogicConfig(unittest.TestCase):
     def test_interval_gate_config_rejects_invalid_interval_weight(self) -> None:
         with self.assertRaises(ValueError):
             IntervalGateConfig(interval_rank={"day": 1.0, "60min": 0.0})
+
+    def test_interval_gate_config_is_frozen(self) -> None:
+        cfg = IntervalGateConfig()
+        with self.assertRaises(dataclasses.FrozenInstanceError):
+            cfg.htf_intervals = ("day",)  # type: ignore[misc]
 
     def test_opportunity_ranker_weights_must_sum_to_one(self) -> None:
         with self.assertRaises(ValueError):

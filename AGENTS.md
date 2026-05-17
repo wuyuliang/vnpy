@@ -1,240 +1,54 @@
-# 项目目标
-本仓库用于基于 vn.py 开发中国商品 CTA 策略。
-当前仅允许在 `cta/` 目录内开发、修改和新增文件。
-目标是：
-1. 开发可解释、可回测、可迁移的商品 CTA 策略
-2. 支持日线与未来分钟级数据
-3. 保持数据、策略、回测、报告分层清晰
-4. 严格控制修改范围，避免污染 vn.py 主框架
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
-# 硬性边界
-你只能修改以下路径：
-- `cta/**`
-- 禁止删除、移动、重命名现有非cta目录文件。
-- 禁止改交易网关、主框架、数据库底层。
-- 所有新增代码优先放到 cta/strategy, cta/backtest, cta/utils, cta/config。
-- 数据只读目录：cta/data/, day/。除非我明确要求，否则不得覆盖原始数据。
-- 分钟级数据统一放 cta/data/minute/。
+Tradeoff: These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
-# 目录职责
-`cta/` 目录约定如下：
+1. Think Before Coding
+Don't assume. Don't hide confusion. Surface tradeoffs.
 
-- `cta/data/`
-  - 数据目录
-  - 当前用于存放 CTA 研究数据
-  - 日线数据可放在 `cta/data/day/`
-  - 将来分钟级数据统一放在 `cta/data/minute/`
-  - 原始数据默认只读，除非我明确要求生成新文件
+Before implementing:
 
-- `cta/data/*.py`
-  - 数据下载、清洗、转换脚本
-  - 保持脚本职责单一
-  - 文件名应体现用途，例如：
-    - `download_day_data.py`
-    - `convert_csv_to_parquet.py`
-    - `build_continuous_contract.py`
+State your assumptions explicitly. If uncertain, ask.
+If multiple interpretations exist, present them - don't pick silently.
+If a simpler approach exists, say so. Push back when warranted.
+If something is unclear, stop. Name what's confusing. Ask.
+2. Simplicity First
+Minimum code that solves the problem. Nothing speculative.
 
-- `cta/strategy/`
-  - 策略实现
-  - 每个策略一个独立文件
-  - 文件名示例：
-    - `donchian_breakout.py`
-    - `ma_cross_with_atr.py`
+No features beyond what was asked.
+No abstractions for single-use code.
+No "flexibility" or "configurability" that wasn't requested.
+No error handling for impossible scenarios.
+If you write 200 lines and it could be 50, rewrite it.
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
 
-- `cta/backtest/`
-  - 回测入口
-  - 参数扫描
-  - 样本内/样本外测试
-  - 多品种批量回测脚本
+3. Surgical Changes
+Touch only what you must. Clean up only your own mess.
 
-- `cta/config/`
-  - 参数配置
-  - 品种配置
-  - 路径配置
-  - 手续费、滑点、交易时段等配置
+When editing existing code:
 
-- `cta/report/`
-  - 回测结果
-  - 实验记录
-  - 变更说明
-  - 图表和结论摘要
+Don't "improve" adjacent code, comments, or formatting.
+Don't refactor things that aren't broken.
+Match existing style, even if you'd do it differently.
+If you notice unrelated dead code, mention it - don't delete it.
+When your changes create orphans:
 
-- `cta/tests/`
-  - 单元测试
-  - 回归测试
-  - 最小可复现实验
+Remove imports/variables/functions that YOUR changes made unused.
+Don't remove pre-existing dead code unless asked.
+The test: Every changed line should trace directly to the user's request.
 
----
+4. Goal-Driven Execution
+Define success criteria. Loop until verified.
 
-# 数据规则
-## 当前数据情况
-- `cta/data/day/` 当前存放中国商品 CTA 日线数据
-- 该目录视为输入数据源，默认只读
-- 如需转换格式，应输出到 `cta/data/` 下的新目录，不覆盖原始文件
+Transform tasks into verifiable goals:
 
-## 推荐数据输出格式
-优先使用：
-1. `parquet`
-2. `csv`
+"Add validation" → "Write tests for invalid inputs, then make them pass"
+"Fix the bug" → "Write a test that reproduces it, then make it pass"
+"Refactor X" → "Ensure tests pass before and after"
+For multi-step tasks, state a brief plan:
 
-统一字段尽量保持：
-- `symbol`
-- `exchange`
-- `interval`
-- `datetime`
-- `open`
-- `high`
-- `low`
-- `close`
-- `volume`
-- `open_interest`
-- `turnover`
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
----
-# 开发规则
-## 基本要求
-- Python 3.10+
-- 必须写类型注解
-- 必须有清晰函数边界
-- 必须有日志
-- 不允许硬编码路径
-- 不允许硬编码账户、密码、API key
-- 不允许无说明地修改已有文件的外部接口
-
-## 文件组织
-- 新增功能优先新建文件，不要把所有逻辑堆在一个脚本里
-- 公共函数放到 `cta/utils/`
-- 策略逻辑、数据处理、回测逻辑必须分离
-
-## 代码风格
-- 优先写可直接运行的代码
-- 优先写小函数、少副作用
-- 每个脚本都要有 `if __name__ == "__main__":`
-- 每个关键函数要有 docstring
-- 尽量保证在 Linux 云服务器和本地电脑都能运行
-
----
-
-# 策略开发规范
-每个新增策略必须包含：
-
-1. 策略假设
-2. 适用品种
-3. 适用周期
-4. 信号定义
-5. 开仓规则
-6. 平仓规则
-7. 止损规则
-8. 仓位管理规则
-9. 手续费与滑点假设
-10. 可能失效的市场环境
-
-每个策略文件顶部都应写简短说明。
-
----
-
-# 回测规范
-每次新增或修改策略后，至少提供：
-
-1. 最小可运行回测命令
-2. 使用的数据路径
-3. 使用的配置文件
-4. 输出结果位置
-5. 至少以下指标：
-   - 总收益
-   - 年化收益
-   - 最大回撤
-   - Sharpe
-   - Calmar
-   - 胜率
-   - 盈亏比
-6. 已知限制
-
-禁止只改代码不说明如何运行。
-
----
-
-# 变更管理
-每次完成任务后，必须同时输出：
-
-1. 修改了哪些文件
-2. 每个文件改了什么
-3. 如何运行
-4. 结果输出到哪里
-5. 风险点或待确认项
-
-并更新：
-- `cta/report/change_log.md`
-
-建议记录格式：
-- 日期
-- 分支名
-- 任务名称
-- 修改文件列表
-- 主要结论
-
----
-
-# Git 规则
-- 默认在当前分支工作
-- 不要擅自切换、创建、删除 Git 远程
-- 不要执行危险命令，例如：
-  - `git reset --hard`
-  - `git clean -fd`
-  - `git push --force`
-- 不要覆盖我未提交的本地改动
-- 如果发现工作区脏，先汇报，不要自行清理
-
----
-
-# 执行习惯
-对于每个任务，按以下顺序执行：
-1. 先阅读本文件
-2. 再阅读 `cta/README.md`
-3. 先给出实施方案
-4. 再开始改代码
-5. 改完后给出运行命令
-6. 最后给出影响文件列表和注意事项
-
----
-
-# 输出要求
-你的回复要尽量结构化，推荐格式：
-
-## 任务理解
-## 修改方案
-## 修改文件
-## 运行命令
-## 输出位置
-## 风险与后续建议
-
----
-
-# 默认原则
-- 保守修改
-- 优先不破坏现有结构
-- 优先可运行
-- 优先可复现
-- 优先可迁移
-- 绝不越过 `cta/` 边界
-# 编码规范
-- Python 3.10+
-- 必须加类型注解
-- 必须有日志
-- 参数与路径放 config
-- 不允许硬编码账户、密码、API key
-- 输出文件名带日期
-- 新策略必须附：
-  1. 策略假设
-  2. 信号定义
-  3. 风控规则
-  4. 手续费/滑点假设
-  5. 回测命令
-  6. 已知局限
-
-# 完成标准
-- 代码可运行
-- 至少给出运行命令
-- 至少给出一个最小可复现实验
-- 修改说明写入 cta/report/change_log.md--
-
+These guidelines are working if: fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
