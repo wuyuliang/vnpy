@@ -41,39 +41,39 @@ def hh_hl_count(high: pd.Series, low: pd.Series, window: int = 10) -> pd.DataFra
 
 
 def swing_high(high: pd.Series, left: int = 2, right: int = 2) -> pd.Series:
-    result = pd.Series(np.nan, index=high.index)
-    for i in range(left, len(high) - right):
-        is_swing = True
-        for j in range(1, left + 1):
-            if high.iloc[i] < high.iloc[i - j]:
-                is_swing = False
-                break
-        if is_swing:
-            for j in range(1, right + 1):
-                if high.iloc[i] < high.iloc[i + j]:
-                    is_swing = False
-                    break
-        if is_swing:
-            result.iloc[i] = high.iloc[i]
-    return result
+    s = pd.to_numeric(high, errors="coerce")
+    left = max(int(left), 0)
+    right = max(int(right), 0)
+    if left == 0:
+        left_max = pd.Series(-np.inf, index=s.index, dtype=float)
+    else:
+        left_max = s.shift(1).rolling(left, min_periods=left).max()
+    if right == 0:
+        right_max = pd.Series(-np.inf, index=s.index, dtype=float)
+    else:
+        right_max = s.shift(-1).iloc[::-1].rolling(right, min_periods=right).max().iloc[::-1]
+    is_swing = s.ge(left_max) & s.ge(right_max)
+    result = s.where(is_swing).shift(right)
+    # 只有在右侧 right 根都走完后，swing 才被确认可见（避免未来函数）。
+    return result.astype(float)
 
 
 def swing_low(low: pd.Series, left: int = 2, right: int = 2) -> pd.Series:
-    result = pd.Series(np.nan, index=low.index)
-    for i in range(left, len(low) - right):
-        is_swing = True
-        for j in range(1, left + 1):
-            if low.iloc[i] > low.iloc[i - j]:
-                is_swing = False
-                break
-        if is_swing:
-            for j in range(1, right + 1):
-                if low.iloc[i] > low.iloc[i + j]:
-                    is_swing = False
-                    break
-        if is_swing:
-            result.iloc[i] = low.iloc[i]
-    return result
+    s = pd.to_numeric(low, errors="coerce")
+    left = max(int(left), 0)
+    right = max(int(right), 0)
+    if left == 0:
+        left_min = pd.Series(np.inf, index=s.index, dtype=float)
+    else:
+        left_min = s.shift(1).rolling(left, min_periods=left).min()
+    if right == 0:
+        right_min = pd.Series(np.inf, index=s.index, dtype=float)
+    else:
+        right_min = s.shift(-1).iloc[::-1].rolling(right, min_periods=right).min().iloc[::-1]
+    is_swing = s.le(left_min) & s.le(right_min)
+    result = s.where(is_swing).shift(right)
+    # 只有在右侧 right 根都走完后，swing 才被确认可见（避免未来函数）。
+    return result.astype(float)
 
 
 def dist_to_last_swing_high(high: pd.Series, close: pd.Series, left: int = 2, right: int = 2) -> pd.Series:

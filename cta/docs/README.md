@@ -18,7 +18,7 @@
 | 文件 | 内容 |
 |---|---|
 | [refactor_long_files.md](refactor_long_files.md) | 拆分超 500 行文件的初版方案（W9 之前） |
-| [refactor_long_files_v2.md](refactor_long_files_v2.md) | 拆分方案 v2（pipeline_orchestrator / pipeline_oot_evaluation 拆成 source.py.txt + loader 的路径） |
+| [refactor_long_files_v2.md](refactor_long_files_v2.md) | 拆分方案 v2（历史方案；当前 pipeline 已进一步拆成正常 `.py` 小模块） |
 
 ### Code Review
 | 文件 | 范围 |
@@ -31,9 +31,9 @@
 
 ### 看什么 / 什么时候看
 - 改 `cta/portfolio_logic/` 任何文件前 → 先看 [portfolio_logic_design.md](portfolio_logic_design.md)。
-- 改 `cta/model/pipeline_oot_evaluation_source.py.txt` 或 `cta/portfolio_logic/interval_gate.py` 涉及 `block_reason` → 先读 [block_reason.md](block_reason.md) §1 总表 + §3 触发顺序。
+- 改 `cta/model/pipeline_oot_evaluation.py` 或 `cta/portfolio_logic/interval_gate.py` 涉及 `block_reason` → 先读 [block_reason.md](block_reason.md) §1 总表 + §3 触发顺序。
 - 加新 OOT 产出字段 → 先读 [oot_output.md](oot_output.md)，避免和既有字段语义冲突。
-- 拆 500+ 行长文件 → 参考 [refactor_long_files_v2.md](refactor_long_files_v2.md) 里的 loader + `.txt` 方案。
+- 拆 500+ 行长文件 → 参考 [refactor_long_files_v2.md](refactor_long_files_v2.md)，但不要再引入 `*_source.py.txt` 或运行时 loader。
 
 ### 怎么写一篇新文档
 1. 文件名小写下划线，与主题相关。

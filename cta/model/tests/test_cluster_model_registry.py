@@ -17,8 +17,8 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from cta.model.cluster_model_registry import ClusterModelRegistry, _cluster_group_key
-from cta.model.trade_filter_model import TradeFilterModel
+from cta.model.training.cluster_model_registry import ClusterModelRegistry, _cluster_group_key
+from cta.model.training.trade_filter_model import TradeFilterModel
 from cta.portfolio_logic.score_calibrator import CalibrationStats, ScoreCalibrator
 
 
@@ -279,7 +279,7 @@ class TestClusterModelRegistry(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            with self.assertLogs("cta.model.cluster_model_registry", level="ERROR") as cm:
+            with self.assertLogs("cta.model.training.cluster_model_registry", level="ERROR") as cm:
                 reg = ClusterModelRegistry.from_registry_json(rj)
             self.assertEqual(len(reg), 0)
             self.assertFalse(bool(reg))
@@ -303,7 +303,7 @@ class TestClusterModelRegistry(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            with self.assertLogs("cta.model.cluster_model_registry", level="ERROR") as cm:
+            with self.assertLogs("cta.model.training.cluster_model_registry", level="ERROR") as cm:
                 reg = ClusterModelRegistry.from_registry_json(rj)
             self.assertEqual(len(reg), 0)
             self.assertTrue(any("empty entries" in line for line in cm.output))
@@ -315,7 +315,7 @@ class TestClusterModelRegistry(unittest.TestCase):
             entries={},
             symbol_to_group={},
         )
-        with self.assertLogs("cta.model.cluster_model_registry", level="WARNING") as cm:
+        with self.assertLogs("cta.model.training.cluster_model_registry", level="WARNING") as cm:
             grp = reg.resolve_group("RB0")
         self.assertEqual(grp, "")
         self.assertTrue(any("group_by=tier" in line for line in cm.output))

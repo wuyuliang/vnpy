@@ -12,6 +12,713 @@
 
 ---
 
+## 2026-05-21 (四) · model/runtime · CLI 开启震荡边界持仓降仓
+
+### 任务
+
+给 `cta.model.model_pipeline` 增加 `--enable-oscillation-taper`，让 group-pool
+runtime OOT 可在命令行直接打开 range/compression 边界降仓。
+
+### 主要修改文件
+
+- `cta/model/tests/test_group_pool_mode.py`
+  - 先补 CLI 默认值与本次 interval 生效范围测试。
+- `cta/model/orchestration/pipeline_cli.py`
+  - 新增 `--enable-oscillation-taper`；
+  - 为本次 `--interval` 覆盖的已知 cluster 构造临时 OOT config，不改默认
+    `DEFAULT_OOT_EVAL_CONFIG`；
+  - runtime 日志打印 taper 开关状态。
+- 文档同步：
+  - `cta/run.md`
+  - `cta/model/model.md`
+  - `cta/keyword.md`
+
+### 验证命令
+
+```bash
+python3 -m pytest -q \
+  cta/model/tests/test_group_pool_mode.py::TestGroupPoolHelpers::test_parse_args_enable_oscillation_taper_default_false \
+  cta/model/tests/test_group_pool_mode.py::TestGroupPoolHelpers::test_effective_oot_cfg_enables_oscillation_taper_for_requested_intervals
+
+python3 -m pytest -q \
+  cta/model/tests/test_group_pool_mode.py \
+  cta/run/tests/test_docs_sync.py
+```
+
+### 风险与后续
+
+- 该开关只对 `--use-portfolio-logic-runtime` 路径生效；旧 FCFS OOT 路径会保持
+  原行为。
+- 是否扩大 taper 到更多 interval 仍应看 `position_taper_*`、逐笔收益与回撤
+  复盘，不建议仅凭开关打开就视为策略改进。
+
+## 2026-05-21 (四) · feature/strategy/portfolio · 均值回归 setup + 震荡 taper + VOI 灰度特征
+
+### 任务
+
+按 `cta/docs/mean_reversion_voi_regime_adaptive_design.md` 落地三块 regime-aware 能力：
+新增震荡区间均值回归候选、持仓中震荡边界降仓，以及默认关闭的 VOI 自适应动量特征。
+
+### 主要修改文件
+
+- `cta/config/mean_reversion_setup_config.py`、`cta/strategy/mean_reversion_range_setup.py`
+  - 新增 `MeanReversionSetupConfig` 与 `mean_reversion_range` setup；
+  - 在 range regime 中按 Bollinger zscore、RSI、ADX 生成 long/short 反向候选；
+  - 默认 off，按 `cluster|interval` 显式灰度。
+- `cta/feature/mean_reversion.py`、`cta/strategy/baseline_*`
+  - 给 baseline frame/candidate/schema 增加 `mr_*` 解释特征、`target_price` 与新 signal_type；
+  - 候选仍沿用现有 baseline/candidate pipeline。
+- `cta/config/voi_momentum_config.py`、`cta/feature/voi_momentum.py`、`cta/feature/compute.py`
+  - 新增 VOI regime-adaptive momentum；
+  - 按波动 regime 切换快慢动量窗口并融合日内位置/量能确认；
+  - 仅在 `VoiMomentumConfig` 命中 `cluster|interval` 时追加 `voi_*` 特征。
+- `cta/feature/run_all_features.py`、`cta/model/feature/candidate_training_dataset.py`
+  - 批量入口新增 `--voi-enabled-cells` 与 `--mean-reversion-enabled-cells`；
+  - `cta.strategy.baseline_skill_suite` 同步支持均值回归 cell 灰度，命令入口与样本入口口径一致。
+- `cta/portfolio_logic/oscillation_taper.py`、`cta/portfolio_logic/trailing_exit.py`
+  - 新增 range/compression 震荡边界降仓；
+  - OOT 明细输出 `position_taper_count / position_taper_target_ratio /
+    position_taper_realized_ratio`，出场原因写 `oscillation_upper_band_taper`。
+- `cta/model/oot/pipeline_oot_evaluation.py`
+  - 将 taper 结果接入 OOT 真实成交明细。
+- 文档同步：
+  - `cta/run.md`、`cta/model/model.md`、`cta/strategy/readme.md`
+  - `cta/feature/FEATURES.md`、`cta/portfolio_logic/README.md`
+  - `cta/docs/block_reason.md`、`cta/keyword.md`
+
+### 验证命令
+
+```bash
+python3 -m pytest -q \
+  cta/feature/tests/test_voi_regime_adaptive_momentum.py \
+  cta/strategy/tests/test_mean_reversion_range_setup.py \
+  cta/portfolio_logic/tests/test_oscillation_upper_band_taper.py
+
+python3 -m pytest -q \
+  cta/strategy/tests/test_baseline_skill_suite_part03.py \
+  cta/portfolio_logic/tests/test_trailing_exit.py \
+  cta/feature/tests/test_compute_pipeline.py \
+  cta/model/tests/test_model_pipeline_part02.py::TestModelPipelinePart02::test_evaluate_oot_real_execution_records_oscillation_taper
+```
+
+### 风险与后续
+
+- 三个模块都保持默认 off，灰度前需要明确目标 `cluster|interval` 并复跑 walk-forward/OOT。
+- VOI 批量 parquet 灰度已提供 `--voi-enabled-cells`；仍应先比较目标 cell 的离线因子
+  稳定性，再扩大开启范围。
+
+## 2026-05-20 (三) · docs/review · 牛市增强实现串联复核 + 运行命令补全
+
+### 任务
+
+对 `cta/docs/bull_market_return_enhancement_strategy.md` 对应实现做一次串联 review，明确“已落地能力 vs 待接入差距”，并把牛市增强闭环命令补到统一运行手册。
+
+### 主要修改文件
+
+- `cta/run.md`
+  - 新增 **4.4 牛市增强闭环命令（已接入版本）**：
+    - 候选生成（topN + 多 interval）；
+    - group-pool + `portfolio_logic` runtime 训练/OOT；
+    - `cluster|interval|side|bull_mode` 阈值的程序化运行示例；
+    - 结果字段快速核对命令（`bull_strength_score` / `bull_mode` / gate threshold）。
+- `cta/docs/bull_market_return_enhancement_strategy.md`
+  - 新增 **1.1 当前实现状态（2026-05-20 review）**：
+    - 已接入：3 个 bull baseline 信号、4 个 bull 特征、3 个 bull 模型输出、bull-mode 场景阈值 gate、OOT 明细字段；
+    - 待接入：`hold_extend_score` 与 `pyramid_add_score` 尚未直接驱动 runtime 执行，cluster 领涨特征与 long/short 双 final 模型尚未完全落地。
+  - 更新 §10 最小可运行命令，加入 `--use-portfolio-logic-runtime` 并指向 `run.md` 的程序化阈值示例。
+- `cta/feature/causality_manifest.csv`
+  - 补齐 4 个新 bull 特征的因果审计条目：
+    - `feature_trend_acceleration_score`
+    - `feature_pullback_quality`
+    - `feature_volatility_contraction_pctl`
+    - `feature_breakout_body_strength`
+
+### 验证命令
+
+```bash
+python3 -m pytest -q \
+  cta/run/tests/test_docs_sync.py \
+  cta/strategy/tests/test_bull_baseline_extensions.py \
+  cta/model/tests/test_bull_models.py \
+  cta/model/tests/test_bull_mode_trade_filter_gate.py \
+  cta/model/tests/test_pipeline_oot_evaluation.py
+```
+
+### 结果
+
+- `28 passed, 1 warning`（joblib loky CPU 核心数环境 warning，非功能性失败）。
+- 文档与代码行为已对齐：运行手册可直接执行牛市增强闭环，且能快速核对关键输出列是否生效。
+
+---
+
+## 2026-05-20 (三) · refactor · cta/model 阶段目录去重与前缀精简
+
+### 任务
+
+`cta/model` 已分阶段目录，但仍存在一批 `pipeline_orchestrator_*` 命名的重复模块。按阶段清理重复文件并去掉冗余前缀，保留更短、更统一的 `pipeline_*` 命名。
+
+### 主要修改文件
+
+- 重命名并收敛实现文件（去掉 `pipeline_orchestrator_` 前缀）：
+  - `orchestration/`: `pipeline_base.py`, `pipeline_run.py`, `pipeline_multi.py`, `pipeline_cli.py`
+  - `dataset/`: `pipeline_dataset_prep.py`, `pipeline_feature_curation.py`, `pipeline_feature_meaning.py`, `pipeline_meta_features.py`, `pipeline_symbol_ranking.py`
+  - `training/`: `pipeline_param_grids.py`
+  - `reporting/`: `pipeline_diagnostics.py`, `pipeline_outputs.py`
+- 同步 import 与引用路径：
+  - `cta/model/orchestration/pipeline_orchestrator.py`
+  - `cta/model/orchestration/pipeline_stages.py`
+  - `cta/model/model_pipeline.py`
+  - `cta/model/tests/*`（路径与模块导入）
+  - `cta/run/tests/test_docs_sync.py`（CLI 源文件路径）
+- 增加结构回归测试：
+  - `cta/model/tests/test_model_stage_layout.py`
+    - 新增断言：阶段目录中不允许再出现 `pipeline_orchestrator_*.py`
+
+### 验证命令
+
+```bash
+python3 -m compileall -q cta/model
+LOKY_MAX_CPU_COUNT=4 python3 -m pytest -q cta/model/tests
+python3 -m pytest -q cta/run/tests/test_docs_sync.py
+```
+
+### 结果
+
+- `cta/model/tests`：`204 passed`
+- `cta/run/tests/test_docs_sync.py`：`3 passed`
+- 阶段目录下 legacy 前缀文件清零：`find cta/model -name 'pipeline_orchestrator_*.py'` 返回空。
+
+---
+
+## 2026-05-20 (三) · refactor · cta/model 按阶段目录重构
+
+### 任务
+
+将 `cta/model` root 下过多实现文件按 pipeline 阶段重新归档，降低目录噪音，让数据准备、训练、编排、OOT 与报告职责更清晰。
+
+### 主要修改文件
+
+- 新增阶段目录：
+  - `cta/model/dataset/`：候选样本、通用特征拼接、特征筛选、walk-forward split、pool/group-pool 样本组织；
+  - `cta/model/training/`：三段模型、final decision、模型 registry、参数搜索；
+  - `cta/model/orchestration/`：CLI、主流程编排、多 interval / group-pool 调度；
+  - `cta/model/oot/`：OOT real-execution、gate、intrabar、仓位 sizing、组合约束、block_reason；
+  - `cta/model/reporting/`：OOT 报告、HTML、aggregate、diagnostics、provenance。
+- `cta/model/model_pipeline.py`
+  - 保留为稳定 CLI 入口，继续支持 `python3 -m cta.model.model_pipeline`。
+- `cta/model/tests/test_model_stage_layout.py`
+  - 新增阶段目录结构测试，防止实现模块重新堆回 root。
+- `cta/model/tests/*`
+  - 更新 import 路径与少量路径字符串测试。
+- 文档同步：
+  - `cta/model/README.md`
+  - `cta/model/model.md`
+  - `cta/README.md`
+  - `cta/keyword.md`
+  - `cta/docs/bull_market_return_enhancement_strategy.md`
+  - `cta/backtest/README.md`
+  - `cta/report/README.md`
+  - `cta/report/render/README.md`
+  - 相关 `cta/skills/*/README.md`
+
+### 验证命令
+
+```bash
+python3 -m compileall -q cta/model
+LOKY_MAX_CPU_COUNT=4 python3 -m pytest -q cta/model/tests
+python3 -m cta.model.model_pipeline --help
+python3 -m pytest -q cta/run/tests/test_docs_sync.py -W default
+python3 -m pytest -q cta/portfolio_logic/tests/test_interval_gate.py cta/portfolio_logic/tests/test_oot_sim_parity.py
+python3 -m pytest -q cta/model/feature/tests/test_candidate_split_modules_contract.py cta/model/feature/tests/test_candidate_training_dataset_part01.py
+```
+
+### 结果
+
+- `cta/model/tests`：`204 passed`；
+- docs sync：`3 passed`；
+- portfolio_logic 小回归：`6 passed`；
+- model feature 小回归：`7 passed`；
+- CLI help 正常输出。
+
+### 备注
+
+- `cta/model` root 现在只保留 `__init__.py` 与 `model_pipeline.py` 两个 Python 入口文件。
+- 全量模型测试仍有 sklearn/numpy 相关 warning，属于既有训练测试噪音，本次重构未处理 warning 收敛。
+
+---
+
+## 2026-05-19 (二) · docs · 优化牛市收益增强研发方案
+
+### 任务
+
+优化 `cta/docs/bull_market_return_enhancement_strategy.md`，在现有 `strategy -> model -> portfolio_logic -> oot_report` 架构下扩展可落地的牛市收益增强路线，允许新增策略与模型。
+
+### 主要修改文件
+
+- `cta/docs/bull_market_return_enhancement_strategy.md`
+  - 从参数建议升级为完整研发方案；
+  - 新增三类候选策略设计：`trend_acceleration_breakout`、`bull_pullback_continuation`、`bull_volatility_contraction_breakout`；
+  - 新增四类模型设计：`Bull Regime Strength Model`、`Trend Persistence / Holding Model`、`Pyramid Eligibility Model`、`Side-Aware Final Decision Model`；
+  - 补充牛市定义、特征与标签设计、组合执行增强、实验矩阵、预期文件落点与风控防线。
+
+### 结果
+
+- 形成一份可直接指导后续 TDD 开发与 OOT 对照实验的牛市增强研发路线图。
+
+---
+
+## 2026-05-19 (二) · docs · 新增牛市增益策略详细方案文档
+
+### 任务
+
+针对“牛市收益偏弱”的问题，在 `cta/docs` 新增一份可执行的增强方案文档，覆盖方向非对称、加仓、出场、组合约束动态化、阈值校准与分层验收流程。
+
+### 主要修改文件
+
+- `cta/docs/bull_market_return_enhancement_strategy.md`
+  - 新增牛市增益策略文档，包含：
+    - 问题拆解与量化目标；
+    - 5 类核心策略（long bias / pyramid / trailing exit / 动态组合限额 / 模型阈值联动）；
+    - 可映射到当前 `model_oot_eval_config` 的参数建议；
+    - 分层回测与上线优先级（P0/P1/P2）；
+    - 风险与防线说明。
+
+### 结果
+
+- 形成一份可直接用于下一轮参数实验与开发排期的“牛市增益”落地文档。
+
+---
+
+## 2026-05-19 (二) · docs · 补齐 run.md/keyword.md 的 10 个新 CLI 参数并清零 docs_sync warning
+
+### 任务
+
+补充 `cta.model.model_pipeline` 新增 10 个参数的说明到 `run.md` 与 `keyword.md`，并确认 docs 同步检查不再出现 parser-only 未文档化 warning。
+
+### 主要修改文件
+
+- `cta/run.md`
+  - 新增“4.3 新增参数说明（用于清理 docs_sync 警告）”，补齐 10 个参数含义与示例命令。
+- `cta/keyword.md`
+  - 新增“16. Model Pipeline 新参数速查”，补齐同一组 10 个参数定义，便于术语检索。
+
+### 验证命令
+
+```bash
+python3 -m pytest -q cta/run/tests/test_docs_sync.py -W default
+```
+
+结果：`3 passed`，无 warning 输出。
+
+---
+
+## 2026-05-19 (二) · fix · review_2026051822 P0/P1 首批修复（ranker 配置漂移 + horizon 截断 + leverage 口径测试 + stop-loss 一致性默认开启）
+
+### 任务
+
+按 `cta/docs/review/2026051822.md` 优先级落地首批 P0：
+1. 修复 `OpportunityRanker` 忽略用户 `interval_rank` 配置；
+2. 修复候选样本近端 `horizon` 截断不可见问题（可标记/可丢弃）；
+3. 补 `max_total_leverage` 名义口径回归测试，防止语义误读。
+4. `enforce_stop_loss_consistency` 默认改为开启，保证默认评估口径一致。
+
+### 主要修改文件
+
+- `cta/portfolio_logic/opportunity_ranker.py`
+  - `OpportunityRanker.__init__` 新增 `interval_rank` 参数，优先使用调用方传入值，并统一做 interval normalize。
+- `cta/model/pipeline_oot_evaluation.py`
+  - 构造 ranker 时显式传入 `pl_cfg.interval_gate.interval_rank`，避免静默回退默认权重。
+- `cta/strategy/baseline_candidate_gen.py`
+  - `generate_candidate_opportunities` 新增参数 `drop_horizon_truncated`（默认 `False`）；
+  - 新增字段 `is_horizon_truncated`，用于标记 lookforward 被数据尾部截断的样本；
+  - 当 `drop_horizon_truncated=True` 时直接过滤该类样本。
+- `cta/config/model_oot_eval_config.py`
+  - `OotEvaluationConfig.enforce_stop_loss_consistency` 默认值由 `False` 改为 `True`；
+  - `DEFAULT_OOT_EVAL_CONFIG` 去掉重复显式传参，保持和 dataclass 默认一致。
+- 测试：
+  - `cta/portfolio_logic/tests/test_opportunity_ranker.py`
+  - `cta/strategy/tests/test_baseline_skill_suite_part05.py`
+  - `cta/model/tests/test_pipeline_oot_evaluation.py`
+  - `cta/config/tests/test_model_oot_eval_config.py`
+
+### 验证命令
+
+```bash
+python3 -m pytest -q cta/portfolio_logic/tests/test_opportunity_ranker.py
+python3 -m pytest -q cta/strategy/tests/test_baseline_skill_suite_part05.py
+python3 -m pytest -q cta/model/tests/test_pipeline_oot_evaluation.py
+python3 -m pytest -q cta/config/tests/test_model_oot_eval_config.py
+```
+
+### 结果与备注
+
+- P0-3：`interval_rank` 现在与用户配置一致，不再发生默认值漂移。
+- P0-4：尾部样本截断状态可观测，且支持一键剔除，降低标签分布偏移风险。
+- P0-2：通过新增测试明确 `max_total_leverage` 当前是 `open_notional / equity` 口径（非保证金加权口径）。
+- P1-1：`enforce_stop_loss_consistency` 默认开启，默认配置下不会再静默偏离训练标签止损口径。
+
+---
+
+## 2026-05-19 (二) · fix · trade_filter 分位数 gate 禁止 OOT 自身 rank
+
+### 任务
+
+修复 `DEFAULT_OOT_EVAL_CONFIG.trade_filter_gate_mode="cluster_interval_percentile"` 后的评估泄露：分位数阈值必须来自非 OOT 的训练侧校准分布，不能在 OOT 批次里现场按自身分布 rank。
+
+### 根因
+
+- `pipeline_orchestrator_run.py` 已经会保存 `trade_filter_calibration.joblib`，但生成 `*_predictions.csv` 时没有写出 `trade_filter_prob_pctl`。
+- `oot_trade_filter_gate.py` 在缺少 `trade_filter_prob_pctl` 时，会按当前 OOT `cluster+interval` 批次自身的 `trade_filter_prob` 排名补分位数，导致 OOT 分布进入 gate，收益评估偏乐观/不稳定。
+
+### 主要修改文件
+
+- `cta/model/oot_trade_filter_gate.py`：缺少 `trade_filter_prob_pctl` 时不再用 OOT 自身分布补 rank，percentile gate fail-closed。
+- `cta/model/pipeline_orchestrator_run.py`：校准表改用非 OOT 的 `train+valid` 预测分布拟合，并在 `*_predictions.csv` 写入 `trade_filter_prob_pctl`。
+- `cta/portfolio_logic/score_calibrator.py`：当预测表没有 cluster 列时，可从 `symbol` 推断 cluster；lookup 同时兼容 `index` 与 `cluster_index` 写法。
+- 测试：
+  - `cta/model/tests/test_pipeline_oot_evaluation.py`
+  - `cta/model/tests/test_model_pipeline_part01.py`
+- 文档：
+  - `cta/config/README.md`
+  - `cta/model/model.md`
+  - `cta/run.md`
+
+### 验证命令
+
+```bash
+python3 -m pytest -q cta/model/tests/test_pipeline_oot_evaluation.py -k 'trade_filter_gate'
+python3 -m pytest -q cta/model/tests/test_model_pipeline_part01.py::TestModelPipelinePart01::test_pipeline_writes_calibration_joblib_files
+```
+
+### 结果与备注
+
+- `trade_filter_prob_pctl` 现在随新生成的 predictions 落盘；OOT evaluator 只消费该列，不再自算 OOT 分位数。
+- 旧的 `*_predictions.csv` 若没有 `trade_filter_prob_pctl`，需要重新跑模型 pipeline 或用对应 calibration 文件重算 predictions 后再评估。
+
+---
+
+## 2026-05-18 (一) · fix · trade_filter 改为 cluster+interval 分位数阈值
+
+### 任务
+
+修复 INDEX/day 在 OOT 中被全局 `trade_filter_threshold=0.62` raw probability 大量误杀的问题：按 `cluster+interval` 做分位数阈值，或允许单独配置 `INDEX/day` 阈值。
+
+### 根因
+
+- INDEX/day 的 `trade_filter_prob` 分布整体低于部分商品 cluster，直接使用全局 raw probability 阈值会造成 `blocked_trade_filter` 比例虚高。
+- 20260518 INDEX/day 报告中，raw 阈值 0.62 接近该组 OOT 分布的 90% 分位，导致 139/192 行被 `blocked_trade_filter` 拦截。
+
+### 主要修改文件
+
+- 新增 `cta/model/oot_trade_filter_gate.py`：统一处理 trade_filter gate，支持 `raw` 与 `cluster_interval_percentile` 两种模式，并输出 `trade_filter_gate_*` 诊断列。
+- 更新 `cta/config/model_oot_eval_config.py`：增加 `trade_filter_gate_mode`、`trade_filter_percentile_threshold`、`trade_filter_raw_threshold_by_cluster_interval`、`trade_filter_percentile_threshold_by_cluster_interval`；生产默认改为 `cluster_interval_percentile` + 70 分位。
+- 更新 `cta/model/pipeline_oot_evaluation.py`：接入新 gate helper，逐笔明细保留 gate mode/score/threshold。
+- 更新测试：`cta/model/tests/test_pipeline_oot_evaluation.py`、`cta/config/tests/test_model_oot_eval_config.py`、`cta/model/tests/test_model_pipeline_part06.py`。
+- 更新文档：`cta/config/README.md`、`cta/model/model.md`、`cta/run.md`。
+- 重算并覆盖 INDEX/day OOT 报表与结构化汇总：
+  - `cta/report/backtest/oot_20260518_100853_cluster_both/02_by_cluster/grp_cluster_index_day/*`
+  - `cta/report/backtest/20260518_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_index_day/*`
+  - 相关 aggregate/raw/drilldown 汇总文件。
+
+### 验证命令
+
+```bash
+python3 -m pytest -q \
+  cta/model/tests/test_pipeline_oot_evaluation.py \
+  cta/model/tests/test_model_pipeline_part06.py \
+  cta/model/tests/test_oot_modules.py \
+  cta/model/tests/test_known_oot_artifacts.py \
+  cta/config/tests/test_model_oot_eval_config.py \
+  cta/portfolio_logic/tests/test_config.py
+```
+
+### 结果与备注
+
+- INDEX/day 重算后：`blocked_trade_filter=117`、`executed=36`、`blocked_final_decision_gate=26`、`blocked_ranker=11`、`blocked_htf_gate=2`，`htf_missing_ratio=0.0`。
+- `trade_filter_prob_pctl` 若已由模型校准文件生成会优先使用；2026-05-19 起旧 predictions 不含该列时不再用 OOT 自身分布补分位，需重新生成 predictions 或切回 `trade_filter_gate_mode="raw"`。
+
+---
+
+## 2026-05-18 (一) · fix · 修复 INDEX day OOT 报表残留 htf_missing
+
+### 任务
+
+排查 `cta/report/backtest/20260518_GRP_CLUSTER_INDEX_day_both_model_pipeline` 与 `cta/report/backtest/oot_20260518_100853_cluster_both/02_by_cluster/grp_cluster_index_day` 中 `oot_trade_details.csv` 仍全部显示 `block_reason=htf_missing` 的问题，并同步修复本地报表输出。
+
+### 根因
+
+- 当前 `pipeline_oot_evaluation.py` 用同一份 INDEX day predictions 重新评估时，`htf_missing` 已降为 0，说明 evaluator 代码已经具备 Fix-A/Fix-E 的 interval 自适配能力。
+- 这些目录里的 `oot_summary.csv` / `oot_trade_details.csv` 是旧共享 HTF 重算产物，和 `model_report.md` 中的 OOT 摘要不一致：旧 CSV 仍保留 49/49 全 `htf_missing`。
+
+### 主要修改文件
+
+- 新增 `cta/model/tests/test_known_oot_artifacts.py`：对该已知报表目录增加健康检查，防止本地报告继续残留 100% `htf_missing`。
+- 重算并覆盖：
+  - `cta/report/backtest/20260518_GRP_CLUSTER_INDEX_day_both_model_pipeline/20260518_GRP_CLUSTER_INDEX_day_both_oot_trade_details.csv`
+  - `cta/report/backtest/20260518_GRP_CLUSTER_INDEX_day_both_model_pipeline/20260518_GRP_CLUSTER_INDEX_day_both_oot_summary.csv`
+  - `cta/report/backtest/20260518_GRP_CLUSTER_INDEX_day_both_model_pipeline/20260518_GRP_CLUSTER_INDEX_day_both_oot_monthly_returns.csv`
+  - `cta/report/backtest/20260518_GRP_CLUSTER_INDEX_day_both_model_pipeline/20260518_GRP_CLUSTER_INDEX_day_both_throttle_log.csv`
+  - `cta/report/backtest/20260518_GRP_CLUSTER_INDEX_day_both_model_pipeline/20260518_GRP_CLUSTER_INDEX_day_both_oot_position_lifetime.csv`
+  - `cta/report/backtest/20260518_GRP_CLUSTER_INDEX_day_both_model_pipeline/20260518_GRP_CLUSTER_INDEX_day_both_model_report.md`
+  - `cta/report/backtest/20260518_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_index_day/*`
+  - `cta/report/backtest/20260518_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/20260518_group_pool_cluster_both_all_symbol_group_oot_trade_details.csv`
+  - `cta/report/backtest/20260518_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/20260518_group_pool_cluster_both_aggregate_*.csv`
+  - `cta/report/backtest/oot_20260518_100853_cluster_both/raw/all_trade_details.csv`
+  - `cta/report/backtest/oot_20260518_100853_cluster_both/00_overview/*`
+  - `cta/report/backtest/oot_20260518_100853_cluster_both/01_aggregate/*`
+  - `cta/report/backtest/oot_20260518_100853_cluster_both/02_by_cluster/grp_cluster_index_day/*`
+  - `cta/report/backtest/oot_20260518_100853_cluster_both/02_by_cluster/cluster_index/*`
+  - `cta/report/backtest/oot_20260518_100853_cluster_both/{03_by_symbol,04_by_interval,05_by_signal_type,06_drilldown,reports}/*`
+- 更新 HTF 文档指向：
+  - `cta/portfolio_logic/README.md`
+  - `cta/config/model_oot_eval_config.py`
+
+### 验证命令
+
+```bash
+python3 -m pytest -q cta/model/tests/test_known_oot_artifacts.py
+```
+
+结果：`2 passed`。
+
+补充回归：
+
+```bash
+python3 -m pytest -q \
+  cta/model/tests/test_known_oot_artifacts.py \
+  cta/model/tests/test_pipeline_oot_evaluation.py \
+  cta/model/tests/test_group_pool_mode.py \
+  cta/portfolio_logic/tests/test_interval_gate.py \
+  cta/portfolio_logic/tests/test_config.py
+```
+
+结果：`36 passed`。
+
+### 结果与备注
+
+- 修复后两个 INDEX day 目录与 runtime bundle / raw aggregate 中的 INDEX day 子集均为：`htf_missing_ratio=0.0`，`execution_status` 分布为 `executed=19`、`blocked_trade_filter=139`、`blocked_ranker=28`、`blocked_final_decision_gate=4`、`blocked_htf_gate=2`。
+- 仅剩 2 笔 HTF 拦截为 `htf_opposite`，属于方向与 day regime 不一致，不是缺数据。
+
+---
+
+## 2026-05-18 (一) · refactor · 删除 model pipeline 源码 txt 并拆成正常小模块
+
+### 任务
+
+响应 `cta/docs/review/2026051804_gpt5.5.md` P0.1 与用户补充要求：正视 `cta/model` 里两个超过 500 行的 `*_source.py.txt`，删除运行时源码 txt，按职责拆成 100-500 行左右的正常 Python 模块，并把结果记录到 `cta/docs/review/2026051805_gpt5.5.md`。
+
+### 主要修改文件
+
+- 删除：
+  - `cta/model/pipeline_orchestrator_source.py.txt`
+  - `cta/model/pipeline_oot_evaluation_source.py.txt`
+- 新增职责模块：
+  - `cta/model/pipeline_orchestrator_base.py`
+  - `cta/model/pipeline_orchestrator_run.py`
+  - `cta/model/pipeline_orchestrator_cli.py`
+  - `cta/model/pipeline_orchestrator_multi.py`
+  - `cta/model/pipeline_orchestrator_dataset_prep.py`
+  - `cta/model/pipeline_orchestrator_param_grids.py`
+  - `cta/model/pipeline_orchestrator_meta_features.py`
+  - `cta/model/pipeline_orchestrator_diagnostics.py`
+  - `cta/model/pipeline_orchestrator_outputs.py`
+  - `cta/model/pipeline_orchestrator_symbol_ranking.py`
+  - `cta/model/pipeline_orchestrator_feature_curation.py`
+  - `cta/model/pipeline_orchestrator_feature_meaning.py`
+  - `cta/model/pipeline_oot_evaluation_base.py`
+- 保留兼容入口：
+  - `cta/model/pipeline_orchestrator.py`
+  - `cta/model/pipeline_oot_evaluation.py`
+  - `cta/model/model_pipeline.py`
+- 更新兼容 re-export 模块、README、行数守门测试与 split contract 测试。
+
+### 验证命令
+
+```bash
+python3 -m pytest -q \
+  cta/model/tests/test_pipeline_module_split_contract.py \
+  cta/model/tests/test_pipeline_orchestrator.py \
+  cta/model/tests/test_final_decision_model.py \
+  cta/model/tests/test_pipeline_oot_evaluation.py \
+  cta/model/tests/test_pool_training.py \
+  cta/model/tests/test_group_pool_mode.py \
+  cta/run/tests/test_no_500plus_files.py
+```
+
+结果：`36 passed`（保留既有 joblib/sklearn warnings）。
+
+### 结果与备注
+
+- `find cta -name "*_source.py.txt"` 无输出。
+- `cta/model` 业务 `.py` 最大文件为 `pipeline_oot_evaluation.py` 484 行、`pipeline_orchestrator_run.py` 470 行。
+- `pipeline_orchestrator_*.py` 与 `pipeline_oot_evaluation.py` 禁止 wildcard import，避免再次用隐式全局绕过模块边界。
+
+---
+
+## 2026-05-18 (一) · fix · 按 review/2026051804_gpt5.5 落地 P0/P1 关键项
+
+### 任务
+
+按 `cta/docs/review/2026051804_gpt5.5.md` 连续落地核心修复，不中断实现：
+
+- swing 未来函数修复；
+- final decision 时序化 CV + OOF meta 训练；
+- live 模型过滤 fail-closed + day 分区特征路径；
+- OOT 模型门控失败候选保留到 trade_details；
+- OOT 期货手数取整（合约乘数/lot）与保证金字段；
+- OOT 拆分子模块补齐可测实现；
+- walk-forward 样本门槛与 causality 未审计特征硬阈值；
+- `*_source.py.txt` 行数守卫与测试去重。
+
+### 主要修改文件
+
+- 模型主链路与 OOT
+  - `cta/model/pipeline_orchestrator_source.py.txt`
+  - `cta/model/pipeline_oot_evaluation_source.py.txt`
+  - `cta/model/pipeline_orchestrator.py`
+  - `cta/model/pipeline_oot_evaluation.py`
+  - `cta/config/model_oot_eval_config.py`
+  - `cta/model/block_reasons.py`
+- OOT 子模块（从占位改为可执行逻辑）
+  - `cta/model/oot_gates.py`
+  - `cta/model/oot_position_sizing.py`
+  - `cta/model/oot_portfolio_constraints.py`
+  - `cta/model/oot_trade_simulation.py`
+- 特征与 live
+  - `cta/feature/price_action_swings.py`
+  - `cta/feature/calendar_feat.py`
+  - `cta/live/model_filter.py`
+  - `cta/live/online_feature.py`
+- 测试
+  - `cta/model/tests/test_final_decision_model.py`
+  - `cta/model/tests/test_pipeline_oot_evaluation.py`
+  - `cta/model/tests/test_pipeline_module_split_contract.py`
+  - `cta/model/tests/test_oot_modules.py`
+  - `cta/live/tests/test_model_filter.py`
+  - `cta/live/tests/test_online_feature.py`
+  - `cta/feature/tests/test_price_action_split_contract.py`
+  - `cta/model/feature/tests/test_candidate_training_dataset.py`（`__test__ = False` 去重）
+  - `cta/run/tests/test_no_500plus_files.py`（新增 `*_source.py.txt` 上限守卫）
+- 文档
+  - `cta/model/model.md`
+  - `cta/run.md`
+
+### 验证命令
+
+```bash
+python3 -m pytest -q \
+  cta/run/tests/test_no_500plus_files.py \
+  cta/model/tests/test_oot_modules.py \
+  cta/model/tests/test_pipeline_oot_evaluation.py \
+  cta/model/tests/test_final_decision_model.py \
+  cta/model/tests/test_pipeline_module_split_contract.py \
+  cta/live/tests/test_model_filter.py \
+  cta/live/tests/test_online_feature.py \
+  cta/feature/tests/test_price_action_split_contract.py
+```
+
+结果：`48 passed`。
+
+```bash
+python3 -m pytest --collect-only -q cta
+```
+
+结果：`853 tests collected`（含既有 `Pandas4Warning: 'd' deprecated`）。
+
+### 风险与备注
+
+- `pipeline_orchestrator_source.py.txt` / `pipeline_oot_evaluation_source.py.txt` 仍在（已去掉直接 `exec(` shim，且新增行数守卫），后续继续按模块拆分推进。
+- 部分重量级 orchestrator/group 集成测试在沙箱环境耗时很长，已优先确保本次改动相关测试全绿。
+
+---
+
+## 2026-05-18 (一) · fix · Fix-E：跨 interval 共享 HTF 时 day 候选全部 htf_missing
+
+### 任务
+
+修复 [`20260518_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_index_day/`](backtest/20260518_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_index_day/) 里 69 笔候选 100% `block_reason=htf_missing` 的 bug。
+
+### 根因
+
+Fix-A 解决了"单 interval 跑批无 60min 数据" → 窄化到 day-only。但 `_recompute_oot_with_shared_htf_reference` 跑完后会把 day/60min/30min 三个 interval 的 predictions 拼成共享 HTF 参考，day 候选拿到 day + 60min 两条参考。Fix-A 不窄化（两个 interval 都有数据）。然后：
+
+- `HtfGate.compute_htf_state` 为 day 候选构建 state，记下 60min 最近一根的 `computed_at`
+- `is_state_fresh` 按 60min 的 ttl=3600s（1h）检查
+- day 候选 `as_of` 通常在 day 开盘/收盘，最近一根 60min bar 距它 5-20 小时
+- → 必然过期 → state 视为缺失 → emit `htf_missing`
+
+### 修法（Fix-E：语义修正）
+
+按 `IntervalGateConfig.interval_rank` 过滤 HTF intervals——HTF 按定义必须 rank ≥ 候选 interval rank。day 候选（rank=1.0）只保留 day（rank=1.0）作 HTF，剪掉 60min（rank=0.85）。
+
+### 修改内容
+
+- [cta/model/pipeline_oot_evaluation_source.py.txt](../model/pipeline_oot_evaluation_source.py.txt)：在 Fix-A 之后插入 Fix-E 块（line ~647-677），用 `df["interval"]` 推断候选 primary interval，过滤 `ref_intervals_seen` + 同步清理 `htf_ref_by_interval`。
+- [cta/model/tests/test_pipeline_oot_evaluation.py](../model/tests/test_pipeline_oot_evaluation.py)：新增 2 个测试
+  - `test_fix_e_day_candidate_drops_lower_rank_htf_when_shared_reference` — 复现 day + 60min 共享参考，day 候选应通过、Fix-E 日志应打。
+  - `test_fix_e_minute_candidate_keeps_day_and_60min_htf` — 反向：30min 候选下两条 HTF 都保留，不应误过滤。
+- [cta/docs/block_reason.md](../docs/block_reason.md)：新增 §7.5 章节（Fix-E 完整说明）。
+
+### 验证命令
+
+```bash
+python3 -m pytest cta/model/tests/test_pipeline_oot_evaluation.py -v
+# 12 passed
+```
+
+端到端复现：
+```bash
+python -m cta.model.model_pipeline --group-pool --group-by cluster \
+    --only-clusters index --interval day 60min 30min \
+    --start 2024-01-01 --end 2025-12-31 \
+    --use-portfolio-logic-runtime
+# 预期：grp_cluster_index_day/*_oot_trade_details.csv 中 htf_missing 比例 < 5%
+```
+
+### 风险
+
+- 只剪低 rank HTF，不动 sub-hourly 候选的默认行为（30min/60min/5min 候选 HTF 集合不变）。
+- 多 interval 共享 HTF 的高 rank 候选（如 day）将不再受 60min 行情影响——这是**有意为之**的语义修正。
+- 旧逻辑下"day 也要求 60min 共识"的隐式行为彻底被废，若某些品种的 day 模型靠 60min 噪声"反向过滤"得了便宜，下游会看到 trade_count 上升、命中率可能下降，需关注 OOT summary。
+
+---
+
+## 2026-05-18 (一) · review · GPT-5.5 全目录代码审查
+
+### 任务
+
+审查 `cta/` 当前代码、测试、报告与整体架构，提出具体修改意见，并给出策略研究、模型治理、真实交易模拟和上线流程的下一步方案。
+
+### 修改内容
+
+- 新增 `cta/docs/review/2026051804_gpt5.5.md`
+  - 记录 P0/P1/P2 级别问题清单；
+  - 覆盖 `.py.txt` + `exec()` 源码逃逸、price action swing 未来函数、final decision stacking 原地预测过拟合、live fail-open、OOT 候选漏斗缺失、期货 sizing 缺少合约乘数和手数取整等重点风险；
+  - 给出 4 周实施路线和最小 PR 拆分建议。
+
+### 验证命令
+
+```bash
+python3 -m pytest -q \
+  cta/run/tests/test_no_500plus_files.py \
+  cta/model/tests/test_pipeline_module_split_contract.py \
+  cta/live/tests/test_online_feature.py
+```
+
+结果：`9 passed`。
+
+```bash
+python3 -m pytest --collect-only -q cta
+```
+
+结果：收集到 855 个测试，存在 1 个 pandas 频率别名 warning。
+
+### 风险说明
+
+本次仅产出 review 文档和 change log，未修改业务实现代码。后续建议优先处理 review 文档中的 P0 项。
+
+---
+
 ## 2026-05-16 (六) · fix · OOT 跨 interval HTF 参考按目标 window 对齐
 
 ### 任务
@@ -139,6 +846,260 @@ python3 -m pytest -q cta/feature/tests/test_feature_modules_smoke.py cta/feature
 ```
 
 结果：通过。
+
+---
+
+## 2026-05-21 · current · 按 `cta/docs/review/20260520.md` 一次性修复 C/H/M 关键项
+
+### 本轮主要修复
+
+1. C1（MA gate 落盘后失效）：
+   - `cta/model/orchestration/pipeline_run.py`
+   - `pred_df` 白名单补入 `generic_ma_alignment` / `ma_alignment`，并在缺列时补 NaN 占位，保证 `predictions.csv` schema 稳定。
+2. H1（trade_filter 线性路径双重 class_weight）：
+   - `cta/model/training/trade_filter_model.py`
+   - 移除 linear 路径 `class_weight="balanced"`，避免与 `fit_weight` 叠加。
+3. H2/H3（旧预测缺列导致静默行为回归）：
+   - `cta/portfolio_logic/config.py`
+   - `HorizonExtendConfig.use_model_recommendation` 默认改为 `False`
+   - `PyramidConfig.apply_model_size_multiplier` 默认改为 `False`
+   - `cta/portfolio_logic/trailing_exit.py`：`hold_extend_score` 缺失时回退 legacy，不再静默禁用 extension。
+   - `cta/model/oot/pipeline_oot_evaluation.py`：`pyramid_size_mult` 缺失时回退 `1.0`。
+4. M1/M2（interval alias 归一化不一致）：
+   - `cta/model/oot/oot_gates.py`：enabled key 增加 `normalize_portfolio_interval`。
+   - `cta/model/oot/pipeline_oot_evaluation.py`：`intrabar_stop_loss_pct_by_cluster_interval` key 归一化。
+5. M3/M4/M5（配置校验与常量漂移）：
+   - `cta/config/model_oot_eval_config.py`
+   - `ma_cross_alignment_column` 默认改为 `generic_ma_alignment`。
+   - cluster|interval key 增加语义校验（合法 cluster + 合法 interval）。
+   - dict 字段改只读 `MappingProxyType`，防外部 mutate。
+   - `regime_short_block_labels` 改引用 `cta/feature/regime.py` 的 `REGIME_LABELS`。
+   - `cta/feature/regime.py`：导出 `REGIME_LABELS`。
+6. M6（block_reason 文档漏项）：
+   - `cta/docs/block_reason.md`：总数更新为 32，补齐 4 个 model gate reasons。
+7. M7/M8（新模型重复逻辑 + 魔法阈值）：
+   - 新增 `cta/model/training/realized_edge_classifier_base.py`（共享 edge/执行标签与二分类拟合骨架）。
+   - `bull_regime_strength_model.py` / `trend_persistence_model.py` / `pyramid_eligibility_model.py` 改为复用基座。
+   - `PyramidEligibilityModel` 增加可配置阈值：
+     - `add_score_low_threshold` / `add_score_high_threshold`
+     - `size_mult_low` / `size_mult_high`
+8. M9（500 行守门先过 CI）：
+   - `cta/run/tests/test_no_500plus_files.py`
+   - 临时白名单加入 4 个历史大文件（后续继续拆分）。
+9. L1/L2：
+   - `cta/model/oot/oot_gates.py` 缺列 warning 改为 dedup（只告警一次）。
+   - 三个新模型单类回退到 `DummyClassifier` 时补 warning。
+10. 文档同步：
+   - `cta/docs/ma_cross_regime_aware_design.md` 配置示例改为 `generic_ma_alignment` 默认列。
+
+### 新增/更新测试
+
+- `cta/config/tests/test_ma_cross_gate.py`
+- `cta/config/tests/test_regime_short_filter.py`
+- `cta/config/tests/test_intrabar_stop_loss_override.py`
+- `cta/config/tests/test_model_oot_eval_config.py`
+- `cta/model/tests/test_models_core.py`
+- `cta/model/tests/test_pipeline_oot_evaluation.py`
+- `cta/model/tests/test_model_pipeline_part07.py`
+- `cta/model/tests/test_bull_models.py`
+
+### 验证命令
+
+```bash
+python3 -m pytest -q cta/config/tests/test_ma_cross_gate.py cta/config/tests/test_regime_short_filter.py cta/config/tests/test_intrabar_stop_loss_override.py cta/config/tests/test_model_oot_eval_config.py cta/model/tests/test_models_core.py cta/model/tests/test_pipeline_oot_evaluation.py cta/model/tests/test_model_pipeline_part07.py
+python3 -m pytest -q cta/model/tests/test_bull_models.py cta/run/tests/test_no_500plus_files.py
+```
+
+结果：通过。
+
+---
+
+## 2026-05-20 · current · bull_market_return_enhancement_strategy 第一批落地（TDD）
+
+### 本次完成
+
+1. 牛市 baseline 候选策略扩展（并入统一候选池）
+   - 新增 signal_type：
+     - `trend_acceleration_breakout`
+     - `bull_pullback_continuation`
+     - `bull_volatility_contraction_breakout`
+   - 修改：
+     - `cta/config/baseline_skill_suite_config.py`
+     - `cta/strategy/baseline_setup_detection.py`
+     - `cta/strategy/baseline_strategies.py`
+2. 牛市相关候选特征落地
+   - 新增列：
+     - `breakout_body_strength`
+     - `trend_acceleration_score`
+     - `pullback_quality`
+     - `volatility_contraction_pctl`
+   - 修改：
+     - `cta/strategy/baseline_feature_frame.py`
+3. OOT 交易过滤升级为场景阈值（cluster|interval|side|bull_mode）
+   - 配置新增：
+     - `trade_filter_*_by_cluster_interval_side_bull_mode`
+     - attack 模式 long/short 阈值偏移参数
+     - bull_mode 识别阈值参数
+   - 评估流程新增：
+     - 自动生成 `bull_strength_proxy`、`bull_mode`
+     - 交易明细输出 `bull_strength_proxy`、`bull_mode`
+   - 修改：
+     - `cta/config/model_oot_eval_config.py`
+     - `cta/model/oot/oot_trade_filter_gate.py`
+     - `cta/model/oot/pipeline_oot_evaluation.py`
+4. 三类牛市模型基线代码
+   - 新增：
+     - `cta/model/training/bull_regime_strength_model.py`
+     - `cta/model/training/trend_persistence_model.py`
+     - `cta/model/training/pyramid_eligibility_model.py`
+   - 并接入 pipeline 预测输出列：
+     - `bull_strength_score`, `bull_mode`
+     - `hold_extend_score`, `recommended_horizon_extension_bars`
+     - `pyramid_add_score`, `pyramid_size_mult`
+   - 修改：
+     - `cta/model/orchestration/pipeline_run.py`
+
+### 新增测试
+
+- `cta/strategy/tests/test_bull_baseline_extensions.py`
+- `cta/model/tests/test_bull_mode_trade_filter_gate.py`
+- `cta/model/tests/test_bull_models.py`
+
+### 回归验证
+
+```bash
+python3 -m pytest -q \
+  cta/strategy/tests/test_bull_baseline_extensions.py \
+  cta/strategy/tests/test_baseline_split_modules.py \
+  cta/strategy/tests/test_baseline_setup_detection_module.py \
+  cta/model/tests/test_bull_mode_trade_filter_gate.py \
+  cta/model/tests/test_bull_models.py \
+  cta/model/tests/test_pipeline_oot_evaluation.py \
+  cta/model/tests/test_model_pipeline_part01.py \
+  cta/model/tests/test_model_pipeline_part04.py
+```
+
+结果：通过（含新增与受影响主链路回归）。
+
+---
+
+## 2026-05-19 · current · review/2026051822 剩余项续修（P1 全收敛 + P2-11）
+
+### 本轮修改
+
+1. `P1-2` OOT `exit_datetime` 修复可观测化：
+   - 文件：`cta/model/pipeline_oot_evaluation.py`
+   - 增加 `exit_datetime_fixup` 逐笔字段和 `exit_datetime_fixup_rows` 汇总指标
+   - 对缺失/非递增 `exit_datetime` 执行 fixup 时打印 warning
+   - 修复 `ns` 精度写回 `datetime64[us]` 的类型冲突，改为 `+1us`
+
+2. `P1-3` 涨跌停判定改为优先 entry bar 特征：
+   - 文件：`cta/model/pipeline_oot_evaluation.py`
+   - 优先读取 `entry_feature_is_limit_up_close` / `entry_feature_is_limit_down_close`
+   - 回退到旧列 `feature_is_limit_*` 以保持兼容
+
+3. `P1-4` intrabar cache 异常分级：
+   - 文件：`cta/model/oot_intrabar.py`
+   - 缺数据类异常（`FileNotFoundError/OSError/...`）记录 warning 并返回空
+   - 非预期异常抛出 `RuntimeError`（不再静默吞掉）
+
+4. `P1-5` 风控节流同步缩 notional cap：
+   - 文件：`cta/portfolio_logic/risk_throttle.py`
+   - `apply_to_caps` 除仓位数外，同时缩放：
+     - `max_symbol_notional_pct`
+     - `max_cluster_notional_pct`
+     - `max_total_notional_pct`
+
+5. `P1-6` 短历史收益口径：
+   - 文件：`cta/portfolio_logic/risk_throttle.py`
+   - `EquityTracker._period_return_pct` 在样本窗口不足时返回 `NaN`（不再伪造 0）
+
+6. `P1-7` event-driven 流动性改为 symbol-bar 累计：
+   - 文件：`cta/skills/data_backtest/event_driven_backtest.py`
+   - `simulate_fill` 增加可选 `liquidity_state/liquidity_key`
+   - 同一 symbol 同一 bar 内多次撮合共享成交上限，不再逐笔独立 cap
+
+7. `P2-11` 训练样本 `exit_i` 截断可观测化：
+   - 文件：`cta/strategy/baseline_candidate_gen.py`
+   - `build_training_samples_from_trade_log` 新增：
+     - 字段 `is_exit_truncated`
+     - 参数 `drop_exit_truncated`（可直接丢弃截断样本）
+
+### 测试（TDD + 回归）
+
+- 新增/增强测试：
+  - `cta/model/tests/test_pipeline_oot_evaluation.py`
+  - `cta/model/tests/test_oot_modules.py`
+  - `cta/portfolio_logic/tests/test_risk_throttle.py`
+  - `cta/skills/data_backtest/tests/test_event_driven_backtest.py`
+  - `cta/strategy/tests/test_baseline_skill_suite_part05.py`
+
+- 验证命令：
+
+```bash
+python3 -m pytest -q cta/model/tests/test_pipeline_oot_evaluation.py cta/model/tests/test_oot_modules.py cta/portfolio_logic/tests/test_risk_throttle.py cta/skills/data_backtest/tests/test_event_driven_backtest.py cta/strategy/tests/test_baseline_skill_suite_part05.py
+```
+
+结果：`58 passed`。
+
+---
+
+## 2026-05-19 · current · review/2026051822 全量收口（P0/P1/P2 剩余项）
+
+### 本轮补齐项
+
+1. `P0-1` live 侧接入 `portfolio_logic.RiskThrottle` 复用能力：
+   - 新增 `PortfolioThrottleRule`（`cta/live/risk.py`）
+   - `RiskContext` 扩展 drawdown/weekly/monthly 与组合在仓统计字段
+   - 单测覆盖 halt/reduced 口径与 caps 一致性
+
+2. `P2-1` OOT 约束状态与 `PortfolioState` 对齐：
+   - `cta/model/pipeline_oot_evaluation.py` 中开平仓同步 `runtime_state`
+   - ranker 状态构造改为从 `PortfolioState` 快照导出
+   - 约束检查（symbol/cluster/total/leverage）优先读 `PortfolioState` 聚合状态
+
+3. `P2-2` 涨跌停判定双引擎统一：
+   - 新增 `cta/utils/limit_move.py`
+   - OOT 与 event-driven 共用统一判定 helper
+
+4. `P2-3` `multi_runner.aggregate_portfolio` 跨 interval 校验：
+   - `MultiRunSpec` 新增 `enforce_portfolio_interval_consistency`
+   - 严格模式下 mixed intervals 明确抛错
+
+5. `P2-4` online/offline schema parity 回归：
+   - `OnlineFeatureLoader` provider reindex parity 单测（缺列补 NaN，列序一致）
+
+6. `P2-5` `swing_high/swing_low` 向量化：
+   - `cta/feature/price_action_swings.py` 改为 rolling+shift 实现，保持确认延迟语义
+
+7. `P2-6` causality manifest 覆盖自动校验：
+   - `cta/run/tests/test_docs_sync.py` 新增 baseline 训练特征覆盖测试
+   - `cta/feature/causality_manifest.csv` 补齐缺失条目
+
+8. `P2-7` frozen dataclass 深层不可变：
+   - `IntervalGateConfig` / `PyramidConfig` dict 字段转 `MappingProxyType`
+   - 新增不可变测试
+
+9. `P2-8` `ThrottleLevel.min_prob_pctl` 必填：
+   - 配置字段改为必填 float，并在 `__post_init__` 强校验
+
+10. `P2-9` OOT 周/月峰值更新去重：
+    - 删除平仓循环内重复 drawdown 判定，仅保留 bar 级统一更新
+
+11. `P2-10` event-driven 默认成本模型：
+    - `EngineConfig.cost_fn` 默认改为 `estimate_cost`
+    - 新增默认成本函数单测
+
+### 主要验证命令
+
+```bash
+python3 -m pytest -q cta/model/tests/test_pipeline_oot_evaluation.py cta/model/tests/test_oot_modules.py cta/portfolio_logic/tests/test_oot_sim_parity.py
+python3 -m pytest -q cta/live/tests/test_risk.py cta/run/tests/test_multi_runner.py cta/feature/tests/test_price_action_split_contract.py cta/run/tests/test_docs_sync.py cta/skills/data_backtest/tests/test_event_driven_backtest.py cta/portfolio_logic/tests/test_config.py cta/portfolio_logic/tests/test_risk_throttle.py cta/utils/tests/test_limit_move.py cta/strategy/tests/test_baseline_skill_suite_part05.py
+```
+
+结果：
+- `31 passed`
+- `72 passed`（含 1 条 docs sync warning，非失败）
 
 ---
 

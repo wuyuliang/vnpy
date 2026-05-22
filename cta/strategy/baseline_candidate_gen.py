@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 
 from cta.config.baseline_skill_suite_config import BASELINE_SIGNAL_TYPES, LABEL_MAE_PENALTY, LABEL_THRESHOLD, TRAINING_FEATURE_COLUMNS
+from cta.config.mean_reversion_setup_config import MeanReversionSetupConfig
+from cta.config.symbol_cluster_config import infer_symbol_cluster
 from cta.config.skill_tight_range_breakout_config import VALID_SIDE_MODES
 from cta.strategy.baseline_helpers import _safe_float
 from cta.strategy.baseline_setup_detection import (
@@ -29,6 +31,7 @@ def build_training_samples_from_trade_log(
     exchange: str,
     interval: str,
     signal_type: str,
+    drop_exit_truncated: bool = False,
     feature_columns: tuple[str, ...] = TRAINING_FEATURE_COLUMNS,
 ) -> pd.DataFrame:
     """Convert executed trades into ML-friendly samples."""
@@ -44,6 +47,7 @@ def build_training_samples_from_trade_log(
             "signal_i",
             "entry_i",
             "exit_i",
+            "is_exit_truncated",
             "holding_bars",
             "entry_price",
             "exit_price",
@@ -61,10 +65,13 @@ def build_training_samples_from_trade_log(
     dt_series = pd.to_datetime(frame.get("datetime", pd.Series([pd.NaT] * len(frame))), errors="coerce")
     for _, tr in trade_log.iterrows():
         entry_i = int(_safe_float(tr.get("entry_i", -1)))
-        exit_i = int(_safe_float(tr.get("exit_i", -1)))
-        if entry_i < 0 or exit_i < entry_i or entry_i >= len(frame):
+        exit_i_raw = int(_safe_float(tr.get("exit_i", -1)))
+        if entry_i < 0 or exit_i_raw < entry_i or entry_i >= len(frame):
             continue
-        exit_i = min(exit_i, len(frame) - 1)
+        is_exit_truncated = int(exit_i_raw > len(frame) - 1)
+        if bool(drop_exit_truncated) and bool(is_exit_truncated):
+            continue
+        exit_i = min(exit_i_raw, len(frame) - 1)
         signal_i = max(0, entry_i - 1)
         signal_row = frame.iloc[signal_i]
         entry_row = frame.iloc[entry_i]
@@ -99,6 +106,7 @@ def build_training_samples_from_trade_log(
             "signal_i": signal_i,
             "entry_i": entry_i,
             "exit_i": exit_i,
+            "is_exit_truncated": is_exit_truncated,
             "holding_bars": int(exit_i - entry_i),
             "entry_price": entry_price,
             "exit_price": exit_price,
@@ -128,7 +136,9 @@ def generate_candidate_opportunities(
     horizon_bars: int = 20,
     trade_side_mode: str = "both",
     label_stop_loss_pct: float = 0.01,
+    drop_horizon_truncated: bool = False,
     feature_columns: tuple[str, ...] = TRAINING_FEATURE_COLUMNS,
+    mean_reversion_cfg: MeanReversionSetupConfig | None = None,
 ) -> pd.DataFrame:
     """Generate candidate opportunities from baseline signal logic."""
     cols = [
@@ -144,9 +154,11 @@ def generate_candidate_opportunities(
         "signal_i",
         "entry_i",
         "horizon_i",
+        "is_horizon_truncated",
         "entry_price",
         "exit_price_ref",
         "stop_price",
+        "target_price",
         "trigger",
         "future_mfe_atr",
         "future_mae_atr",
@@ -177,6 +189,8 @@ def generate_candidate_opportunities(
         frame=frame,
         contract=contract,
         trade_side_mode=mode,
+        mean_reversion_cfg=mean_reversion_cfg,
+        interval=interval,
     )
     dt = pd.to_datetime(frame.get("datetime", pd.Series([pd.NaT] * len(frame))), errors="coerce")
     hz = max(2, int(horizon_bars))
@@ -188,8 +202,12 @@ def generate_candidate_opportunities(
         if entry_i >= len(frame):
             continue
         entry_bar = frame.iloc[entry_i]
-        horizon_i = min(len(frame) - 1, entry_i + hz)
+        intended_horizon_i = entry_i + hz
+        horizon_i = min(len(frame) - 1, intended_horizon_i)
+        is_horizon_truncated = int(intended_horizon_i > len(frame) - 1)
         if horizon_i <= entry_i:
+            continue
+        if bool(drop_horizon_truncated) and bool(is_horizon_truncated):
             continue
 
         try:
@@ -203,7 +221,16 @@ def generate_candidate_opportunities(
             if side in {"long", "short"}:
                 order_by_side[side] = od
 
-        raw_setups = _build_raw_setup_candidates(frame, i, signal_type=st, contract=contract, mode=mode)
+        raw_setups = _build_raw_setup_candidates(
+            frame,
+            i,
+            signal_type=st,
+            contract=contract,
+            mode=mode,
+            mean_reversion_cfg=mean_reversion_cfg,
+            cluster=infer_symbol_cluster(str(symbol).upper()),
+            interval=interval,
+        )
         if not raw_setups and order_by_side:
             for side, od in order_by_side.items():
                 raw_setups.append(
@@ -218,6 +245,8 @@ def generate_candidate_opportunities(
             side = str(setup.get("side", "")).strip().lower()
             order_type = str(setup.get("order_type", "stop")).strip().lower()
             trigger = _safe_float(setup.get("trigger", np.nan))
+            setup_target_price = _safe_float(setup.get("target_price", np.nan))
+            setup_stop_price = _safe_float(setup.get("stop_price", np.nan))
             filtered_reason = setup.get("filtered_reason")
             order = order_by_side.get(side)
             if order is None:
@@ -231,6 +260,8 @@ def generate_candidate_opportunities(
             else:
                 triggered, entry_price, stop_price = _resolve_candidate_entry(order, entry_bar)
                 candidate_status = "filled" if triggered and np.isfinite(entry_price) else "not_triggered"
+            if np.isfinite(setup_stop_price):
+                stop_price = setup_stop_price
 
             atr_entry = _safe_float(entry_bar.get("atr14", np.nan))
             atr_signal = _safe_float(bar.get("atr14", np.nan))
@@ -315,9 +346,11 @@ def generate_candidate_opportunities(
                 "signal_i": i,
                 "entry_i": entry_i,
                 "horizon_i": horizon_i,
+                "is_horizon_truncated": is_horizon_truncated,
                 "entry_price": float(entry_price) if np.isfinite(entry_price) else np.nan,
                 "exit_price_ref": float(exit_close) if np.isfinite(exit_close) else np.nan,
                 "stop_price": float(stop_price) if np.isfinite(stop_price) else np.nan,
+                "target_price": float(setup_target_price) if np.isfinite(setup_target_price) else np.nan,
                 "trigger": float(trigger) if np.isfinite(trigger) else np.nan,
                 "future_mfe_atr": float(mfe_atr) if np.isfinite(mfe_atr) else np.nan,
                 "future_mae_atr": float(mae_atr) if np.isfinite(mae_atr) else np.nan,

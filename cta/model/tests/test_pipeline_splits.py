@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cta.model.pipeline_splits import _normalize_intervals
+from cta.model.dataset.pipeline_splits import _normalize_intervals
 
 
 def test_pipeline_splits_normalize_intervals() -> None:

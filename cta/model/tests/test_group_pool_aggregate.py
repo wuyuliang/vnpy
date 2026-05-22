@@ -1,4 +1,4 @@
-"""Tests for cta.model.group_pool_aggregate."""
+"""Tests for cta.model.reporting.group_pool_aggregate."""
 from __future__ import annotations
 
 import math
@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from cta.model.group_pool_aggregate import (
+from cta.model.reporting.group_pool_aggregate import (
     AggregateConfig,
     build_aggregate_reports,
     write_aggregate_reports,

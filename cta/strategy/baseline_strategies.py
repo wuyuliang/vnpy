@@ -7,11 +7,13 @@ import numpy as np
 import pandas as pd
 
 from cta.config.baseline_skill_suite_config import BASELINE_SIGNAL_TYPES
+from cta.config.mean_reversion_setup_config import MeanReversionSetupConfig
 from cta.config.skill_tight_range_breakout_config import StrategyConfig, VALID_SIDE_MODES
 from cta.skills.price_action.breakout_pullback import PullbackSetup, pullback_entry_trigger
 from cta.skills.price_action.tight_range_breakout import TightRangeSetup, resolve_breakout_trigger
 from cta.strategy.baseline_helpers import _entry_order, _safe_bool, _safe_float, _side_allowed
 from cta.strategy.skill_tight_range_breakout import ContractSpec, SkillTightRangeBreakoutStrategy
+from cta.strategy.mean_reversion_range_setup import MeanReversionRangeSetupGenerator
 
 
 class DonchianBaselineStrategy:
@@ -198,11 +200,119 @@ class BreakoutPullbackBaselineStrategy:
         return []
 
 
+class BullExtensionBaselineStrategy:
+    """Bull-market extension baseline signals (long-first, short-conservative)."""
+
+    def __init__(
+        self,
+        frame: pd.DataFrame,
+        contract: ContractSpec,
+        trade_side_mode: str = "both",
+        signal_kind: str = "trend_acceleration_breakout",
+    ) -> None:
+        self.frame = frame.reset_index(drop=True)
+        self.contract = contract
+        self.trade_side_mode = trade_side_mode
+        self.signal_kind = str(signal_kind).strip().lower()
+
+    def on_bar(self, i: int, bar: pd.Series, position: int) -> list[dict[str, Any]]:
+        if position != 0:
+            return []
+        tick = float(abs(self.contract.tick_size))
+        close = _safe_float(bar.get("close", np.nan))
+        high = _safe_float(bar.get("high", np.nan))
+        low = _safe_float(bar.get("low", np.nan))
+
+        if self.signal_kind == "trend_acceleration_breakout":
+            if (
+                np.isfinite(_safe_float(bar.get("don_upper_entry", np.nan)))
+                and close > _safe_float(bar.get("don_upper_entry", np.nan))
+                and _safe_float(bar.get("trend_dir", 0.0)) > 0
+                and _safe_float(bar.get("trend_acceleration_score", 0.0)) >= 0.55
+                and _safe_float(bar.get("breakout_body_strength", 0.0)) >= 0.6
+                and _side_allowed(self.trade_side_mode, "long")
+            ):
+                return [_entry_order(self.contract, "long", lots=1, order_type="stop", price=high + tick)]
+            if (
+                np.isfinite(_safe_float(bar.get("don_lower_entry", np.nan)))
+                and close < _safe_float(bar.get("don_lower_entry", np.nan))
+                and _safe_float(bar.get("trend_dir", 0.0)) < 0
+                and _safe_float(bar.get("trend_acceleration_score", 0.0)) <= -0.75
+                and _safe_float(bar.get("breakout_body_strength", 0.0)) >= 0.7
+                and _side_allowed(self.trade_side_mode, "short")
+            ):
+                return [_entry_order(self.contract, "short", lots=1, order_type="stop", price=low - tick)]
+            return []
+
+        if self.signal_kind == "bull_pullback_continuation":
+            if (
+                _safe_bool(bar.get("bp_valid", False))
+                and _safe_bool(bar.get("bp_confirmed", False))
+                and str(bar.get("bp_direction", "")).strip().lower() == "long"
+                and _safe_float(bar.get("pullback_quality", 0.0)) >= 0.55
+                and _side_allowed(self.trade_side_mode, "long")
+            ):
+                level = _safe_float(bar.get("bp_breakout_level", np.nan))
+                trigger = level + tick if np.isfinite(level) else high + tick
+                return [_entry_order(self.contract, "long", lots=1, order_type="stop", price=trigger)]
+            return []
+
+        if self.signal_kind == "bull_volatility_contraction_breakout":
+            if (
+                _safe_bool(bar.get("tr_valid", False))
+                and close >= _safe_float(bar.get("tr_upper", np.nan))
+                and _safe_float(bar.get("volatility_contraction_pctl", 1.0)) <= 0.35
+                and _safe_float(bar.get("trend_dir", 0.0)) > 0
+                and _side_allowed(self.trade_side_mode, "long")
+            ):
+                return [_entry_order(self.contract, "long", lots=1, order_type="stop", price=high + tick)]
+            return []
+
+        return []
+
+
+class MeanReversionRangeBaselineStrategy:
+    """Opt-in market-entry strategy wrapper for range mean-reversion setups."""
+
+    def __init__(
+        self,
+        frame: pd.DataFrame,
+        contract: ContractSpec,
+        trade_side_mode: str,
+        cfg: MeanReversionSetupConfig,
+        interval: str,
+    ) -> None:
+        self.frame = frame.reset_index(drop=True)
+        self.contract = contract
+        self.trade_side_mode = trade_side_mode
+        self.interval = str(interval)
+        self.generator = MeanReversionRangeSetupGenerator(cfg)
+
+    def on_bar(self, i: int, bar: pd.Series, position: int) -> list[dict[str, Any]]:
+        if position != 0:
+            return []
+        from cta.config.symbol_cluster_config import infer_symbol_cluster
+
+        candidate = self.generator.candidate_from_row(
+            bar,
+            cluster=infer_symbol_cluster(str(getattr(self.contract, "symbol", ""))),
+            interval=self.interval,
+        )
+        if candidate is None:
+            return []
+        side = str(candidate["side"])
+        if not _side_allowed(self.trade_side_mode, side):
+            return []
+        return [_entry_order(self.contract, side, lots=1, order_type="market")]
+
+
 def create_baseline_strategy(
     signal_type: str,
     frame: pd.DataFrame,
     contract: ContractSpec,
     trade_side_mode: str = "both",
+    mean_reversion_cfg: MeanReversionSetupConfig | None = None,
+    interval: str = "day",
 ) -> Any:
     """Factory for baseline strategy objects."""
     st = str(signal_type).strip().lower()
@@ -231,6 +341,25 @@ def create_baseline_strategy(
         return SkillTightRangeBreakoutStrategy(frame=frame, cfg=cfg, contract=contract, capital_base=1_000_000.0)
     if st == "breakout_pullback_continuation":
         return BreakoutPullbackBaselineStrategy(frame=frame, contract=contract, trade_side_mode=mode)
+    if st in {
+        "trend_acceleration_breakout",
+        "bull_pullback_continuation",
+        "bull_volatility_contraction_breakout",
+    }:
+        return BullExtensionBaselineStrategy(
+            frame=frame,
+            contract=contract,
+            trade_side_mode=mode,
+            signal_kind=st,
+        )
+    if st == "mean_reversion_range":
+        return MeanReversionRangeBaselineStrategy(
+            frame=frame,
+            contract=contract,
+            trade_side_mode=mode,
+            cfg=mean_reversion_cfg or MeanReversionSetupConfig(),
+            interval=interval,
+        )
     raise ValueError(f"unsupported signal_type={signal_type}, valid={BASELINE_SIGNAL_TYPES}")
 
 
@@ -238,6 +367,7 @@ __all__ = [
     "DonchianBaselineStrategy",
     "ATRBreakoutBaselineStrategy",
     "BreakoutPullbackBaselineStrategy",
+    "BullExtensionBaselineStrategy",
+    "MeanReversionRangeBaselineStrategy",
     "create_baseline_strategy",
 ]
-

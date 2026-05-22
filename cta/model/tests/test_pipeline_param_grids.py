@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cta.model.pipeline_param_grids import _auc_gap, _select_best_param_trial
+from cta.model.training.pipeline_param_grids import _auc_gap, _select_best_param_trial
 
 
 def test_pipeline_param_grid_helpers_basic() -> None:

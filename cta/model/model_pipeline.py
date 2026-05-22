@@ -1,7 +1,7 @@
 """Compatibility shim for model pipeline modules."""
 from __future__ import annotations
 
-from cta.model import pipeline_orchestrator as _impl
+from cta.model.orchestration import pipeline_orchestrator as _impl
 
 for _name, _value in vars(_impl).items():
     if _name.startswith("__"):

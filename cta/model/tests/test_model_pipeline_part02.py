@@ -33,10 +33,16 @@ from cta.model.model_pipeline import (
     run_model_pipeline,
     run_model_pipeline_multi,
 )
-from cta.model.pipeline_oot_evaluation import _build_position_lifetime_table
+from cta.model.oot.pipeline_oot_evaluation import _build_position_lifetime_table
 from cta.config.model_oot_eval_config import OotEvaluationConfig
-from cta.portfolio_logic.config import PortfolioLogicConfig, RiskThrottleConfig, ThrottleLevel
-from cta.model.trade_filter_model import TradeFilterModel
+from cta.portfolio_logic.config import (
+    OscillationTaperConfig,
+    PortfolioLogicConfig,
+    RiskThrottleConfig,
+    ThrottleLevel,
+    TrailingExitConfig,
+)
+from cta.model.training.trade_filter_model import TradeFilterModel
 
 
 
@@ -114,6 +120,7 @@ class TestModelPipelinePart02(unittest.TestCase):
             benchmark_annual_return=0.0,
             risk_free_annual_return=0.0,
             annualization_factor=12.0,
+            enforce_stop_loss_consistency=False,
         )
         _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg, intrabar_bar_provider=provider)
         self.assertEqual(int(summary.iloc[0]["trade_count"]), 1)
@@ -122,6 +129,83 @@ class TestModelPipelinePart02(unittest.TestCase):
         self.assertEqual(int(trades.iloc[0]["trailing_activated"]), 1)
         self.assertEqual(pd.Timestamp(trades.iloc[0]["final_exit_datetime"]), pd.Timestamp("2020-01-06 11:00:00"))
         self.assertAlmostEqual(float(trades.iloc[0]["final_exit_price"]), 101.0, places=6)
+
+    def test_evaluate_oot_real_execution_records_oscillation_taper(self) -> None:
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2024-01-02"]),
+                "entry_datetime": pd.to_datetime(["2024-01-02"]),
+                "exit_datetime": pd.to_datetime(["2024-01-25"]),
+                "symbol": ["IF0"],
+                "exchange": ["CFFEX"],
+                "interval": ["day"],
+                "signal_type": ["donchian_breakout"],
+                "side": ["long"],
+                "pred_regime_label": ["range"],
+                "pred_split": ["test"],
+                "window_id": [0],
+                "is_executed": [1],
+                "entry_price": [100.0],
+                "future_mfe_atr": [1.0],
+                "future_mae_atr": [0.0],
+            }
+        )
+
+        def provider(
+            symbol: str,
+            exchange: str,
+            start_ts: pd.Timestamp,
+            end_ts: pd.Timestamp,
+            interval: str,
+        ) -> pd.DataFrame:
+            self.assertEqual(symbol, "IF0")
+            self.assertEqual(exchange, "CFFEX")
+            return pd.DataFrame(
+                {
+                    "datetime": pd.date_range("2024-01-02", periods=24, freq="D"),
+                    "open": np.r_[100.0, np.linspace(101.0, 109.0, 23)],
+                    "high": np.linspace(101.0, 110.0, 24),
+                    "low": np.linspace(99.0, 105.0, 24),
+                    "close": np.r_[100.0, np.linspace(101.0, 109.5, 23)],
+                    "regime_label": ["range"] * 24,
+                }
+            )
+
+        cfg = OotEvaluationConfig(
+            use_stacking_gate=False,
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            commission_pct_per_trade=0.0,
+            slippage_pct_per_trade=0.0,
+            use_position_sizing=False,
+            use_portfolio_constraints=False,
+            use_intrabar_stop_tracking=True,
+            intrabar_stop_loss_pct=0.10,
+            use_portfolio_logic_runtime=True,
+            portfolio_logic=PortfolioLogicConfig(
+                enable_htf_gate=False,
+                enable_ranker=False,
+                enable_risk_throttle=False,
+                enable_pyramid=False,
+                enable_trailing=True,
+                enable_oscillation_taper=True,
+                trailing=TrailingExitConfig(enabled=False),
+                oscillation_taper=OscillationTaperConfig(
+                    use_oscillation_upper_band_taper=True,
+                    enabled_by_cluster_interval={"index|day": True},
+                ),
+            ),
+            enforce_stop_loss_consistency=False,
+        )
+        _monthly, summary, trades = _evaluate_oot_real_execution(
+            pred,
+            cfg=cfg,
+            intrabar_bar_provider=provider,
+        )
+        self.assertEqual(int(summary.iloc[0]["trade_count"]), 1)
+        self.assertGreater(int(trades.iloc[0]["position_taper_count"]), 0)
+        self.assertLess(float(trades.iloc[0]["position_taper_target_ratio"]), 1.0)
 
     def test_evaluate_oot_real_execution_portfolio_logic_htf_blocks_conflict(self) -> None:
         pred = pd.DataFrame(

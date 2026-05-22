@@ -14,11 +14,20 @@ import unittest
 import warnings
 from pathlib import Path
 
+import pandas as pd
+from cta.config.baseline_skill_suite_config import TRAINING_FEATURE_COLUMNS
 
 ROOT = Path(__file__).resolve().parents[2]
 RUN_MD = ROOT / "run.md"
 KEYWORD_MD = ROOT / "keyword.md"
-MODEL_PIPELINE_PY = ROOT / "model" / "model_pipeline.py"
+# argparse 入口在 model_pipeline.py / pipeline_cli.py 两处都可能出现：
+# - 2026-05-20 重构后 add_argument(...) 全部移到 pipeline_cli._parse_args()
+# - 旧布局把 parser 直接放在 model_pipeline.py
+# 这里把两个文件都纳入扫描，保证测试不随实现文件的搬迁而误报。
+MODEL_PIPELINE_PY_FILES = [
+    ROOT / "model" / "model_pipeline.py",
+    ROOT / "model" / "orchestration" / "pipeline_cli.py",
+]
 
 # Reverse-check soft tolerance: how many undocumented CLI options are acceptable.
 REVERSE_CHECK_SOFT_THRESHOLD = 5
@@ -78,16 +87,29 @@ def _extract_model_pipeline_doc_options(markdown_text: str) -> set[str]:
 
 def _extract_parser_options(py_text: str) -> set[str]:
     out: set[str] = set()
-    for m in re.finditer(r'add_argument\(\s*"(--[a-zA-Z0-9][a-zA-Z0-9-]*)"', py_text):
+    # `add_argument` 的字面量参数可能用双引号或单引号；两种都收。
+    for m in re.finditer(
+        r'add_argument\(\s*["\'](--[a-zA-Z0-9][a-zA-Z0-9-]*)["\']',
+        py_text,
+    ):
         out.add(str(m.group(1)))
     return out
+
+
+def _read_all_parser_sources() -> str:
+    """合并所有可能持有 argparse 入口的文件内容，避免随重构搬迁而误报。"""
+    chunks: list[str] = []
+    for p in MODEL_PIPELINE_PY_FILES:
+        if p.exists():
+            chunks.append(p.read_text(encoding="utf-8"))
+    return "\n".join(chunks)
 
 
 class TestDocsSync(unittest.TestCase):
     def test_model_pipeline_cli_options_in_docs_exist_in_parser(self) -> None:
         run_md = RUN_MD.read_text(encoding="utf-8-sig")
         keyword_md = KEYWORD_MD.read_text(encoding="utf-8-sig") if KEYWORD_MD.exists() else ""
-        py = MODEL_PIPELINE_PY.read_text(encoding="utf-8")
+        py = _read_all_parser_sources()
 
         doc_opts = _extract_model_pipeline_doc_options(run_md + "\n" + keyword_md)
         parser_opts = _extract_parser_options(py)
@@ -104,7 +126,7 @@ class TestDocsSync(unittest.TestCase):
         当前以 WARNING 形式提示，未超过软阈值时不 fail。等手册补全后可改为硬校验。"""
         run_md = RUN_MD.read_text(encoding="utf-8-sig")
         keyword_md = KEYWORD_MD.read_text(encoding="utf-8-sig") if KEYWORD_MD.exists() else ""
-        py = MODEL_PIPELINE_PY.read_text(encoding="utf-8")
+        py = _read_all_parser_sources()
 
         all_docs_text = run_md + "\n" + keyword_md
         parser_opts = _extract_parser_options(py)
@@ -123,6 +145,16 @@ class TestDocsSync(unittest.TestCase):
             REVERSE_CHECK_SOFT_THRESHOLD * 20,
             "too many undocumented parser CLI options — please update run.md/keyword.md",
         )
+
+    def test_causality_manifest_covers_baseline_training_features(self) -> None:
+        manifest_path = ROOT / "feature" / "causality_manifest.csv"
+        self.assertTrue(manifest_path.exists(), f"manifest not found: {manifest_path}")
+        mf = pd.read_csv(manifest_path, encoding="utf-8-sig")
+        self.assertIn("feature", mf.columns)
+        covered = set(mf["feature"].astype(str).str.strip().str.lower())
+        required = {f"feature_{name}".lower() for name in TRAINING_FEATURE_COLUMNS}
+        missing = sorted(required - covered)
+        self.assertEqual(missing, [], f"causality_manifest missing baseline features: {missing}")
 
 
 if __name__ == "__main__":

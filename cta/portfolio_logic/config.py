@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 
 
 def _default_interval_rank() -> dict[str, float]:
@@ -79,10 +80,15 @@ class IntervalGateConfig:
     def __post_init__(self) -> None:
         if self.fallback_when_htf_missing not in {"skip", "both"}:
             raise ValueError(f"unsupported fallback_when_htf_missing={self.fallback_when_htf_missing}")
+        norm_rank: dict[str, float] = {}
         for k, v in self.interval_rank.items():
             fv = float(v)
             if not (0.0 < fv <= 1.0):
                 raise ValueError(f"invalid interval_rank[{k}]={v}, should be in (0, 1]")
+            norm_rank[normalize_portfolio_interval(k)] = fv
+        norm_ttl = {normalize_portfolio_interval(k): int(v) for k, v in self.state_ttl_seconds.items()}
+        object.__setattr__(self, "interval_rank", MappingProxyType(norm_rank))
+        object.__setattr__(self, "state_ttl_seconds", MappingProxyType(norm_ttl))
 
 
 @dataclass(frozen=True)
@@ -164,6 +170,58 @@ class HorizonExtendConfig:
     extend_when_regime: tuple[str, ...] = ("trend_up", "trend_down")
     max_extensions: int = 3
     extension_bars: int = 20
+    use_model_recommendation: bool = False
+    min_hold_extend_score: float = 0.60
+    max_model_extension_bars: int = 60
+
+
+@dataclass(frozen=True)
+class OscillationTaperConfig:
+    """Range-bound partial exit configuration."""
+
+    use_oscillation_upper_band_taper: bool = False
+    taper_regimes: tuple[str, ...] = ("range", "compression")
+    upper_taper_trigger: float = 0.20
+    lower_taper_trigger: float = 0.20
+    boundary_method: str = "donchian_bb_max"
+    donchian_window: int = 20
+    bb_window: int = 20
+    bb_std_mult: float = 2.0
+    taper_curve: str = "linear"
+    min_taper_step_pct: float = 0.10
+    require_profit_to_taper: bool = True
+    min_profit_pct_to_taper: float = 0.005
+    enabled_by_cluster_interval: dict[str, bool] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        for name in ("upper_taper_trigger", "lower_taper_trigger", "min_taper_step_pct"):
+            value = float(getattr(self, name))
+            if not (0.0 <= value <= 1.0):
+                raise ValueError(f"{name} must be in [0, 1]")
+        if int(self.donchian_window) <= 0 or int(self.bb_window) <= 0:
+            raise ValueError("boundary windows must be > 0")
+        if float(self.bb_std_mult) <= 0.0 or float(self.min_profit_pct_to_taper) < 0.0:
+            raise ValueError("bb_std_mult must be > 0 and min_profit_pct_to_taper must be >= 0")
+        if self.boundary_method not in {"donchian_bb_max", "donchian", "bollinger"}:
+            raise ValueError(f"unsupported boundary_method={self.boundary_method}")
+        if self.taper_curve not in {"linear", "stepwise"}:
+            raise ValueError(f"unsupported taper_curve={self.taper_curve}")
+        enabled: dict[str, bool] = {}
+        for key, value in dict(self.enabled_by_cluster_interval).items():
+            parts = str(key).strip().lower().split("|")
+            if len(parts) != 2 or not parts[0] or not parts[1]:
+                raise ValueError(f"enabled_by_cluster_interval key must be cluster|interval: {key!r}")
+            if not isinstance(value, bool):
+                raise ValueError(f"enabled_by_cluster_interval[{key!r}] must be bool")
+            enabled[f"{parts[0]}|{normalize_portfolio_interval(parts[1])}"] = bool(value)
+        object.__setattr__(self, "enabled_by_cluster_interval", MappingProxyType(enabled))
+
+    def is_enabled(self, cluster: str | None, interval: str) -> bool:
+        """Return whether taper is enabled for a rollout cell."""
+        if not bool(self.use_oscillation_upper_band_taper):
+            return False
+        key = f"{str(cluster or 'other').strip().lower()}|{normalize_portfolio_interval(interval)}"
+        return bool(self.enabled_by_cluster_interval.get(key, False))
 
 
 @dataclass(frozen=True)
@@ -181,12 +239,22 @@ class PyramidConfig:
     require_new_signal_same_direction: bool = True
     require_htf_still_aligned: bool = True
     one_layer_per_interval: bool = True
+    apply_model_add_score_gate: bool = True
+    min_model_add_score: float = 0.60
+    apply_model_size_multiplier: bool = False
+    min_model_size_multiplier: float = 0.0
+    max_model_size_multiplier: float = 1.0
 
     def __post_init__(self) -> None:
         if self.max_active_layers > self.max_lifetime_layers:
             raise ValueError("max_active_layers cannot be greater than max_lifetime_layers")
         if len(self.size_decay) < self.max_lifetime_layers:
             raise ValueError("size_decay length must be >= max_lifetime_layers")
+        if not (0.0 <= float(self.min_model_add_score) <= 1.0):
+            raise ValueError("min_model_add_score must be in [0, 1]")
+        if not (0.0 <= float(self.min_model_size_multiplier) <= float(self.max_model_size_multiplier)):
+            raise ValueError("min_model_size_multiplier must be <= max_model_size_multiplier and >= 0")
+        norm_cooldown: dict[str, int] = {}
         for k, v in self.cooldown_bars_per_interval.items():
             norm = normalize_portfolio_interval(k)
             if int(v) < 0:
@@ -196,9 +264,14 @@ class PyramidConfig:
                     f"cooldown_bars_per_interval has unknown interval={k}; "
                     f"missing interval_to_minutes mapping"
                 )
+            norm_cooldown[norm] = int(v)
+        norm_minutes: dict[str, int] = {}
         for k, v in self.interval_to_minutes.items():
             if int(v) <= 0:
                 raise ValueError(f"interval_to_minutes[{k}] must be > 0")
+            norm_minutes[normalize_portfolio_interval(k)] = int(v)
+        object.__setattr__(self, "cooldown_bars_per_interval", MappingProxyType(norm_cooldown))
+        object.__setattr__(self, "interval_to_minutes", MappingProxyType(norm_minutes))
 
 
 @dataclass(frozen=True)
@@ -213,14 +286,18 @@ class ThrottleLevel:
     score_pctl_threshold: float
     allow_pyramid: bool
     max_pyramid_layers: int
-    min_prob_pctl: float | None = None
+    min_prob_pctl: float = 0.0
 
     @property
     def effective_min_prob_pctl(self) -> float:
-        val = self.min_prob_pctl
-        if val is None:
-            return float(self.score_pctl_threshold)
-        return float(val)
+        return float(self.min_prob_pctl)
+
+    def __post_init__(self) -> None:
+        if self.min_prob_pctl is None:
+            raise ValueError("min_prob_pctl is required")
+        v = float(self.min_prob_pctl)
+        if not (0.0 <= v <= 100.0):
+            raise ValueError(f"min_prob_pctl must be in [0,100], got {self.min_prob_pctl}")
 
 
 @dataclass(frozen=True)
@@ -287,6 +364,7 @@ class PortfolioLogicConfig:
     enable_trailing: bool = True
     enable_pyramid: bool = True
     enable_horizon_extend: bool = True
+    enable_oscillation_taper: bool = False
     enable_score_calibration: bool = True
     enable_risk_throttle: bool = True
 
@@ -294,6 +372,7 @@ class PortfolioLogicConfig:
     ranker: OpportunityRankerConfig = field(default_factory=OpportunityRankerConfig)
     trailing: TrailingExitConfig = field(default_factory=TrailingExitConfig)
     horizon_extend: HorizonExtendConfig = field(default_factory=HorizonExtendConfig)
+    oscillation_taper: OscillationTaperConfig = field(default_factory=OscillationTaperConfig)
     pyramid: PyramidConfig = field(default_factory=PyramidConfig)
     risk_throttle: RiskThrottleConfig = field(default_factory=RiskThrottleConfig)
     caps: CapsConfig = field(default_factory=CapsConfig)

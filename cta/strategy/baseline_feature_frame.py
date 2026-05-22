@@ -11,6 +11,7 @@ from cta.skills.trend_strategies.atr_breakout import compute_atr_channel
 from cta.skills.trend_strategies.donchian_breakout import compute_donchian
 from cta.strategy.baseline_helpers import _compute_atr14
 from cta.strategy.skill_tight_range_breakout import prepare_strategy_frame
+from cta.feature.mean_reversion import compute_mean_reversion_features
 
 
 def prepare_master_feature_frame(
@@ -63,6 +64,9 @@ def prepare_master_feature_frame(
     out["is_limit_down_close"] = limit_down.fillna(False).astype(int)
 
     out["atr14"] = _compute_atr14(out)
+    mr_df = compute_mean_reversion_features(out["close"], out["high"], out["low"])
+    for c in mr_df.columns:
+        out[c] = mr_df[c]
 
     don_df = compute_donchian(out, n_entry=55, n_exit=20, interval=interval)
     for c in ("don_upper_entry", "don_lower_entry", "don_upper_exit", "don_lower_exit", "don_atr20"):
@@ -131,8 +135,37 @@ def prepare_master_feature_frame(
     ):
         out[c] = pb_df[c]
 
+    # Bull-market extension features (candidate/model shared).
+    # 1) breakout body strength: larger real body with small wick is preferred.
+    bar_range = (out["high"] - out["low"]).abs().replace(0.0, np.nan)
+    out["breakout_body_strength"] = (
+        (out["close"] - out["open"]).abs() / bar_range
+    ).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+    # 2) trend acceleration score: trend + breakout + body strength.
+    trend_dir = pd.to_numeric(out.get("trend_dir", 0.0), errors="coerce").fillna(0.0)
+    trend_score = pd.to_numeric(out.get("trend_score", 0.0), errors="coerce").fillna(0.0)
+    breakout_flag = (out["close"] > out["don_upper_entry"]).astype(float)
+    acc_raw = 0.45 * trend_score + 0.25 * trend_dir + 0.20 * breakout_flag + 0.10 * out["breakout_body_strength"]
+    out["trend_acceleration_score"] = acc_raw.clip(lower=-2.0, upper=2.0)
+
+    # 3) pullback quality: trend-up + shallow pullback to MA20 is higher quality.
+    ma20 = out["close"].rolling(20, min_periods=5).mean()
+    atr14 = pd.to_numeric(out.get("atr14", np.nan), errors="coerce")
+    pullback_depth = ((ma20 - out["low"]).clip(lower=0.0) / atr14.replace(0.0, np.nan)).replace(
+        [np.inf, -np.inf], np.nan
+    )
+    out["pullback_quality"] = (
+        (trend_dir > 0).astype(float) * (1.0 / (1.0 + pullback_depth.fillna(0.0)))
+    )
+
+    # 4) volatility contraction percentile: lower value means tighter range.
+    atr_pct = (atr14 / out["close"].abs().replace(0.0, np.nan)).replace([np.inf, -np.inf], np.nan)
+    out["volatility_contraction_pctl"] = (
+        atr_pct.rolling(60, min_periods=20).rank(pct=True).fillna(0.5)
+    )
+
     return out
 
 
 __all__ = ["prepare_master_feature_frame"]
-

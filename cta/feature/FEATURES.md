@@ -6,6 +6,9 @@
 > 所有特征以 parquet 格式输出，按日分片落盘：`cta/data/feature/{interval}/{SYMBOL}/{YYYY-MM-DD}.parquet`。
 > **生成入口**：`python3 -m cta.feature.run_all_features`（支持全频率覆盖 day/minute/minute5/minute15/minute30/minute60 + 多进程 + 断点续跑）。
 > `cta/feature/run_generate.py` 为旧入口，仅限单机 day+minute 联调使用，产物为平铺布局，**不推荐**，已通过 FEATURES.md 头部提示迁移。
+> VOI regime-adaptive momentum 是默认关闭的灰度扩展，实现在 `voi_momentum.py`；
+> 只有通过 `VoiMomentumConfig` 显式命中的 `cluster|interval` 才会在
+> `compute_single_symbol_features` 结果中追加 `voi_*` 列。
 
 ---
 

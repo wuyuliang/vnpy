@@ -35,7 +35,7 @@
 | **EMA** | Exponential MA | 指数加权平均 | `pandas.ewm(...).mean()` |
 | **Donchian Channel** | 唐奇安通道 | 过去 N 期的最高/最低价上下沿 | `don_upper_entry`(55) / `don_lower_exit`(20) |
 | **ATR Channel** | ATR 通道 | `MA ± k·ATR`（默认 k=2.5） | `atr_upper` / `atr_lower` |
-| **Bollinger Band** | 布林带 | `MA ± k·σ` | 未直接使用，可由特征引擎扩展 |
+| **Bollinger Band** | 布林带 | `MA ± k·σ` | `cta/feature/mean_reversion.py` 的 range setup 特征 |
 | **MACD** | Moving Average Convergence Divergence | 快慢 EMA 之差及其信号线 | `cta/feature/momentum.py` |
 | **RSI** | Relative Strength Index | 0–100 区间动量指标 | 同上 |
 
@@ -123,7 +123,7 @@
 
 | 术语 | 全称 | 定义 | 项目里 |
 |------|------|------|------|
-| **MFE** | Maximum **Favorable** Excursion | 持仓期内对该方向**最有利**的最大偏移（多单：max(high) − entry；空单：entry − min(low)） | `future_mfe_atr` 标签列；`cta/model/mfe_mae_model.py` |
+| **MFE** | Maximum **Favorable** Excursion | 持仓期内对该方向**最有利**的最大偏移（多单：max(high) − entry；空单：entry − min(low)） | `future_mfe_atr` 标签列；`cta/model/training/mfe_mae_model.py` |
 | **MAE** | Maximum **Adverse** Excursion | 持仓期内对该方向**最不利**的最大偏移（多单：entry − min(low)；空单：max(high) − entry） | `future_mae_atr` 标签列 |
 | **MFE/MAE Ratio** | 利不利比 | 衡量入场点质量；好的 setup 应有 MFE > MAE | 离线分析、`MfeMaeModel` 回归目标 |
 
@@ -164,7 +164,7 @@
 
 | 术语 | 中文 | 定义 | 项目里 |
 |------|------|------|------|
-| **Signal Type** | 信号类型 | 4 个 baseline 之一的标识 | `signal_type ∈ {donchian_breakout, atr_breakout, tight_range, breakout_pullback}` |
+| **Signal Type** | 信号类型 | baseline setup 的标识 | `signal_type ∈ {donchian_breakout, atr_breakout, tight_range_breakout, breakout_pullback, mean_reversion_range, ...}` |
 | **Candidate Event** | 候选事件 | 满足信号触发条件的一行样本（不一定真成交） | `cta/data/model_feature/candidate_*.parquet` |
 | **is_executed** | 是否成交 | 候选在回测引擎中是否真的开仓（受撮合规则影响） | candidate_df 列 |
 | **atr_warmed** | ATR 已 warm-up | atr14 已稳定（前 14 根之外） | candidate_df 列 |
@@ -178,12 +178,14 @@
 
 | 术语 | 全称 / 中文 | 定义 | 项目里 |
 |------|------|------|------|
-| **Trade Filter** | 交易过滤模型 | 二分类，给候选事件打"该不该开仓"的概率 | `cta/model/trade_filter_model.py` / `make_trade_filter` |
-| **Regime Classifier** | 市场状态分类 | 多分类，识别趋势 / 震荡 / 破坏等 | `cta/model/regime_classifier_model.py` |
-| **MFE/MAE Model** | 风险预测模型 | 回归未来 N bar 的 MFE / MAE | `cta/model/mfe_mae_model.py` |
+| **Trade Filter** | 交易过滤模型 | 二分类，给候选事件打"该不该开仓"的概率 | `cta/model/training/trade_filter_model.py` / `make_trade_filter` |
+| **Regime Classifier** | 市场状态分类 | 多分类，识别趋势 / 震荡 / 破坏等 | `cta/model/training/regime_classifier_model.py` |
+| **MFE/MAE Model** | 风险预测模型 | 回归未来 N bar 的 MFE / MAE | `cta/model/training/mfe_mae_model.py` |
 | **Generic Features** | 通用特征 | 按 cta/feature/* 算出的 ~400 个跨品种特征 | `cta/data/feature/{interval}/{prefix}/{date}.parquet` |
 | **Generic Mode = auto** | 自动取全部 | 训练时把 parquet 上所有数值列纳入特征 | `--generic-mode auto`（默认）|
 | **Generic Mode = whitelist** | 白名单 18 列 | 仅取 `DEFAULT_GENERIC_COLUMNS` | `--generic-mode whitelist` |
+| **VOI Adaptive Momentum** | VOI 自适应动量 | 按波动 regime 切换快慢动量窗口并融合日内位置/量能确认 | `cta/feature/voi_momentum.py` / `voi_*` |
+| **Oscillation Taper** | 震荡边界降仓 | 持仓在 range/compression 边界附近分段锁定仓位 | `cta/portfolio_logic/oscillation_taper.py` / `position_taper_*` |
 
 ---
 
@@ -261,7 +263,27 @@
 
 ---
 
-## 16. 参考
+## 16. Model Pipeline 新参数速查
+
+以下参数已在 `run.md` 与 `pipeline_cli.py` 对齐，便于快速检索：
+
+| 参数 | 含义 |
+|------|------|
+| `--max-auc-gap` | 训练集与验证集 AUC 最大允许差，用于抑制过拟合选参。 |
+| `--max-valid-test-gap` | valid 与 test AUC 差值告警阈值，超阈值输出告警文件。 |
+| `--no-by-signal-type` | 关闭按 `signal_type` 分模型，改为混合训练。 |
+| `--only-clusters` | `--group-pool` 模式下仅运行指定 cluster（如 `index`/`bond`）。 |
+| `--output-root` | 指定报告与模型输出根目录。 |
+| `--enable-oscillation-taper` | 配合 `--use-portfolio-logic-runtime`，在本次 interval 上启用震荡边界持仓降仓。 |
+| `--rolling-train-years` | `rolling` 模式 train 窗口长度（年）。 |
+| `--rolling-valid-years` | `rolling` 模式 valid 窗口长度（年）。 |
+| `--rolling-test-years` | `rolling` 模式 test 窗口长度（年）。 |
+| `--rolling-step-years` | `rolling` 模式窗口前滚步长（年）。 |
+| `--top-feature-alert-pct` | 单特征重要度占比告警阈值，超阈值进入可疑特征报告。 |
+
+---
+
+## 17. 参考
 
 - 特征详细定义：[`cta/feature/FEATURES.md`](feature/FEATURES.md)
 - baseline 策略原理：[`cta/model/baseline_model.md`](model/baseline_model.md)

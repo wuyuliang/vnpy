@@ -101,6 +101,13 @@ class TestRunMulti(unittest.TestCase):
         self.assertTrue(any(res.summary["error"].fillna("") != ""))
         self.assertTrue(any(res.summary["error"].fillna("") == ""))
 
+    def test_rejects_mixed_intervals_for_portfolio_aggregation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = _spec(tmp)
+            spec.enforce_portfolio_interval_consistency = True
+            with self.assertRaises(ValueError):
+                run_multi(spec)
+
 
 class TestAggregatePortfolio(unittest.TestCase):
     def test_equal_weight_portfolio(self) -> None:

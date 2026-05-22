@@ -33,10 +33,10 @@ from cta.model.model_pipeline import (
     run_model_pipeline,
     run_model_pipeline_multi,
 )
-from cta.model.pipeline_oot_evaluation import _build_position_lifetime_table
+from cta.model.oot.pipeline_oot_evaluation import _build_position_lifetime_table
 from cta.config.model_oot_eval_config import OotEvaluationConfig
 from cta.portfolio_logic.config import PortfolioLogicConfig, RiskThrottleConfig, ThrottleLevel
-from cta.model.trade_filter_model import TradeFilterModel
+from cta.model.training.trade_filter_model import TradeFilterModel
 
 
 
@@ -73,6 +73,42 @@ class TestModelPipelinePart05(unittest.TestCase):
         # row1 short: side_interaction = -0.24 * (-1) = 0.24
         self.assertAlmostEqual(float(out.loc[1, "generic_model_mfe_side_interaction"]), 0.24, places=6)
 
+    def test_auto_enrich_adds_cluster_leadership_features(self) -> None:
+        df = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(
+                    [
+                        "2024-01-02 09:00:00",
+                        "2024-01-02 09:00:00",
+                        "2024-01-02 09:00:00",
+                    ]
+                ),
+                "cluster_name": ["index", "index", "metal"],
+                "feature_open": [10.0, 10.0, 10.0],
+                "feature_high": [12.0, 11.0, 11.5],
+                "feature_low": [9.0, 9.0, 9.5],
+                "feature_close": [11.5, 9.5, 11.0],
+                "feature_volume": [100.0, 90.0, 120.0],
+                "feature_atr14": [1.0, 1.0, 1.0],
+                "feature_trend_score": [1.0, -1.0, 0.5],
+                "feature_breakout_score": [2.0, 1.0, 1.0],
+                "feature_setup_quality": [1.0, 0.6, 0.8],
+                "feature_tr_range_atr": [0.5, 0.5, 0.5],
+                "side": ["long", "long", "long"],
+                "signal_type": ["tight_range_breakout"] * 3,
+            }
+        )
+        out = _auto_enrich_candidate_features_for_models(df, force_generic_fallback=True)
+        self.assertIn("generic_model_cluster_breadth_up", out.columns)
+        self.assertIn("generic_model_cluster_momentum_rank", out.columns)
+        self.assertAlmostEqual(float(out.loc[0, "generic_model_cluster_breadth_up"]), 0.5, places=6)
+        self.assertAlmostEqual(float(out.loc[1, "generic_model_cluster_breadth_up"]), 0.5, places=6)
+        self.assertAlmostEqual(float(out.loc[2, "generic_model_cluster_breadth_up"]), 1.0, places=6)
+        self.assertGreater(
+            float(out.loc[0, "generic_model_cluster_momentum_rank"]),
+            float(out.loc[1, "generic_model_cluster_momentum_rank"]),
+        )
+
     def test_run_pipeline_by_signal_type_walk_forward(self) -> None:
         with tempfile.TemporaryDirectory(prefix="cta_signal_wf_pipeline_") as td:
             out = run_model_pipeline(
@@ -87,11 +123,17 @@ class TestModelPipelinePart05(unittest.TestCase):
                 synthetic_periods=360,
                 by_signal_type=True,
                 max_walk_forward_windows=2,
+                min_train_samples=20,
+                min_valid_samples=10,
+                min_test_samples=10,
             )
             metrics = pd.read_csv(out.metrics_path)
             self.assertIn("signal_type", metrics.columns)
             self.assertIn("window_id", metrics.columns)
-            self.assertIn("model_kind", metrics.columns)
+            if "model_kind" not in metrics.columns:
+                self.assertEqual(set(metrics["model"].astype(str)), {"window_guard"})
+            else:
+                self.assertIn("model_kind", metrics.columns)
             self.assertGreaterEqual(metrics["signal_type"].nunique(), 2)
             self.assertGreaterEqual(metrics["window_id"].nunique(), 2)
 
@@ -412,7 +454,7 @@ class TestModelPipelinePart05(unittest.TestCase):
         import os
         import time as _time
 
-        from cta.model.pipeline_feature_meaning import _feature_meaning
+        from cta.model.dataset.pipeline_feature_meaning import _feature_meaning
 
         with tempfile.TemporaryDirectory(prefix="cta_features_doc_") as td:
             doc = Path(td) / "FEATURES.md"

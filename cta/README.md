@@ -43,6 +43,11 @@ cta/
 ├── config/
 ├── feature/                 # 通用特征引擎（见 cta/feature/FEATURES.md）
 ├── model/                   # 三类模型 + pipeline（见 cta/model/model.md）
+│   ├── dataset/             # 候选样本、通用特征拼接、split、pool 样本组织
+│   ├── training/            # 三段模型、final decision、registry、参数搜索
+│   ├── orchestration/       # CLI、主流程编排、多 interval/group 调度
+│   ├── oot/                 # OOT real-execution、gate、intrabar、仓位约束
+│   ├── reporting/           # OOT 报告、HTML、aggregate、diagnostics
 │   └── feature/             # 候选事件 → 训练样本拼接
 ├── skills/                  # cta_skills 技能树文档与对应模块化代码
 ├── report/

@@ -7,7 +7,7 @@ from typing import Any
 import pandas as pd
 
 from cta.portfolio_logic.config import IntervalGateConfig, normalize_portfolio_interval
-from cta.model.block_reasons import BR_HTF_CONFLICT, BR_HTF_MISSING, BR_HTF_OPPOSITE, BR_HTF_UNKNOWN
+from cta.model.oot.block_reasons import BR_HTF_CONFLICT, BR_HTF_MISSING, BR_HTF_OPPOSITE, BR_HTF_UNKNOWN
 
 logger = logging.getLogger(__name__)
 

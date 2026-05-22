@@ -71,7 +71,12 @@ class OnlineFeatureLoader:
     def _resolve_path(self, *, symbol: str, interval: str,
                      dt: pd.Timestamp) -> Path | None:
         if interval == "day":
-            # day-level 是按 symbol 的单文件
+            # day-level 优先支持分区布局：day/{symbol}/{YYYY-MM-DD}.parquet
+            # 同时兼容旧布局：day/{symbol}.parquet
+            date_str = pd.Timestamp(dt).strftime("%Y-%m-%d")
+            partitioned = self.root / "day" / symbol / f"{date_str}.parquet"
+            if partitioned.exists():
+                return partitioned
             return self.root / "day" / f"{symbol}.parquet"
         prefix = _alpha_prefix(symbol)
         date_str = pd.Timestamp(dt).strftime("%Y-%m-%d")

@@ -47,6 +47,16 @@ class TestRiskThrottle(unittest.TestCase):
         scaled = throttle.apply_to_caps(base, reduced)
         self.assertEqual(scaled.max_total_positions, 7)
         self.assertEqual(scaled.max_total_per_cluster, 2)
+        self.assertLess(float(scaled.max_symbol_notional_pct), float(base.max_symbol_notional_pct))
+        self.assertLess(float(scaled.max_cluster_notional_pct), float(base.max_cluster_notional_pct))
+        self.assertLess(float(scaled.max_total_notional_pct), float(base.max_total_notional_pct))
+
+    def test_period_return_short_history_returns_nan(self) -> None:
+        tracker = EquityTracker()
+        tracker.on_bar(100.0, pd.Timestamp("2024-01-01"))
+        tracker.on_bar(102.0, pd.Timestamp("2024-01-03"))  # < 7 days history
+        snap = tracker.snapshot()
+        self.assertTrue(pd.isna(snap.weekly_return_pct))
 
     def test_bootstrap_from_broker_with_history_file(self) -> None:
         with tempfile.TemporaryDirectory(prefix="eq_bootstrap_") as td:

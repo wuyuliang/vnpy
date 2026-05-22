@@ -35,6 +35,7 @@ def run_interval(
     overwrite: bool,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    voi_enabled_cells: tuple[str, ...] = (),
 ) -> Tuple[int, int, int]:
     canon = normalize_interval(interval)
     ts_now = lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -71,7 +72,16 @@ def run_interval(
     gc_every = 5
     with ProcessPoolExecutor(**executor_kwargs) as ex:
         fut_map = {
-            ex.submit(_worker_compute, sym, exch, canon, overwrite, start_date, end_date): (sym, exch)
+            ex.submit(
+                _worker_compute,
+                sym,
+                exch,
+                canon,
+                overwrite,
+                start_date,
+                end_date,
+                voi_enabled_cells,
+            ): (sym, exch)
             for sym, exch in todo
         }
         for i, fut in enumerate(as_completed(fut_map), 1):

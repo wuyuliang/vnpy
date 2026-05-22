@@ -8,7 +8,7 @@
 |---|---|---|
 | 事件驱动回测引擎 | [cta/skills/data_backtest/event_driven_backtest.py](../skills/data_backtest/event_driven_backtest.py) | 单策略历史回放，含 fill / slippage / margin 完整模拟 |
 | 策略级 backtest CLI | [cta/strategy/skill_tight_range_backtest.py](../strategy/skill_tight_range_backtest.py)、[cta/strategy/baseline_backtest_cli.py](../strategy/baseline_backtest_cli.py)、[cta/strategy/backtest_price_action_breakout.py](../strategy/backtest_price_action_breakout.py) | 直接调用上面的 event_driven_backtest，按策略组织参数与产出 |
-| 模型 pipeline + OOT | [cta/model/model_pipeline.py](../model/model_pipeline.py) → [cta/model/pipeline_oot_evaluation_source.py.txt](../model/pipeline_oot_evaluation_source.py.txt) | walk-forward 训练 + OOT real-execution（带 portfolio_logic 运行时） |
+| 模型 pipeline + OOT | [cta/model/model_pipeline.py](../model/model_pipeline.py) → [cta/model/oot/pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | walk-forward 训练 + OOT real-execution（带 portfolio_logic 运行时） |
 
 ## 详细过程
 

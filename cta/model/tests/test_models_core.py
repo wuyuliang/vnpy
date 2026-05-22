@@ -9,9 +9,9 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from cta.model.mfe_mae_model import MfeMaeModel, evaluate_mfe_mae_model
-from cta.model.regime_classifier_model import RegimeClassifierModel, evaluate_regime_model
-from cta.model.trade_filter_model import TradeFilterModel, evaluate_trade_filter_model
+from cta.model.training.mfe_mae_model import MfeMaeModel, evaluate_mfe_mae_model
+from cta.model.training.regime_classifier_model import RegimeClassifierModel, evaluate_regime_model
+from cta.model.training.trade_filter_model import TradeFilterModel, evaluate_trade_filter_model
 
 
 def _mk_df(n: int = 220, seed: int = 42) -> pd.DataFrame:
@@ -85,7 +85,7 @@ class TestModelsCore(unittest.TestCase):
                 },
                 path,
             )
-            with self.assertLogs("cta.model.trade_filter_model", level="WARNING") as cm:
+            with self.assertLogs("cta.model.training.trade_filter_model", level="WARNING") as cm:
                 loaded = TradeFilterModel.load(path)
             self.assertIsNotNone(loaded.estimator_tree)
             self.assertTrue(any("estimator_tree fallback" in line for line in cm.output))
@@ -117,7 +117,7 @@ class TestModelsCore(unittest.TestCase):
         df = _mk_df(n=120)
         df.loc[0, "regime_label"] = "weird_state"
         feats = ["feature_x1", "feature_x2", "feature_x3"]
-        with self.assertLogs("cta.model.regime_classifier_model", level="WARNING") as cm:
+        with self.assertLogs("cta.model.training.regime_classifier_model", level="WARNING") as cm:
             RegimeClassifierModel(random_state=13).fit(df, feature_columns=feats, label_column="regime_label")
         self.assertTrue(any("unexpected values" in line for line in cm.output))
 
@@ -127,7 +127,7 @@ class TestModelsCore(unittest.TestCase):
         df["regime_label"] = "trend_up"
         df.loc[:1, "regime_label"] = "trend_down"
         feats = ["feature_x1", "feature_x2", "feature_x3"]
-        with self.assertLogs("cta.model.regime_classifier_model", level="WARNING") as cm:
+        with self.assertLogs("cta.model.training.regime_classifier_model", level="WARNING") as cm:
             RegimeClassifierModel(random_state=13).fit(df, feature_columns=feats, label_column="regime_label")
         self.assertTrue(any("minority class count below min_samples_leaf" in line for line in cm.output))
 
@@ -313,6 +313,19 @@ class TestModelsCore(unittest.TestCase):
         model = TradeFilterModel(random_state=7)
         model.fit(df, feature_columns=feats, label_column="label_class")
         self.assertNotEqual(str(model.model_kind), "uninitialized")
+
+    def test_trade_filter_linear_path_does_not_double_apply_balanced_class_weight(self) -> None:
+        df = _mk_df(n=240, seed=123).copy()
+        # 构造明显不平衡标签（10% 正样本）
+        y = np.zeros(len(df), dtype=int)
+        y[:24] = 1
+        df["label_class"] = y
+        feats = ["feature_x1", "feature_x2", "feature_x3"]
+        model = TradeFilterModel(random_state=7).fit(df, feature_columns=feats, label_column="label_class")
+        linear = model.estimator_linear
+        self.assertIsNotNone(linear)
+        linear_model = linear.named_steps["model"]  # type: ignore[union-attr]
+        self.assertIsNone(linear_model.class_weight)
 
 
 if __name__ == "__main__":

@@ -36,6 +36,8 @@ from cta.feature.multi_timeframe import compute_multi_timeframe_features
 from cta.feature.regime import compute_regime_features
 from cta.feature.composite import compute_composite_features
 from cta.feature.entry_stop import compute_entry_stop_features
+from cta.feature.voi_momentum import compute_voi_features
+from cta.config.voi_momentum_config import VoiMomentumConfig
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,8 +49,25 @@ CTA_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = CTA_ROOT / "feature" / "output"
 
 
-def compute_single_symbol_features(df: pd.DataFrame,
-                                    interval: str = "day") -> pd.DataFrame:
+def _resolve_feature_cluster(df: pd.DataFrame, cluster: str | None) -> str:
+    if cluster:
+        return str(cluster).strip().lower()
+    if "cluster" in df.columns and not df["cluster"].dropna().empty:
+        return str(df["cluster"].dropna().iloc[0]).strip().lower()
+    if "symbol" in df.columns and not df["symbol"].dropna().empty:
+        from cta.config.symbol_cluster_config import infer_symbol_cluster
+
+        return infer_symbol_cluster(str(df["symbol"].dropna().iloc[0]))
+    return "other"
+
+
+def compute_single_symbol_features(
+    df: pd.DataFrame,
+    interval: str = "day",
+    *,
+    voi_cfg: VoiMomentumConfig | None = None,
+    cluster: str | None = None,
+) -> pd.DataFrame:
     """
     计算单品种的所有时序特征（不含截面特征）
 
@@ -84,6 +103,14 @@ def compute_single_symbol_features(df: pd.DataFrame,
         # §18 入场/止损建议价（只依赖 OHLCV，可单独算）
         compute_entry_stop_features(df),
     ]
+    voi_feat = compute_voi_features(
+        df,
+        cfg=voi_cfg or VoiMomentumConfig(),
+        cluster=_resolve_feature_cluster(df, cluster),
+        interval=interval,
+    )
+    if not voi_feat.empty and len(voi_feat.columns) > 0:
+        parts.append(voi_feat)
 
     # 分钟级（1-min）才生成 tod 同比特征；
     # minute5/minute15/minute30/minute60 的 bar 已跨多分钟，内部再按 1/3/5/10/20
@@ -116,6 +143,7 @@ def compute_all_features(
     symbols: list[str] | None = None,
     with_cross_section: bool = True,
     output_dir: Path | None = None,
+    voi_cfg: VoiMomentumConfig | None = None,
 ) -> pd.DataFrame:
     """
     计算所有品种特征
@@ -149,7 +177,14 @@ def compute_all_features(
             else:
                 df = load_intraday_data(symbol, row["exchange"], interval=canon)
 
-            df_with_feat = compute_single_symbol_features(df, interval=canon)
+            from cta.config.symbol_cluster_config import infer_symbol_cluster
+
+            df_with_feat = compute_single_symbol_features(
+                df,
+                interval=canon,
+                voi_cfg=voi_cfg,
+                cluster=infer_symbol_cluster(symbol),
+            )
             all_dfs.append(df_with_feat)
 
             # 按品种保存

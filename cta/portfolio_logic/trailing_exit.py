@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any
+import logging
 
 import numpy as np
 import pandas as pd
@@ -9,10 +10,14 @@ import pandas as pd
 from cta.portfolio_logic.config import (
     HorizonExtendConfig,
     IntervalTrailingParams,
+    OscillationTaperConfig,
     TrailingExitConfig,
     normalize_portfolio_interval,
 )
+from cta.portfolio_logic.oscillation_taper import OscillationUpperBandTaper, add_oscillation_boundaries
 from cta.portfolio_logic.pyramid_manager import PyramidPosition
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_interval_params(cfg: TrailingExitConfig, interval: str) -> IntervalTrailingParams:
@@ -60,6 +65,9 @@ def _empty_result(
         "trailing_activated": 0,
         "trailing_stop_price": float("nan"),
         "extensions_used": 0,
+        "position_taper_count": 0,
+        "position_taper_target_ratio": 1.0,
+        "position_taper_realized_ratio": 0.0,
     }
 
 
@@ -179,8 +187,12 @@ def simulate_trailing_exit(
     regime_label: str | None,
     cfg: TrailingExitConfig,
     horizon_cfg: HorizonExtendConfig | None = None,
+    hold_extend_score: float | None = None,
+    recommended_extension_bars: int | None = None,
+    taper_cfg: OscillationTaperConfig | None = None,
+    cluster: str | None = None,
 ) -> dict[str, Any]:
-    """Simulate hard-stop + optional ATR trailing stop on bar path."""
+    """Simulate hard-stop, trailing stop and optional range-bound taper."""
     ent = pd.to_datetime(entry_ts, errors="coerce")
     exi = pd.to_datetime(planned_exit_ts, errors="coerce")
     if pd.isna(ent) or pd.isna(exi) or exi <= ent:
@@ -206,6 +218,8 @@ def simulate_trailing_exit(
             planned_exit_ts=exi,
             reason="no_intrabar_data",
         )
+    if taper_cfg is not None and taper_cfg.is_enabled(cluster, interval):
+        b = add_oscillation_boundaries(b, taper_cfg)
 
     first = b.iloc[0]
     entry_fill_dt = pd.Timestamp(first["datetime"])
@@ -246,6 +260,19 @@ def simulate_trailing_exit(
     extensions_used = 0
     max_extensions = int(horizon_cfg.max_extensions) if horizon_cfg is not None else 0
     extension_bars = int(horizon_cfg.extension_bars) if horizon_cfg is not None else 0
+    if horizon_cfg is not None and bool(horizon_cfg.use_model_recommendation):
+        hold_score = float(hold_extend_score) if hold_extend_score is not None else float("nan")
+        if not np.isfinite(hold_score):
+            logger.warning(
+                "simulate_trailing_exit: hold_extend_score missing, fallback to legacy horizon extension defaults"
+            )
+        elif hold_score < float(horizon_cfg.min_hold_extend_score):
+            max_extensions = 0
+        else:
+            rec = int(recommended_extension_bars) if recommended_extension_bars is not None else 0
+            if rec > 0:
+                extension_bars = min(int(horizon_cfg.max_model_extension_bars), rec)
+            extension_bars = max(1, int(extension_bars))
 
     stop_hit_dt = pd.NaT
     stop_hit_price = float("nan")
@@ -256,6 +283,17 @@ def simulate_trailing_exit(
     planned_exit_price = float("nan")
     idx = 0
     horizon_end = pd.Timestamp(exi)
+    taper = OscillationUpperBandTaper(taper_cfg) if taper_cfg is not None else None
+    taper_count = 0
+    taper_remaining_ratio = 1.0
+    taper_realized_component = 0.0
+
+    def _price_return(exit_price: float) -> float:
+        if not np.isfinite(exit_price) or exit_price <= 0.0:
+            return float("nan")
+        if side_l == "short":
+            return float((entry_fill_price - exit_price) / entry_fill_price)
+        return float((exit_price - entry_fill_price) / entry_fill_price)
 
     while idx < len(b):
         row = b.iloc[idx]
@@ -309,6 +347,31 @@ def simulate_trailing_exit(
                 exit_reason = "trailing_stop" if trailing_activated else "hard_stop"
                 break
 
+        if taper is not None and np.isfinite(bar_close):
+            row_regime = str(row.get("regime_label", regime_label) or regime_label or "").strip().lower()
+            decision = taper.evaluate(
+                side=side_l,
+                entry_price=entry_fill_price,
+                bar=row,
+                regime_label=row_regime,
+                cluster=cluster,
+                interval=interval,
+            )
+            if decision.should_taper:
+                target_ratio = min(float(taper_remaining_ratio), float(decision.target_ratio))
+                taper_step = float(taper_remaining_ratio - target_ratio)
+                if taper_step >= float(taper_cfg.min_taper_step_pct):
+                    realized = _price_return(bar_close)
+                    if np.isfinite(realized):
+                        taper_realized_component += taper_step * realized
+                        taper_remaining_ratio = target_ratio
+                        taper_count += 1
+                        if target_ratio <= 0.0:
+                            final_exit_dt = bar_dt
+                            final_exit_price = float(bar_close)
+                            exit_reason = str(decision.exit_reason)
+                            break
+
         # Horizon extend: only when still in extension regime and data beyond horizon is available.
         if (
             bar_dt >= horizon_end
@@ -335,13 +398,12 @@ def simulate_trailing_exit(
             final_exit_dt = horizon_end
             final_exit_price = planned_exit_price
 
-    if not np.isfinite(final_exit_price) or final_exit_price <= 0:
-        price_ret = float("nan")
-    else:
-        if side_l == "short":
-            price_ret = (entry_fill_price - final_exit_price) / entry_fill_price
-        else:
-            price_ret = (final_exit_price - entry_fill_price) / entry_fill_price
+    terminal_ret = _price_return(final_exit_price)
+    price_ret = (
+        float(taper_realized_component + taper_remaining_ratio * terminal_ret)
+        if np.isfinite(terminal_ret)
+        else float("nan")
+    )
 
     return {
         "entry_fill_datetime": entry_fill_dt,
@@ -359,6 +421,9 @@ def simulate_trailing_exit(
         "trailing_activated": int(trailing_activated),
         "trailing_stop_price": float(_effective_stop_for_side(side_l, hard_stop, trail_stop)),
         "extensions_used": int(extensions_used),
+        "position_taper_count": int(taper_count),
+        "position_taper_target_ratio": float(taper_remaining_ratio),
+        "position_taper_realized_ratio": float(1.0 - taper_remaining_ratio),
     }
 
 

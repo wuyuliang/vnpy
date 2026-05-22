@@ -2,16 +2,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import Any, Callable
 
 import pandas as pd
+from cta.skills.data_backtest.transaction_cost import estimate_cost
+from cta.utils.limit_move import is_limit_move_blocked_by_ohlc
 
 
 @dataclass
 class EngineConfig:
     fill_rule: str = "next_open"
     stop_fill: str = "worst"
-    cost_fn: Callable | None = None
+    cost_fn: Callable | None = estimate_cost
     slippage_ticks: float = 1.5
     # 涨跌停过滤：next_bar 相对 cur_bar.close 涨跌幅 ≥ 该阈值且 high==low（一字板）时
     # 视为触及涨跌停，禁止该方向开仓；None 关闭。
@@ -28,8 +30,6 @@ def _hit_price_limit(
     limit_move_pct: float | None,
 ) -> bool:
     """Detect one-sided price limit (一字板) blocking an opening order."""
-    if limit_move_pct is None or limit_move_pct <= 0:
-        return False
     try:
         prev_close = float(cur_bar["close"])
         nxt_open = float(next_bar["open"])
@@ -37,17 +37,14 @@ def _hit_price_limit(
         nxt_low = float(next_bar["low"])
     except (KeyError, TypeError, ValueError):
         return False
-    if prev_close <= 0:
-        return False
-    move = (nxt_open - prev_close) / prev_close
-    one_sided = nxt_high == nxt_low
-    if not one_sided:
-        return False
-    if side == "long" and move >= float(limit_move_pct):
-        return True
-    if side == "short" and move <= -float(limit_move_pct):
-        return True
-    return False
+    return is_limit_move_blocked_by_ohlc(
+        prev_close=prev_close,
+        next_open=nxt_open,
+        next_high=nxt_high,
+        next_low=nxt_low,
+        side=str(side),
+        limit_move_pct=limit_move_pct,
+    )
 
 
 def _liquidity_cap(next_bar: pd.Series, liquidity_ratio: float | None) -> int | None:
@@ -70,6 +67,9 @@ def simulate_fill(
     cur_bar: pd.Series,
     next_bar: pd.Series,
     cfg: EngineConfig,
+    *,
+    liquidity_state: dict[Any, int] | None = None,
+    liquidity_key: Any | None = None,
 ) -> dict | None:
     """Simulate one order fill on next bar."""
     side = str(order.get("side", "long")).lower()
@@ -84,6 +84,9 @@ def simulate_fill(
 
     # 流动性截断：上限为 0 直接拒绝。
     cap = _liquidity_cap(next_bar, cfg.liquidity_ratio)
+    if cap is not None and liquidity_state is not None and liquidity_key is not None:
+        used = int(liquidity_state.get(liquidity_key, 0))
+        cap = max(0, int(cap - used))
     if cap is not None:
         if cap <= 0:
             return None
@@ -93,11 +96,15 @@ def simulate_fill(
 
     if order_type == "market":
         price = float(next_bar["open"]) if cfg.fill_rule == "next_open" else float(cur_bar["close"])
+        if liquidity_state is not None and liquidity_key is not None:
+            liquidity_state[liquidity_key] = int(liquidity_state.get(liquidity_key, 0) + lots)
         return {"side": side, "lots": lots, "price": price, "order_type": order_type}
 
     if order_type == "limit":
         limit_px = float(order.get("price", cur_bar["close"]))
         if float(next_bar["low"]) <= limit_px <= float(next_bar["high"]):
+            if liquidity_state is not None and liquidity_key is not None:
+                liquidity_state[liquidity_key] = int(liquidity_state.get(liquidity_key, 0) + lots)
             return {"side": side, "lots": lots, "price": limit_px, "order_type": order_type}
         return None
 
@@ -110,6 +117,8 @@ def simulate_fill(
             triggered = float(next_bar["low"]) <= stop_px
             fill_px = min(stop_px, float(next_bar["open"])) if cfg.stop_fill == "worst" else stop_px
         if triggered:
+            if liquidity_state is not None and liquidity_key is not None:
+                liquidity_state[liquidity_key] = int(liquidity_state.get(liquidity_key, 0) + lots)
             return {"side": side, "lots": lots, "price": fill_px, "order_type": order_type}
     return None
 
@@ -144,8 +153,18 @@ def run_backtest(
         nxt = df.iloc[i + 1]
         signals = strategy.on_bar(i, bar, position)
         closed_pnl = 0.0
+        liq_state: dict[Any, int] = {}
         for sig in signals:
-            fill = simulate_fill(sig, bar, nxt, cfg)
+            symbol_key = str(sig.get("symbol", "UNK"))
+            liq_key = (symbol_key, i + 1)
+            fill = simulate_fill(
+                sig,
+                bar,
+                nxt,
+                cfg,
+                liquidity_state=liq_state,
+                liquidity_key=liq_key,
+            )
             if fill is None:
                 continue
             side = str(fill["side"]).lower()
@@ -203,4 +222,3 @@ def run_backtest(
     trade_log = pd.DataFrame(trade_rows)
     stats = {"total_pnl": float(eq.iloc[-1]), "trade_count": int(len(trade_log))}
     return {"trade_log": trade_log, "equity_curve": eq, "positions": [{"position": position}], "stats": stats}
-

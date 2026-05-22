@@ -33,10 +33,10 @@ from cta.model.model_pipeline import (
     run_model_pipeline,
     run_model_pipeline_multi,
 )
-from cta.model.pipeline_oot_evaluation import _build_position_lifetime_table
+from cta.model.oot.pipeline_oot_evaluation import _build_position_lifetime_table
 from cta.config.model_oot_eval_config import OotEvaluationConfig
 from cta.portfolio_logic.config import CapsConfig, PortfolioLogicConfig, RiskThrottleConfig, ThrottleLevel
-from cta.model.trade_filter_model import TradeFilterModel
+from cta.model.training.trade_filter_model import TradeFilterModel
 
 
 
@@ -136,7 +136,7 @@ class TestModelPipelinePart07(unittest.TestCase):
                 self.assertIn(key, payload.index)
 
     def test_run_model_pipeline_outputs_final_decision_model_naming(self) -> None:
-        """P1.3: 训练后 metrics/predictions 中应有可辨识的最终决策模型命名。"""
+        """final decision 必须体现 dual-side 命名，并输出 side-aware 分数字段。"""
         with tempfile.TemporaryDirectory(prefix="cta_stack_model_") as td:
             out = run_model_pipeline(
                 symbol="STACK0",
@@ -155,6 +155,19 @@ class TestModelPipelinePart07(unittest.TestCase):
             preds = pd.read_csv(out.prediction_path)
             self.assertIn("final_decision_stack", set(metrics["model"].astype(str)))
             self.assertIn("final_decision_score", set(preds.columns))
+            self.assertIn("final_decision_score_long", set(preds.columns))
+            self.assertIn("final_decision_score_short", set(preds.columns))
+            self.assertTrue(
+                ("generic_ma_alignment" in preds.columns) or ("ma_alignment" in preds.columns),
+                "predictions must carry MA alignment column for ma_cross gate round-trip",
+            )
+            final_rows = metrics.loc[metrics["model"].astype(str) == "final_decision_stack"]
+            self.assertTrue(
+                final_rows["model_kind"].astype(str).str.contains("dual_side", regex=False).any()
+            )
+            self.assertTrue(
+                preds["final_decision_model_kind"].astype(str).str.contains("long|short", regex=True).any()
+            )
 
 
 if __name__ == "__main__":

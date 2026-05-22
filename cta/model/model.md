@@ -33,11 +33,12 @@
 4. 最后仅用 OOT(test) 做评估与收益分档。
 
 实现拆分（便于局部 review）：
-- `cta/model/model_pipeline.py`：主流程编排 + CLI
-- `cta/model/pipeline_feature_enrichment.py`：候选特征自动补齐（`generic_auto_*` / `generic_model_*`）
-- `cta/model/pipeline_pooling.py`：多品种池化样本构建
-- `cta/model/pipeline_oot_evaluation.py`：OOT 真实成交评估
-- `cta/model/pipeline_html_report.py`：OOT 结果桥接到 `cta/report/render` HTML 报告
+- `cta/model/model_pipeline.py`：稳定 CLI 入口（继续支持 `python3 -m cta.model.model_pipeline`）
+- `cta/model/dataset/`：候选样本、通用特征拼接、特征筛选、walk-forward split、pool/group-pool 样本组织
+- `cta/model/training/`：三段模型、final decision、模型 registry、参数搜索与 AUC gap 约束
+- `cta/model/orchestration/`：CLI、单次 pipeline 主流程、多 interval / group-pool 调度
+- `cta/model/oot/`：OOT 真实成交评估、gate、intrabar、仓位 sizing、组合约束、block_reason
+- `cta/model/reporting/`：OOT 报告、HTML、aggregate、diagnostics、provenance
 
 ### Step A：生成通用特征（vn.py 特征）
 
@@ -47,6 +48,20 @@ python3 -m cta.feature.run_all_features --interval all
 
 # 仅 60min + 指定品种
 python3 -m cta.feature.run_all_features --interval 60min --symbols RB0
+```
+
+默认通用特征仍保持现有 schema。若要灰度接入 VOI regime-adaptive momentum，使用
+`VoiMomentumConfig` 调 `compute_single_symbol_features(..., voi_cfg=..., cluster=...)`，
+命中的 `cluster|interval` 才会新增 `voi_*` 列；这样可以先离线比较再决定是否扩进批量
+特征落盘。
+
+批量灰度落盘命令：
+
+```bash
+python3 -m cta.feature.run_all_features \
+  --interval day 60min \
+  --symbols IF0 RB0 \
+  --voi-enabled-cells 'index|day' 'black|60min'
 ```
 
 ### Step B：生成候选事件 + 训练样本（候选特征 + 通用特征拼接）
@@ -64,6 +79,7 @@ python3 -m cta.model.feature.candidate_training_dataset \
   --start 2010-01-01 \
   --end 2019-12-31 \
   --trade-side-mode both \
+  --mean-reversion-enabled-cells 'black|60min' \
   --run-tag 20260427
 
 # 单品种 + 多 interval（空格分隔）
@@ -101,6 +117,9 @@ python3 -m cta.model.feature.candidate_training_dataset \
 - 多 interval / 多品种是顺序批量执行，单个 interval 失败不会阻断其它 interval。
 - 输出目录按 `interval/symbol/run_tag` 隔离，互不覆盖。
 - `cta/data/model_feature` 已改为 parquet-only，不再落地 csv。
+- `mean_reversion_range` 是新增反向 setup：只在 `MeanReversionSetupConfig` 显式打开且
+  `cluster|interval` 命中时产出候选，默认不改变既有 breakout baseline 分布；
+  CLI 用 `--mean-reversion-enabled-cells 'index|day' 'metal|day'` 灰度。
 
 产物示例：
 - `cta/data/model_feature/minute60/RB0/20260427/*_candidate_events.parquet`
@@ -125,6 +144,10 @@ python3 -m cta.model.feature.candidate_training_dataset \
   - 前三类基础模型做参数网格搜索；
   - 仅使用 `train + valid` 进行选参，约束 `abs(train_auc-valid_auc) <= 3%`（默认，可用 `--max-auc-gap` 调整）；
   - `OOT(test)` 严格不参与选参，只用于最终效果评估。
+  - `Final Decision Stack` 的 train 侧 meta 特征改为 **time-series OOF** 生成，避免基模型对同一训练样本“原地预测”导致的 stacking 泄露。
+  - walk-forward 每个窗口增加样本门槛：`--min-train-samples / --min-valid-samples / --min-test-samples`；
+    不满足时该窗口跳过训练，并在 `metrics.csv` 标记 `insufficient_sample=1`。
+  - causality 审计新增硬阈值：`--max-unaudited-features`，超过阈值直接失败，防止未审计特征悄悄入模。
 
 OOT 执行评估默认优先使用 `final_decision_score` 作为 gate（可通过配置回退到旧三段 gate）。
 
@@ -149,6 +172,11 @@ python3 -m cta.model.model_pipeline --symbol RB0 --interval 60min --generic-mode
 
 # 显式设置选参约束（示例：AUC gap <= 1.5%）
 python3 -m cta.model.model_pipeline --symbol RB0 --interval 60min --max-auc-gap 0.015
+
+# 样本门槛 + 未审计特征门槛（推荐）
+python3 -m cta.model.model_pipeline --symbol RB0 --interval 60min \
+  --min-train-samples 50 --min-valid-samples 20 --min-test-samples 20 \
+  --max-unaudited-features 500
 ```
 
 程序化：
@@ -312,12 +340,21 @@ python3 -m cta.model.model_pipeline \
 
 OOT 评估参数集中在：
 - `cta/config/model_oot_eval_config.py`
-- 包含：`max_single_loss_pct`、`trade_filter_threshold`、`use_regime_gate`、`min_pred_edge_atr`、
+- 包含：`max_single_loss_pct`、`trade_filter_gate_mode`、`trade_filter_threshold`、`trade_filter_percentile_threshold`、`use_regime_gate`、`min_pred_edge_atr`、
   `use_roll_cost` / `default_roll_cost_pct_per_year`（展期成本扣减）、
   `use_stacking_gate` / `stacking_score_threshold`（最终决策 gate）、
   `weekly_dd_position_scale_after_breach`（周回撤后缩仓系数）、
   `monthly_max_drawdown_pct`（月回撤硬熔断）等。
 - 当前默认：`weekly_max_drawdown_pct=0.03`（3%）。
+- 当前生产默认：`trade_filter_gate_mode="cluster_interval_percentile"` 且
+  `trade_filter_percentile_threshold=70.0`。即 trade filter 不再用一个全局 raw
+  probability 阈值筛掉所有 cluster/interval，而是优先用 `trade_filter_prob_pctl`
+  在各自 `cluster+interval` 内做分位数 gate。这个 `_pctl` 必须由训练流程用
+  **非 OOT 的 train+valid 预测分布**校准生成，不能在 OOT 评估时用 OOT 自身分布
+  现场 rank；缺失 `_pctl` 时 percentile gate 会 fail-closed。可以通过
+  `trade_filter_percentile_threshold_by_cluster_interval={"index|day": 65.0}`
+  单独放宽或收紧 INDEX/day。若要回退旧口径，设 `trade_filter_gate_mode="raw"`，
+  并可用 `trade_filter_raw_threshold_by_cluster_interval={"index|day": 0.45}` 覆盖。
 
 portfolio_logic 运行时开关（默认向后兼容关闭）：
 - `use_portfolio_logic_runtime=False`
@@ -327,6 +364,13 @@ portfolio_logic 运行时开关（默认向后兼容关闭）：
   - risk throttle（`blocked_throttle_halt`）
   - pyramid 分层持仓（`pos_id` / `layer_id`）
   - trailing stop（`trailing_stop_exit_rows`）
+  - oscillation taper（range/compression 边界降仓；交易明细写
+    `position_taper_count / position_taper_target_ratio / position_taper_realized_ratio`，
+    触发出场原因写 `oscillation_upper_band_taper`）
+- CLI 入口中，`--enable-oscillation-taper` 需要和
+  `--use-portfolio-logic-runtime` 一起使用；它只在本次命令的 `--interval`
+  范围内为已知 cluster 打开 oscillation taper，不修改默认
+  `DEFAULT_OOT_EVAL_CONFIG`。
 - 多 interval（如 `day,60min`）场景下，pipeline 会在各 interval 首轮评估后，
   自动用“跨 interval 合并预测表”重算一次 OOT HTF gate，
   让 `day` 与 `60min` 互相提供趋势状态，避免单 interval 评估出现整批 `htf_missing`。

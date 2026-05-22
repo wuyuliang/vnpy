@@ -33,6 +33,18 @@ def _make_day_parquet(root: Path, symbol: str, datetimes: list[str],
     return out
 
 
+def _make_day_partition_parquet(
+    root: Path, symbol: str, date: str, datetimes: list[str], features: dict[str, list]
+) -> Path:
+    df = pd.DataFrame({"datetime": pd.to_datetime(datetimes)})
+    for k, v in features.items():
+        df[k] = v
+    out = root / "day" / symbol / f"{date}.parquet"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(out, index=False)
+    return out
+
+
 class TestOnlineFeatureLoader(unittest.TestCase):
     def test_loads_minute_parquet_by_date(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -50,7 +62,22 @@ class TestOnlineFeatureLoader(unittest.TestCase):
             self.assertEqual(row["feat_a"], 2.0)
             self.assertEqual(row["feat_b"], 20.0)
 
-    def test_loads_day_parquet(self) -> None:
+    def test_loads_day_partitioned_parquet(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_day_partition_parquet(
+                root, "RB0",
+                "2024-01-03",
+                ["2024-01-03 09:00", "2024-01-03 15:00", "2024-01-03 21:00"],
+                {"feat_a": [1.0, 2.0, 3.0]},
+            )
+            loader = OnlineFeatureLoader(feature_root=str(root))
+            row = loader.load_at(symbol="RB0", interval="day",
+                                dt=datetime(2024, 1, 3, 15, 30))
+            self.assertIsNotNone(row)
+            self.assertEqual(row["feat_a"], 2.0)
+
+    def test_loads_day_legacy_single_file_as_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _make_day_parquet(
@@ -121,6 +148,28 @@ class TestOnlineFeatureLoaderAsProvider(unittest.TestCase):
             self.assertIsNotNone(df)
             self.assertEqual(df["feat_a"].iloc[0], 2.0)
             self.assertEqual(df["feat_b"].iloc[0], 20.0)
+
+    def test_provider_schema_parity_reindex_with_missing_columns(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_minute_parquet(
+                root, "minute60", "RB", "2024-01-02",
+                ["2024-01-02 10:00"],
+                {"feat_a": [2.0]},
+            )
+            loader = OnlineFeatureLoader(feature_root=str(root))
+            from types import SimpleNamespace
+            adapter = SimpleNamespace(
+                vt_symbol="RB0.SHFE",
+                interval="minute60",
+                _buffer=[SimpleNamespace(datetime=datetime(2024, 1, 2, 10, 30))],
+            )
+            expected = ["feat_a", "feat_b_missing"]
+            df = loader(adapter, columns=expected)
+            self.assertIsNotNone(df)
+            assert df is not None
+            self.assertEqual(list(df.columns), expected)
+            self.assertTrue(pd.isna(df["feat_b_missing"].iloc[0]))
 
 
 if __name__ == "__main__":

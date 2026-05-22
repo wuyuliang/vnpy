@@ -55,6 +55,28 @@ class TestOpportunityRanker(unittest.TestCase):
         self.assertAlmostEqual(float(components["rank_weight"]), 0.85, places=6)
         self.assertAlmostEqual(float(out.iloc[0]["score"]), 0.85, places=6)
 
+    def test_score_uses_injected_interval_rank_weights(self) -> None:
+        ranker = OpportunityRanker(
+            OpportunityRankerConfig(w_prob=0.0, w_edge=0.0, w_rank=1.0, w_align=0.0),
+            interval_rank={"60min": 0.33, "day": 0.99},
+        )
+        df = pd.DataFrame(
+            {
+                "symbol": ["RB0"],
+                "exchange": ["SHFE"],
+                "interval": ["60min"],
+                "direction": ["long"],
+                "cluster_name": ["black"],
+                "trade_filter_prob_pctl": [50.0],
+                "pred_mfe_atr": [0.0],
+                "pred_mae_atr": [0.0],
+                "htf_alignment": ["neutral"],
+            }
+        )
+        out = ranker.score(df, htf_state={})
+        self.assertAlmostEqual(float(out.iloc[0]["score_components"]["rank_weight"]), 0.33, places=6)
+        self.assertAlmostEqual(float(out.iloc[0]["score"]), 0.33, places=6)
+
     def test_allocate_respects_cluster_and_total_caps(self) -> None:
         ranker = OpportunityRanker(OpportunityRankerConfig())
         state = PortfolioState(equity=1_000_000.0)

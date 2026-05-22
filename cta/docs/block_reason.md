@@ -1,9 +1,16 @@
 # block_reason 全量 review 与修复方案
 
-> **本文档面向 codex 实施。** 起因：`20260517_GRP_CLUSTER_METAL_day/details.csv` 中绝大多数样本的 `block_reason == "htf_missing"`，几乎吞掉全部交易。本文档把 CTA 代码库里**所有 26 种 `block_reason` 字面量**（外加 1 个易混淆的 `execution_status` sentinel）重新 review 了一遍，每种都给出触发条件、根因、修复方案、验收命令。
+> **本文档面向 codex 实施。** 起因：`20260517_GRP_CLUSTER_METAL_day/details.csv` 中绝大多数样本的 `block_reason == "htf_missing"`，几乎吞掉全部交易。本文档把 CTA 代码库里**所有 32 种 `block_reason` 字面量**（外加 1 个易混淆的 `execution_status` sentinel）重新 review 了一遍，每种都给出触发条件、根因、修复方案、验收命令。
+>
+> `block_reason` 只解释入场为何被挡住。持仓后的震荡边界降仓不是 block：
+> 开启 `oscillation_upper_band_taper` 后请看交易明细的
+> `position_taper_count / position_taper_target_ratio / position_taper_realized_ratio`
+> 与 `exit_reason="oscillation_upper_band_taper"`。
+>
+> **2026-05-20 更新**：§1.1 表新增两条 OOT 执行期 block_reason —— `blocked_ma_cross_trend` 和 `blocked_regime_short_filter`，默认 off，按 (cluster, interval) 灰度启用，详见 [ma_cross_regime_aware_design.md](./ma_cross_regime_aware_design.md)。
 >
 > **codex 实施纪律**：
-> 1. 不许只挑容易的做 — 26 种 reason 每种都必须 review，禁止省略
+> 1. 不许只挑容易的做 — 32 种 reason 每种都必须 review，禁止省略
 > 2. 不许把"修复"写成 TODO — 每条都要给出 file:line + 代码 diff 草稿
 > 3. 不许跳过测试 — §21 验收清单逐项打勾
 > 4. 不许改业务 — 本次只**修 bug + 加配置开关**，不动交易逻辑/风控阈值默认值
@@ -12,33 +19,39 @@
 
 ---
 
-## §1 概览与 26 reason 总表
+## §1 概览与 32 reason 总表
 
-### 1.1 OOT 执行期（[pipeline_oot_evaluation.py](../model/pipeline_oot_evaluation_source.py.txt)，21 种）
+### 1.1 OOT 执行期（[pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py)，27 种）
 
 | # | block_reason | emit 位置 | 触发条件 | 类别 | 优先级 |
 |---|---|---|---|---|---|
-| 1 | `invalid_time` | [pipeline_oot_evaluation.py:787](../model/pipeline_oot_evaluation_source.py.txt) | `exit < entry` 或任一为 NaT | 数据 | P0 bug |
-| 2 | `blocked_throttle_halt` | [pipeline_oot_evaluation.py:905](../model/pipeline_oot_evaluation_source.py.txt) | `risk_throttle.compute() → "halt"`（周/月回撤超限） | 风控 | P2 正常 |
-| 3 | `htf_missing` | [interval_gate.py:212](../portfolio_logic/interval_gate.py) → 复制到 [pipeline_oot_evaluation.py:933](../model/pipeline_oot_evaluation_source.py.txt) | `htf_state` 无该 (symbol, exchange) 条目，或 TTL 已过 | HTF gate | **P0 bug**（METAL 案例）|
+| 1 | `invalid_time` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | `exit < entry` 或任一为 NaT | 数据 | P0 bug |
+| 2 | `blocked_throttle_halt` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | `risk_throttle.compute() → "halt"`（周/月回撤超限） | 风控 | P2 正常 |
+| 3 | `htf_missing` | [interval_gate.py:212](../portfolio_logic/interval_gate.py) → 复制到 [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | `htf_state` 无该 (symbol, exchange) 条目，或 TTL 已过 | HTF gate | **P0 bug**（METAL 案例）|
 | 4 | `htf_conflict` | [interval_gate.py:224](../portfolio_logic/interval_gate.py) | 各 HTF interval 上 regime 无法形成 long/short 共识 | HTF gate | P1 配置 |
 | 5 | `htf_opposite` | [interval_gate.py:230,236](../portfolio_logic/interval_gate.py) | `state="long_only"` 但方向 short（反之同理） | HTF gate | P2 正常 |
 | 6 | `htf_unknown` | [interval_gate.py:242](../portfolio_logic/interval_gate.py) | HTF state 落到 `{both,none,long_only,short_only}` 之外 | HTF gate（bug 兜底） | P0 bug |
-| 7 | `ranker_dropped` | [pipeline_oot_evaluation.py:1014](../model/pipeline_oot_evaluation_source.py.txt) | OpportunityRanker 评分后未入选 | 选股 | P1 配置 |
-| 8 | `blocked_limit_move` | [pipeline_oot_evaluation.py:1028](../model/pipeline_oot_evaluation_source.py.txt) | 多单遇涨停 / 空单遇跌停 | 数据/规则 | P2 正常 |
-| 9 | `blocked_pyramid_rule` | [pipeline_oot_evaluation.py:1106](../model/pipeline_oot_evaluation_source.py.txt) | `PyramidManager.decide_add_layer() == False` | 加仓规则 | P2 正常 |
-| 10 | `blocked_monthly_drawdown` | [pipeline_oot_evaluation.py:1122](../model/pipeline_oot_evaluation_source.py.txt) | `month_dd_breached and block_new_entries_on_monthly_dd_breach` | 风控 | P2 正常 |
-| 11 | `blocked_weekly_drawdown` | [pipeline_oot_evaluation.py:1125](../model/pipeline_oot_evaluation_source.py.txt) | `week_dd_breached and block_new_entries_on_weekly_dd_breach` | 风控 | P2 正常 |
-| 12 | `blocked_total_concurrent` | [pipeline_oot_evaluation.py:1128](../model/pipeline_oot_evaluation_source.py.txt) | `total_count_now >= max_concurrent_positions_total` | 仓位 | P2 正常 |
-| 13 | `blocked_symbol_concurrent` | [pipeline_oot_evaluation.py:1131](../model/pipeline_oot_evaluation_source.py.txt) | `sym_count_now >= max_concurrent_positions_per_symbol`（非加仓） | 仓位 | P2 正常 |
-| 14 | `blocked_symbol_cap` | [pipeline_oot_evaluation.py:1229](../model/pipeline_oot_evaluation_source.py.txt) | 单品种名义金额触顶（默认 30%） | 仓位 | P2 正常 |
-| 15 | `blocked_cluster_cap` | [pipeline_oot_evaluation.py:1231](../model/pipeline_oot_evaluation_source.py.txt) | 所属 cluster 名义金额触顶（默认 50%） | 仓位 | P2 正常 |
-| 16 | `blocked_weekly_budget` | [pipeline_oot_evaluation.py:1233](../model/pipeline_oot_evaluation_source.py.txt) | 周回撤预算耗尽，单笔潜在亏损放不下 | 风控 | P2 正常 |
-| 17 | `blocked_daily_position` | [pipeline_oot_evaluation.py:1235](../model/pipeline_oot_evaluation_source.py.txt) | 当日新开名义金额超 `max_daily_new_notional_pct`（默认 100%） | 仓位 | P2 正常 |
-| 18 | `blocked_margin_cash` | [pipeline_oot_evaluation.py:1237](../model/pipeline_oot_evaluation_source.py.txt) | `cash / margin_rate ≤ 0` | 资金 | P2 正常 |
-| 19 | `blocked_leverage` | [pipeline_oot_evaluation.py:1239](../model/pipeline_oot_evaluation_source.py.txt) | 总名义 / 权益 ≥ `max_total_leverage`（默认 2.0） | 杠杆 | P2 正常 |
-| 20 | `blocked_portfolio_constraint` | [pipeline_oot_evaluation.py:1244](../model/pipeline_oot_evaluation_source.py.txt) | notional ≤ 0 但上述 cap 都 > 0（**理论上不应出现**） | bug 兜底 | P0 bug |
-| 21 | `zero_notional` | [pipeline_oot_evaluation.py:1257](../model/pipeline_oot_evaluation_source.py.txt) | sizing 算出 ≤ 0 且无具体 reason | sizing | P1 调查 |
+| 7 | `ranker_dropped` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | OpportunityRanker 评分后未入选 | 选股 | P1 配置 |
+| 8 | `blocked_limit_move` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | 多单遇涨停 / 空单遇跌停 | 数据/规则 | P2 正常 |
+| 9 | `blocked_pyramid_rule` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | `PyramidManager.decide_add_layer() == False` | 加仓规则 | P2 正常 |
+| 10 | `blocked_monthly_drawdown` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | `month_dd_breached and block_new_entries_on_monthly_dd_breach` | 风控 | P2 正常 |
+| 11 | `blocked_weekly_drawdown` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | `week_dd_breached and block_new_entries_on_weekly_dd_breach` | 风控 | P2 正常 |
+| 12 | `blocked_total_concurrent` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | `total_count_now >= max_concurrent_positions_total` | 仓位 | P2 正常 |
+| 13 | `blocked_symbol_concurrent` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | `sym_count_now >= max_concurrent_positions_per_symbol`（非加仓） | 仓位 | P2 正常 |
+| 14 | `blocked_symbol_cap` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | 单品种名义金额触顶（默认 30%） | 仓位 | P2 正常 |
+| 15 | `blocked_cluster_cap` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | 所属 cluster 名义金额触顶（默认 50%） | 仓位 | P2 正常 |
+| 16 | `blocked_weekly_budget` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | 周回撤预算耗尽，单笔潜在亏损放不下 | 风控 | P2 正常 |
+| 17 | `blocked_daily_position` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | 当日新开名义金额超 `max_daily_new_notional_pct`（默认 100%） | 仓位 | P2 正常 |
+| 18 | `blocked_margin_cash` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | `cash / margin_rate ≤ 0` | 资金 | P2 正常 |
+| 19 | `blocked_leverage` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | 总名义 / 权益 ≥ `max_total_leverage`（默认 2.0） | 杠杆 | P2 正常 |
+| 20 | `blocked_portfolio_constraint` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | notional ≤ 0 但上述 cap 都 > 0（**理论上不应出现**） | bug 兜底 | P0 bug |
+| 21 | `zero_notional` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | sizing 算出 ≤ 0 且无具体 reason | sizing | P1 调查 |
+| 22 | `blocked_ma_cross_trend` | [oot_gates.py:apply_ma_cross_gate](../model/oot/oot_gates.py) → 由 [pipeline_oot_evaluation.py 串行调用](../model/oot/pipeline_oot_evaluation.py) | `ma_alignment >= 1` 多头排列禁 short / `<= -1` 空头排列禁 long；仅在 `cfg.ma_cross_enabled_by_cluster_interval` 显式 opt-in 的 (cluster, interval) 启用。设计文档 [ma_cross_regime_aware_design.md §3](./ma_cross_regime_aware_design.md) | 趋势过滤 | P2 灰度（默认 off） |
+| 23 | `blocked_regime_short_filter` | [oot_gates.py:apply_regime_short_filter](../model/oot/oot_gates.py) → 由 [pipeline_oot_evaluation.py 串行调用](../model/oot/pipeline_oot_evaluation.py) | 真实 `regime_label ∈ {trend_up,...}` AND `side=short`；用 candidate 行的 regime_label（不依赖模型预测的 pred_regime_label）。仅在 `cfg.regime_short_filter_enabled_by_cluster_interval` 显式 opt-in 启用。设计文档 [ma_cross_regime_aware_design.md §4](./ma_cross_regime_aware_design.md) | 趋势过滤 | P2 灰度（默认 off） |
+| 24 | `blocked_trade_filter` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | `trade_filter_prob`（或分位）低于阈值 | 模型门控 | P2 正常 |
+| 25 | `blocked_regime_gate` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | `pred_regime_label` 与方向冲突 | 模型门控 | P2 正常 |
+| 26 | `blocked_mfe_mae_gate` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | `pred_mfe_atr - λ*pred_mae_atr < min_pred_edge_atr` | 模型门控 | P2 正常 |
+| 27 | `blocked_final_decision_gate` | [pipeline_oot_evaluation.py](../model/oot/pipeline_oot_evaluation.py) | `final_decision_score < threshold` | 模型门控 | P2 正常 |
 
 ### 1.2 候选样本期（[candidate_schema.py](../model/feature/candidate_schema.py)，5 种 fallback）
 
@@ -46,11 +59,11 @@
 
 | # | block_reason | emit 位置 | 对应 sample_status | 优先级 |
 |---|---|---|---|---|
-| 22 | `filtered_by_rule` | [candidate_schema.py:36](../model/feature/candidate_schema.py) | `filtered_by_rule` | P3 历史回放 |
-| 23 | `risk_rule_blocked` | [candidate_schema.py:37](../model/feature/candidate_schema.py) | `blocked_by_risk` | P3 历史回放 |
-| 24 | `capacity_blocked` | [candidate_schema.py:38](../model/feature/candidate_schema.py) | `blocked_by_capacity` | P3 历史回放 |
-| 25 | `execution_rule_blocked` | [candidate_schema.py:39](../model/feature/candidate_schema.py) | `blocked_by_execution` | P3 历史回放 |
-| 26 | `next_bar_not_triggered` | [candidate_schema.py:40](../model/feature/candidate_schema.py) | `not_triggered_market` | P3 历史回放 |
+| 28 | `filtered_by_rule` | [candidate_schema.py:36](../model/feature/candidate_schema.py) | `filtered_by_rule` | P3 历史回放 |
+| 29 | `risk_rule_blocked` | [candidate_schema.py:37](../model/feature/candidate_schema.py) | `blocked_by_risk` | P3 历史回放 |
+| 30 | `capacity_blocked` | [candidate_schema.py:38](../model/feature/candidate_schema.py) | `blocked_by_capacity` | P3 历史回放 |
+| 31 | `execution_rule_blocked` | [candidate_schema.py:39](../model/feature/candidate_schema.py) | `blocked_by_execution` | P3 历史回放 |
+| 32 | `next_bar_not_triggered` | [candidate_schema.py:40](../model/feature/candidate_schema.py) | `not_triggered_market` | P3 历史回放 |
 
 ---
 
@@ -61,7 +74,7 @@
 - `execution_status`：枚举字符串，描述这笔候选最终落到哪个"状态桶"。如 `"executed"`、`"blocked_htf_gate"`、`"blocked_throttle_halt"`、`"blocked_zero_notional"`、`"pending"`、`"invalid_time"` 等。
 - `block_reason`：在 `execution_status` 是被阻拦类别时，记录**具体原因**。`"executed"` 时为空字符串 `""`。
 
-特别注意 [pipeline_oot_evaluation.py:1167](../model/pipeline_oot_evaluation_source.py.txt) 的 sentinel：
+特别注意 [pipeline_oot_evaluation.py:1167](../model/pipeline_oot_evaluation.py) 的 sentinel：
 
 ```python
 selected.at[idx, "execution_status"] = reason or "blocked_zero_notional"
@@ -112,12 +125,12 @@ selected.at[idx, "block_reason"] = reason or "zero_notional"
 
 1. 用户跑 `python -m cta.model.model_pipeline --group-pool CLUSTER_METAL --interval day --start ... --end ...`
 2. 输出落到 `20260517_GRP_CLUSTER_METAL_day/`
-3. `_evaluate_oot_real_execution` 在 [pipeline_oot_evaluation.py:540](../model/pipeline_oot_evaluation_source.py.txt) 检测：
+3. `_evaluate_oot_real_execution` 在 [pipeline_oot_evaluation.py:540](../model/pipeline_oot_evaluation.py) 检测：
    ```python
    use_pl_runtime = bool(getattr(cfg, "use_portfolio_logic_runtime", False))  # True
    use_pl_htf = bool(use_pl_runtime and pl_cfg is not None and bool(getattr(pl_cfg, "enable_htf_gate", False)))  # True
    ```
-4. 在 [pipeline_oot_evaluation.py:564-571](../model/pipeline_oot_evaluation_source.py.txt) 按 `htf_intervals=("day", "60min")` 切分 `htf_reference`：
+4. 在 [pipeline_oot_evaluation.py:564-571](../model/pipeline_oot_evaluation.py) 按 `htf_intervals=("day", "60min")` 切分 `htf_reference`：
    ```python
    for itv in pl_cfg.interval_gate.htf_intervals:
        ref_interval_norm = ref_interval.map(normalize_portfolio_interval)
@@ -150,7 +163,7 @@ selected.at[idx, "block_reason"] = reason or "zero_notional"
    ```
    - `fallback_when_htf_missing="skip"` 是 [config.py:75](../portfolio_logic/config.py) 默认值
    - → 每一笔都 emit `"htf_missing"`
-7. 拷回 `selected.block_reason` [pipeline_oot_evaluation.py:933-935](../model/pipeline_oot_evaluation_source.py.txt)。
+7. 拷回 `selected.block_reason` [pipeline_oot_evaluation.py:933-935](../model/pipeline_oot_evaluation.py)。
 
 ### 4.2 根因总结
 
@@ -187,7 +200,7 @@ print(df['interval'].value_counts())
 
 ### 5.1 改动位置
 
-文件 [cta/model/pipeline_oot_evaluation.py](../model/pipeline_oot_evaluation_source.py.txt)，函数 `_evaluate_oot_real_execution`，行号区间 551-571。
+文件 [cta/model/pipeline_oot_evaluation.py](../model/pipeline_oot_evaluation.py)，函数 `_evaluate_oot_real_execution`，行号区间 551-571。
 
 ### 5.2 改动 diff
 
@@ -274,7 +287,7 @@ if use_pl_htf:
 
 1. **必须用 `dataclasses.replace`**：`IntervalGateConfig` 是 `@dataclass(frozen=True)`（[config.py:69](../portfolio_logic/config.py)）。直接 `pl_cfg.interval_gate.htf_intervals = (...)` 会抛 `FrozenInstanceError`。
 2. **`HtfGate` 实例化时序调整**：原代码先实例化再切分；新代码改成切分后再决定是否实例化（用窄化 cfg）。
-3. **保留 `htf_gate = None` 路径**：当 `ref_intervals_seen` 为空时关闭 gate，后续 `if use_pl_htf and htf_gate is not None` 守卫已存在（[pipeline_oot_evaluation.py:911](../model/pipeline_oot_evaluation_source.py.txt)），不需要再加守卫。
+3. **保留 `htf_gate = None` 路径**：当 `ref_intervals_seen` 为空时关闭 gate，后续 `if use_pl_htf and htf_gate is not None` 守卫已存在（[pipeline_oot_evaluation.py:911](../model/pipeline_oot_evaluation.py)），不需要再加守卫。
 4. **不要降级为 fallback="both"**：那会跨过严格语义；用户已经主动配 `require_consensus=True` 应当尊重。Fix-A 的语义是"按实际数据可用 interval 应用共识"，比 fallback 更精准。
 
 ### 5.4 配套测试（必加）
@@ -353,7 +366,7 @@ class TestHtfGate:
 
 ### 7.1 改动位置
 
-文件 [cta/model/pipeline_oot_evaluation.py](../model/pipeline_oot_evaluation_source.py.txt)，在 `_evaluate_oot_real_execution` 返回结果前（找 `trade_details_df` 已构造好的位置，grep `trade_details_df` 找到 return 处）。
+文件 [cta/model/pipeline_oot_evaluation.py](../model/pipeline_oot_evaluation.py)，在 `_evaluate_oot_real_execution` 返回结果前（找 `trade_details_df` 已构造好的位置，grep `trade_details_df` 找到 return 处）。
 
 ### 7.2 改动代码
 
@@ -395,6 +408,101 @@ INFO  OOT block_reason distribution [path=main] (total=842): {'__executed__': 61
 ```
 WARNING  More than 50% of candidates blocked by htf_missing (820/842). Check htf_intervals vs available data (see cta/docs/block_reason.md §4-§6).
 ```
+
+---
+
+## §7.5 htf_missing 修复 Fix-E：按 interval_rank 过滤 HTF（**跨 interval 共享 HTF 场景**）
+
+### 7.5.1 漏掉的场景
+
+Fix-A 解决了"单 interval 跑批无 60min 数据"的情形：候选 interval 在 `htf_reference` 里只有 day → 自动窄化到 `("day",)`。
+
+但还有一个**对偶**漏洞：当 `_recompute_oot_with_shared_htf_reference` 把 day/60min/30min 三个 interval 预测拼成共享 HTF 参考时，**day 候选**会同时拿到 day 和 60min 两条参考，Fix-A 不会窄化（两个 interval 都有数据）。然后：
+
+- `HtfGate.compute_htf_state` 给 day 候选构建 state，state 含 `computed_at_by_interval = {"day": ts_day, "60min": ts_60min}`
+- `is_state_fresh` 按每个 interval 的 ttl 检查：60min ttl 默认 3600s（1 小时）
+- day 候选 `as_of` 通常在 day 开盘或收盘时刻，最近一根 60min bar 距离 5-20 小时（隔夜、周末更长）→ **必然过期** → `is_state_fresh = False`
+- → 整体 state 视作缺失 → emit `htf_missing`
+
+**结果**：跨 interval 共享 HTF 后 day 目录里 100% `htf_missing`。复现案例：[20260518_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_index_day/](../report/backtest/20260518_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_index_day/)。
+
+### 7.5.2 根因：HTF 语义错配
+
+`htf_intervals=("day", "60min")` 的设计意图是给 **sub-hourly 候选**（5min/15min/30min/60min）查的"更高时间框架"。
+
+对于 **day 候选**，60min 是**更低**的时间框架，根本不应该被当作"HTF 共识来源"。`IntervalGateConfig.interval_rank` 已经给出语义：day=1.0、60min=0.85、30min=0.70、15min=0.55、5min=0.40、min=0.25。HTF 按定义必须 rank ≥ 候选 interval rank。
+
+### 7.5.3 改动位置
+
+文件 [cta/model/pipeline_oot_evaluation.py](../model/pipeline_oot_evaluation.py)，函数 `_evaluate_oot_real_execution`，Fix-A 之后、`configured_intervals` 计算之前。
+
+### 7.5.4 改动代码
+
+```python
+# Fix-E（语义修正，2026-05-18）：HTF 按定义是"更高时间框架"，必须不低于候选自身。
+interval_rank = dict(pl_cfg.interval_gate.interval_rank or {})
+pred_intervals_norm: set[str] = set()
+if "interval" in df.columns:
+    pred_intervals_norm = {
+        normalize_portfolio_interval(v)
+        for v in df["interval"].dropna().astype(str).unique()
+        if str(v).strip()
+    }
+if len(pred_intervals_norm) == 1 and ref_intervals_seen:
+    pred_interval = next(iter(pred_intervals_norm))
+    pred_rank = float(interval_rank.get(pred_interval, 0.0))
+    semantic_intervals = [
+        k for k in ref_intervals_seen
+        if float(interval_rank.get(k, 0.0)) >= pred_rank
+    ]
+    if set(semantic_intervals) != set(ref_intervals_seen):
+        dropped = sorted(set(ref_intervals_seen) - set(semantic_intervals))
+        logger.info(
+            "HTF intervals filtered by rank for prediction interval=%s (rank=%.2f): "
+            "kept=%s dropped=%s (HTF must be >= candidate interval rank, see Fix-E).",
+            pred_interval, pred_rank, semantic_intervals, dropped,
+        )
+        for k in dropped:
+            htf_ref_by_interval.pop(k, None)
+        ref_intervals_seen = semantic_intervals
+```
+
+### 7.5.5 行为对照表
+
+| 候选 interval | 候选 rank | 共享 HTF 含 | Fix-E 保留 | 实际生效 HTF |
+|---|---|---|---|---|
+| day | 1.0 | day + 60min | 仅 day | day（不再被 60min TTL 误杀）|
+| 60min | 0.85 | day + 60min | day + 60min | 与默认一致 |
+| 30min | 0.70 | day + 60min | day + 60min | 与默认一致 |
+| 5min | 0.40 | day + 60min | day + 60min | 与默认一致 |
+
+Fix-E **不影响** sub-hourly 候选的默认行为；只剪掉"对 day 候选无意义、还会 TTL 误杀"的低 rank HTF。
+
+### 7.5.6 验收
+
+```bash
+# 1. 单测
+pytest cta/model/tests/test_pipeline_oot_evaluation.py::test_fix_e_day_candidate_drops_lower_rank_htf_when_shared_reference -v
+pytest cta/model/tests/test_pipeline_oot_evaluation.py::test_fix_e_minute_candidate_keeps_day_and_60min_htf -v
+
+# 2. 端到端复现
+python -m cta.model.model_pipeline --group-pool --group-by cluster \
+    --only-clusters index --interval day 60min 30min \
+    --start 2024-01-01 --end 2025-12-31 \
+    --use-portfolio-logic-runtime
+
+# 3. 检查 day 子目录 block_reason 分布
+python -c "
+import pandas as pd
+df = pd.read_csv('<run>/symbol_group_details/grp_cluster_index_day/<...>_oot_trade_details.csv', encoding='utf-8-sig')
+print(df['block_reason'].value_counts(dropna=False))
+assert (df['block_reason']=='htf_missing').mean() < 0.05
+"
+```
+
+期望：
+- log 含 `HTF intervals filtered by rank for prediction interval=day (rank=1.00): kept=['day'] dropped=['60min']`
+- day OOT trade_details 的 `htf_missing` 比例 < 5%（理想 0）
 
 ---
 
@@ -456,7 +564,7 @@ logger.warning(
 
 ### 9.1 触发位置
 
-[pipeline_oot_evaluation.py:782-790](../model/pipeline_oot_evaluation_source.py.txt)（grep `invalid_time` 确认）：
+[pipeline_oot_evaluation.py:782-790](../model/pipeline_oot_evaluation.py)（grep `invalid_time` 确认）：
 
 ```python
 exi = pd.to_datetime(selected["exit_datetime"], errors="coerce")
@@ -499,7 +607,7 @@ pytest cta/strategy/tests/test_baseline_candidate_gen.py -k "invalid_time or exi
 
 ### 10.1 触发位置
 
-[pipeline_oot_evaluation.py:902-909](../model/pipeline_oot_evaluation_source.py.txt)：当 `RiskThrottle.compute()` 返回 level.name=`"halt"` 时，**清空本 bar 的入场队列**。
+[pipeline_oot_evaluation.py:902-909](../model/pipeline_oot_evaluation.py)：当 `RiskThrottle.compute()` 返回 level.name=`"halt"` 时，**清空本 bar 的入场队列**。
 
 ### 10.2 不是 bug，是设计
 
@@ -534,7 +642,7 @@ print(df[df['level']=='halt'].describe())
 
 ### 11.1 触发位置
 
-[pipeline_oot_evaluation.py:943-1014](../model/pipeline_oot_evaluation_source.py.txt)：`OpportunityRanker.score(...)` 评分后，未入选的 idx 被标 `execution_status="blocked_ranker"`、`block_reason="ranker_dropped"`。
+[pipeline_oot_evaluation.py:943-1014](../model/pipeline_oot_evaluation.py)：`OpportunityRanker.score(...)` 评分后，未入选的 idx 被标 `execution_status="blocked_ranker"`、`block_reason="ranker_dropped"`。
 
 ### 11.2 调参
 
@@ -563,7 +671,7 @@ print(df.loc[df['block_reason']=='ranker_dropped', 'ranker_score'].describe())
 
 ### 12.1 触发位置
 
-[pipeline_oot_evaluation.py:1018-1030](../model/pipeline_oot_evaluation_source.py.txt)：
+[pipeline_oot_evaluation.py:1018-1030](../model/pipeline_oot_evaluation.py)：
 
 ```python
 if (side_now == "long" and limit_up_arr[idx]) or (side_now == "short" and limit_down_arr[idx]):
@@ -597,7 +705,7 @@ print(limit_blocked.groupby('symbol').size().sort_values(ascending=False).head(2
 
 ### 13.1 触发位置
 
-[pipeline_oot_evaluation.py:1092-1116](../model/pipeline_oot_evaluation_source.py.txt)：
+[pipeline_oot_evaluation.py:1092-1116](../model/pipeline_oot_evaluation.py)：
 
 ```python
 can_add = pyramid_manager.decide_add_layer(
@@ -629,7 +737,7 @@ if not can_add:
 
 ### 14.1 触发位置
 
-[pipeline_oot_evaluation.py:1119-1125](../model/pipeline_oot_evaluation_source.py.txt)：
+[pipeline_oot_evaluation.py:1119-1125](../model/pipeline_oot_evaluation.py)：
 
 ```python
 if bool(cfg.use_portfolio_constraints):
@@ -663,7 +771,7 @@ if bool(cfg.use_portfolio_constraints):
 
 ### 15.1 触发位置
 
-[pipeline_oot_evaluation.py:1126-1131](../model/pipeline_oot_evaluation_source.py.txt)：
+[pipeline_oot_evaluation.py:1126-1131](../model/pipeline_oot_evaluation.py)：
 
 ```python
 elif total_count_now >= int(cfg.max_concurrent_positions_total):
@@ -691,7 +799,7 @@ elif (not use_pl_pyramid) and sym_key and sym_count_now >= int(cfg.max_concurren
 
 ### 16.1 触发位置
 
-[pipeline_oot_evaluation.py:1132-1154](../model/pipeline_oot_evaluation_source.py.txt)：
+[pipeline_oot_evaluation.py:1132-1154](../model/pipeline_oot_evaluation.py)：
 
 ```python
 cap_symbol = max(0.0, float(entry_equity * float(pl_cfg.caps.max_symbol_notional_pct) - sym_notional_now))
@@ -727,7 +835,7 @@ cluster cap 现在已经拆分为独立 reason `blocked_cluster_cap`，因此可
 
 ### 17.1 触发位置
 
-[pipeline_oot_evaluation.py:1141-1158](../model/pipeline_oot_evaluation_source.py.txt)：
+[pipeline_oot_evaluation.py:1141-1158](../model/pipeline_oot_evaluation.py)：
 
 ```python
 cap_daily = max(0.0, float(day_start_equity * float(cfg.max_daily_new_notional_pct) - day_new_notional))
@@ -764,7 +872,7 @@ elif cap_daily <= 0:
 
 ### 18.1 触发位置
 
-[pipeline_oot_evaluation.py:1135, 1159-1162](../model/pipeline_oot_evaluation_source.py.txt)：
+[pipeline_oot_evaluation.py:1135, 1159-1162](../model/pipeline_oot_evaluation.py)：
 
 ```python
 cap_lev = max(0.0, float(entry_equity * float(cfg.max_total_leverage) - open_notional))
@@ -797,7 +905,7 @@ elif cap_lev <= 0:
 
 ### 19.1 `blocked_portfolio_constraint` — 兜底，理论上不应出现
 
-[pipeline_oot_evaluation.py:1163-1164](../model/pipeline_oot_evaluation_source.py.txt)：
+[pipeline_oot_evaluation.py:1163-1164](../model/pipeline_oot_evaluation.py)：
 
 ```python
 else:
@@ -822,7 +930,7 @@ else:
 
 ### 19.3 `zero_notional`
 
-[pipeline_oot_evaluation.py:1166-1168](../model/pipeline_oot_evaluation_source.py.txt)：
+[pipeline_oot_evaluation.py:1166-1168](../model/pipeline_oot_evaluation.py)：
 
 ```python
 if notional <= 0:
@@ -885,10 +993,10 @@ grep "blocked_portfolio_constraint hit" /path/to/*.log
 
 ### 21.2 代码改动
 
-- [ ] [pipeline_oot_evaluation.py:551-571](../model/pipeline_oot_evaluation_source.py.txt) 的 Fix-A 已落地，`dataclasses.replace` 用法正确（无 `FrozenInstanceError` 风险）
-- [ ] [pipeline_oot_evaluation.py](../model/pipeline_oot_evaluation_source.py.txt) 的 Fix-C 已落地，`logger.info("OOT block_reason distribution: ...")` 出现一次且仅一次
+- [ ] [pipeline_oot_evaluation.py:551-571](../model/pipeline_oot_evaluation.py) 的 Fix-A 已落地，`dataclasses.replace` 用法正确（无 `FrozenInstanceError` 风险）
+- [ ] [pipeline_oot_evaluation.py](../model/pipeline_oot_evaluation.py) 的 Fix-C 已落地，`logger.info("OOT block_reason distribution: ...")` 出现一次且仅一次
 - [ ] [interval_gate.py:240](../portfolio_logic/interval_gate.py) 的 `htf_unknown` 路径 warning 包含 state 字符串和 entry dict
-- [ ] [interval_gate.py:1163](../model/pipeline_oot_evaluation_source.py.txt) 后加了 `blocked_portfolio_constraint` 的 logger.error
+- [ ] [interval_gate.py:1163](../model/pipeline_oot_evaluation.py) 后加了 `blocked_portfolio_constraint` 的 logger.error
 - [ ] [model_oot_eval_config.py](../config/model_oot_eval_config.py) 加了 `fallback_when_htf_missing` 注释
 - [ ] **未改默认值**：
   - `IntervalGateConfig.fallback_when_htf_missing` 仍 `"skip"`

@@ -182,6 +182,143 @@ class TestBaselineSkillSuitePart05(unittest.TestCase):
         self.assertEqual(int(out.iloc[0]["atr_warmed"]), 0)
         self.assertEqual(int(out.iloc[1]["atr_warmed"]), 1)
 
+    def test_generate_candidate_marks_horizon_truncation(self) -> None:
+        frame = pd.DataFrame(
+            {
+                "datetime": pd.date_range("2020-01-01", periods=4, freq="D"),
+                "open": [100.0, 100.0, 110.0, 110.0],
+                "high": [101.0, 105.0, 112.0, 112.0],
+                "low": [99.0, 99.0, 109.0, 109.0],
+                "close": [100.0, 105.0, 111.0, 111.0],
+                "volume": [1000, 1000, 1000, 1000],
+                "open_interest": [1000, 1000, 1000, 1000],
+                "turnover": [1e6, 1e6, 1e6, 1e6],
+                "atr14": [2.0, 2.0, 4.0, 4.0],
+                "trend_score": [0.0, 0.0, 0.0, 0.0],
+                "trend_dir": [0, 0, 0, 0],
+                "don_upper_entry": [104.0] * 4,
+                "don_lower_entry": [95.0] * 4,
+                "don_upper_exit": [120.0] * 4,
+                "don_lower_exit": [80.0] * 4,
+            }
+        )
+        candidate = generate_candidate_opportunities(
+            frame=frame,
+            symbol="RB0",
+            exchange="SHFE",
+            interval="day",
+            signal_type="donchian_breakout",
+            horizon_bars=20,
+            trade_side_mode="both",
+        )
+        self.assertIn("is_horizon_truncated", candidate.columns)
+        self.assertTrue((candidate["is_horizon_truncated"].astype(int) == 1).all())
+
+    def test_generate_candidate_can_drop_horizon_truncation_rows(self) -> None:
+        frame = pd.DataFrame(
+            {
+                "datetime": pd.date_range("2020-01-01", periods=4, freq="D"),
+                "open": [100.0, 100.0, 110.0, 110.0],
+                "high": [101.0, 105.0, 112.0, 112.0],
+                "low": [99.0, 99.0, 109.0, 109.0],
+                "close": [100.0, 105.0, 111.0, 111.0],
+                "volume": [1000, 1000, 1000, 1000],
+                "open_interest": [1000, 1000, 1000, 1000],
+                "turnover": [1e6, 1e6, 1e6, 1e6],
+                "atr14": [2.0, 2.0, 4.0, 4.0],
+                "trend_score": [0.0, 0.0, 0.0, 0.0],
+                "trend_dir": [0, 0, 0, 0],
+                "don_upper_entry": [104.0] * 4,
+                "don_lower_entry": [95.0] * 4,
+                "don_upper_exit": [120.0] * 4,
+                "don_lower_exit": [80.0] * 4,
+            }
+        )
+        candidate = generate_candidate_opportunities(
+            frame=frame,
+            symbol="RB0",
+            exchange="SHFE",
+            interval="day",
+            signal_type="donchian_breakout",
+            horizon_bars=20,
+            trade_side_mode="both",
+            drop_horizon_truncated=True,
+        )
+        self.assertEqual(len(candidate), 0)
+
+    def test_build_training_samples_marks_exit_truncation(self) -> None:
+        frame = pd.DataFrame(
+            {
+                "datetime": pd.date_range("2020-01-01", periods=4, freq="D"),
+                "open": [100.0, 101.0, 102.0, 103.0],
+                "high": [101.0, 102.0, 103.0, 104.0],
+                "low": [99.0, 100.0, 101.0, 102.0],
+                "close": [100.0, 101.0, 102.0, 103.0],
+                "atr14": [1.0, 1.0, 1.0, 1.0],
+            }
+        )
+        trade_log = pd.DataFrame(
+            [
+                {
+                    "side": "long",
+                    "entry_i": 1,
+                    "exit_i": 99,  # intentionally overflow
+                    "entry_price": 101.0,
+                    "exit_price": 103.0,
+                    "gross_pnl": 2.0,
+                    "cost": 0.0,
+                    "net_pnl": 2.0,
+                }
+            ]
+        )
+        out = build_training_samples_from_trade_log(
+            trade_log=trade_log,
+            frame=frame,
+            symbol="RB0",
+            exchange="SHFE",
+            interval="day",
+            signal_type="donchian_breakout",
+        )
+        self.assertIn("is_exit_truncated", out.columns)
+        self.assertEqual(int(out.iloc[0]["is_exit_truncated"]), 1)
+        self.assertEqual(int(out.iloc[0]["exit_i"]), 3)
+
+    def test_build_training_samples_can_drop_exit_truncated_rows(self) -> None:
+        frame = pd.DataFrame(
+            {
+                "datetime": pd.date_range("2020-01-01", periods=4, freq="D"),
+                "open": [100.0, 101.0, 102.0, 103.0],
+                "high": [101.0, 102.0, 103.0, 104.0],
+                "low": [99.0, 100.0, 101.0, 102.0],
+                "close": [100.0, 101.0, 102.0, 103.0],
+                "atr14": [1.0, 1.0, 1.0, 1.0],
+            }
+        )
+        trade_log = pd.DataFrame(
+            [
+                {
+                    "side": "long",
+                    "entry_i": 1,
+                    "exit_i": 99,
+                    "entry_price": 101.0,
+                    "exit_price": 103.0,
+                    "gross_pnl": 2.0,
+                    "cost": 0.0,
+                    "net_pnl": 2.0,
+                }
+            ]
+        )
+        out = build_training_samples_from_trade_log(
+            trade_log=trade_log,
+            frame=frame,
+            symbol="RB0",
+            exchange="SHFE",
+            interval="day",
+            signal_type="donchian_breakout",
+            drop_exit_truncated=True,
+        )
+        self.assertEqual(len(out), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

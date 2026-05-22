@@ -1,6 +1,61 @@
+# cta/strategy/
+
+## 主要做什么
+
+**策略实现层**：把 [cta/skills/](../skills/) 的 skill 组件组装成可回测/可上线的具体策略。每个策略一个文件，配套 `*_backtest.py` 或 `*_cli.py`。下半部分是该目录的方法论 / 路线图（保留历史笔记）。
+
+## 目录索引
+
+### 基线候选 / Skill suite
+| 文件 | 作用 |
+|---|---|
+| [baseline_skill_suite.py](baseline_skill_suite.py) | **候选生成主入口**：`generate_candidate_opportunities()` 给 strategy/model 提供统一候选事件流（带 future_mfe_atr/mae 标签） |
+| [baseline_candidate_gen.py](baseline_candidate_gen.py) | 单 setup 候选生成的底层细节 |
+| [baseline_setup_detection.py](baseline_setup_detection.py) | setup 识别（窄幅整理 / 突破 / 单边）的可量化规则 |
+| [baseline_feature_frame.py](baseline_feature_frame.py) | candidate × 特征 join 的 frame builder |
+| [baseline_helpers.py](baseline_helpers.py) | 通用工具 |
+| [baseline_backtest_cli.py](baseline_backtest_cli.py) | baseline 策略组回测 CLI |
+| [baseline_strategies.py](baseline_strategies.py) | baseline 各策略类的注册/调度 |
+| [mean_reversion_range_setup.py](mean_reversion_range_setup.py) | `mean_reversion_range` 反向 setup：range regime 中按 Bollinger zscore + RSI + ADX 生成候选，默认 off、按 `cluster|interval` 灰度 |
+
+### 具体策略
+| 文件 | 主题 | 文档 |
+|---|---|---|
+| [skill_tight_range_breakout.py](skill_tight_range_breakout.py) | 窄幅整理 + 突破 | — |
+| [skill_tight_range_backtest.py](skill_tight_range_backtest.py) | 上面策略的回测 entrypoint | — |
+| [price_action_breakout_engine.py](price_action_breakout_engine.py) + `_rules.py` / `_indicators.py` / `_report.py` | Brooks 价格行为突破四件套 | [breakout.md](breakout.md) |
+| [backtest_price_action_breakout.py](backtest_price_action_breakout.py) | 上面策略的回测 entrypoint | — |
+| [cta_baseline.py](cta_baseline.py) / [cta_tight_range.py](cta_tight_range.py) / [cta_adapter.py](cta_adapter.py) | 接入 vnpy CtaTemplate | — |
+| [demos.py](demos.py) | 教学 demo | — |
+
+### Brooks 系列
+- [brooks/](brooks/) — Brooks 价格行为学完整子项目（详见 [brooks/README.md](brooks/README.md)）。
+
+### 历史产出
+- `output_price_action_breakout/per_symbol/<SYM_EX>/` — 旧的逐品种回测结果归档。
+
+## 注意事项（开发新策略前必读）
+
+- **文件 500 行内**：超出按"engine / rules / indicators / report"四件套拆。
+- **禁止特征穿越**：candidate 的 `entry_datetime` 之前的 bar 才能用于信号；`future_*` 字段只能用作 label。审计走 [cta/model/tools/leakage_audit.py](../model/tools/leakage_audit.py)。
+- **统一 candidate schema**：所有策略产出的 candidate DataFrame 必须含 [cta/model/feature/candidate_schema.py](../model/feature/candidate_schema.py) 定义的核心字段，否则 model pipeline 拼不上。
+- **手续费/滑点**：从 [cta/config/futures_meta.py](../config/futures_meta.py) 取，不硬编码；`event_driven_backtest` 已统一处理。
+- **vnpy 框架接入**：只在 `cta_*.py` 系列里 import vnpy；纯研究策略不 import vnpy，方便单元测试。
+- **测试**：`pytest cta/strategy/tests/ -v`；split-contract 测试不能挂。
+- **策略文件顶部必写**（来自 `cta/README.md` 第五节约定）：策略假设 / 适用品种周期 / 信号定义 / 开仓平仓止损规则 / 仓位管理 / 手续费滑点假设 / 可能失效市场环境。
+- **新策略上线 checklist**：
+  1. `cta/report/backtest/` 有完整产物（含 OOT）
+  2. `cta/model/model_pipeline.py` 能用它的 candidate 训练完整三段模型
+  3. 通过 `leakage_audit`
+  4. 通过 baseline 对比（≥ baseline 的胜率与净 PnL）
+
+---
+
+# 方法论与路线图（历史笔记，保留备查）
+
 后面不是立刻上实盘，而是走这条主线：
 
-## 先把“特征”变成“标签”
+## 先把"特征"变成"标签"
 
 你现在只有 X，还没有可训练的 y。先定义训练目标：
 
@@ -36,6 +91,7 @@
 	•	ATR breakout
 	•	tight range breakout
 	•	breakout pullback continuation
+	•	mean reversion range（震荡区间反向 setup，默认关闭）
 
 目的不是赚钱，而是：
 	•	生成候选交易样本

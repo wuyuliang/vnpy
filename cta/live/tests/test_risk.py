@@ -11,10 +11,12 @@ from cta.live.risk import (
     MaxOrderSize,
     MaxPositionLimit,
     OrderRateLimit,
+    PortfolioThrottleRule,
     RiskContext,
     RiskDecision,
     RiskGuard,
 )
+from cta.portfolio_logic.config import CapsConfig, RiskThrottleConfig
 
 
 def _order(vt_symbol: str = "rb888.SHFE", direction: str = "long",
@@ -136,6 +138,80 @@ class TestRiskGuard(unittest.TestCase):
         )
         d = guard.evaluate(_order(volume=2), _ctx())
         self.assertTrue(d.allowed)
+
+
+class TestPortfolioThrottleRule(unittest.TestCase):
+    def test_blocks_open_when_halt_level_cap_zero(self) -> None:
+        rule = PortfolioThrottleRule(
+            base_caps=CapsConfig(max_total_positions=10, max_total_per_cluster=4),
+            cfg=RiskThrottleConfig(),
+        )
+        ctx = _ctx(
+            pos={"rb888.SHFE": 0.0},
+            drawdown_pct=0.20,
+            weekly_return_pct=0.0,
+            monthly_return_pct=0.0,
+            open_positions_total=0,
+            open_positions_by_cluster={"black": 0},
+        )
+        d = rule.check(
+            {
+                "vt_symbol": "rb888.SHFE",
+                "direction": "long",
+                "offset": "open",
+                "volume": 1.0,
+                "cluster": "black",
+            },
+            ctx,
+        )
+        self.assertFalse(d.allowed)
+        self.assertIn("throttle_total", d.reason)
+
+    def test_matches_risk_throttle_caps_semantics(self) -> None:
+        rule = PortfolioThrottleRule(
+            base_caps=CapsConfig(max_total_positions=10, max_total_per_cluster=4),
+            cfg=RiskThrottleConfig(),
+        )
+        # drawdown=7% -> reduced: total cap=7, cluster cap=2
+        ctx = _ctx(
+            drawdown_pct=0.07,
+            weekly_return_pct=0.0,
+            monthly_return_pct=0.0,
+            open_positions_total=7,
+            open_positions_by_cluster={"black": 1},
+        )
+        d_total = rule.check(
+            {
+                "vt_symbol": "rb888.SHFE",
+                "direction": "long",
+                "offset": "open",
+                "volume": 1.0,
+                "cluster": "black",
+            },
+            ctx,
+        )
+        self.assertFalse(d_total.allowed)
+        self.assertIn("throttle_total", d_total.reason)
+
+        ctx2 = _ctx(
+            drawdown_pct=0.07,
+            weekly_return_pct=0.0,
+            monthly_return_pct=0.0,
+            open_positions_total=6,
+            open_positions_by_cluster={"black": 2},
+        )
+        d_cluster = rule.check(
+            {
+                "vt_symbol": "rb888.SHFE",
+                "direction": "long",
+                "offset": "open",
+                "volume": 1.0,
+                "cluster": "black",
+            },
+            ctx2,
+        )
+        self.assertFalse(d_cluster.allowed)
+        self.assertIn("throttle_cluster", d_cluster.reason)
 
 
 if __name__ == "__main__":

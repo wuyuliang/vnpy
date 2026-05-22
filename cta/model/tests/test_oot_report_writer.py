@@ -7,7 +7,7 @@ from typing import Any
 
 import pandas as pd
 
-from cta.model.oot_report_writer import write_oot_evaluation_report
+from cta.model.reporting.oot_report_writer import write_oot_evaluation_report
 
 
 def _touch(path: Path, text: str = "x") -> Path:

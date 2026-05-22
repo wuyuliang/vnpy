@@ -95,6 +95,23 @@ class TestGroupPoolHelpers(unittest.TestCase):
         ns = mp._parse_args(["--group-pool", "--use-portfolio-logic-runtime"])
         self.assertTrue(bool(ns.use_portfolio_logic_runtime))
 
+    def test_parse_args_enable_oscillation_taper_default_false(self) -> None:
+        ns = mp._parse_args(["--group-pool"])
+        self.assertFalse(bool(ns.enable_oscillation_taper))
+
+    def test_effective_oot_cfg_enables_oscillation_taper_for_requested_intervals(self) -> None:
+        cfg = mp._build_effective_oot_config(
+            use_portfolio_logic_runtime=True,
+            enable_oscillation_taper=True,
+            intervals=("day", "60min"),
+        )
+        pl = cfg.portfolio_logic
+        self.assertTrue(cfg.use_portfolio_logic_runtime)
+        self.assertTrue(pl.enable_oscillation_taper)
+        self.assertTrue(pl.oscillation_taper.is_enabled("index", "day"))
+        self.assertTrue(pl.oscillation_taper.is_enabled("black", "minute60"))
+        self.assertFalse(pl.oscillation_taper.is_enabled("index", "30min"))
+
     def test_effective_oot_cfg_replaced_when_flag_on(self) -> None:
         """OotEvaluationConfig 的 use_portfolio_logic_runtime 被正确设为 True。"""
         from cta.config.model_oot_eval_config import DEFAULT_OOT_EVAL_CONFIG
@@ -112,7 +129,7 @@ class TestGroupPoolHelpers(unittest.TestCase):
 
     def test_only_clusters_filter_keeps_index_drops_others(self) -> None:
         """--only-clusters index 仅保留 cluster_index 组，drop cluster_black 等。"""
-        from cta.model.pipeline_feature_curation import _safe_name
+        from cta.model.dataset.pipeline_feature_curation import _safe_name
         all_groups: list[tuple[str, list[tuple[str, str | None]]]] = [
             ("cluster_index", [("IF0", "CFFEX"), ("IH0", "CFFEX"), ("IC0", "CFFEX"), ("IM0", "CFFEX")]),
             ("cluster_black", [("RB0", "SHFE"), ("HC0", "SHFE")]),
@@ -330,10 +347,10 @@ class TestGroupPoolCliDispatch(unittest.TestCase):
             "60min",
         ]
         # W4 重构后 `run_model_pipeline` / `_load_symbol_groups_from_ranking` 的真实定义在
-        # `cta.model.pipeline_orchestrator`，而 `cta.model.model_pipeline` 只是 shim。
+        # `cta.model.orchestration.pipeline_orchestrator`，而 `cta.model.model_pipeline` 只是 shim。
         # `pipeline_orchestrator.main()` 内部按模块本地名字查找这两个符号，因此必须 patch
         # 到 orchestrator 上才能生效；patch shim 是无效操作（会让真模型走真训练）。
-        import cta.model.pipeline_orchestrator as _impl
+        import cta.model.orchestration.pipeline_orchestrator as _impl
         with mock.patch.object(_impl, "_load_symbol_groups_from_ranking", return_value=fake_groups), \
              mock.patch.object(_impl, "run_model_pipeline", side_effect=fake_run), \
              redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):

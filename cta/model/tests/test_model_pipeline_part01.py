@@ -33,10 +33,10 @@ from cta.model.model_pipeline import (
     run_model_pipeline,
     run_model_pipeline_multi,
 )
-from cta.model.pipeline_oot_evaluation import _build_position_lifetime_table
+from cta.model.oot.pipeline_oot_evaluation import _build_position_lifetime_table
 from cta.config.model_oot_eval_config import OotEvaluationConfig
 from cta.portfolio_logic.config import PortfolioLogicConfig, RiskThrottleConfig, ThrottleLevel
-from cta.model.trade_filter_model import TradeFilterModel
+from cta.model.training.trade_filter_model import TradeFilterModel
 
 
 
@@ -186,6 +186,12 @@ class TestModelPipelinePart01(unittest.TestCase):
             names = {p.name for p in cal_files}
             self.assertIn("trade_filter_calibration.joblib", names)
             self.assertIn("final_decision_stack_calibration.joblib", names)
+            pred = pd.read_csv(out.prediction_path)
+            self.assertIn("trade_filter_prob_pctl", pred.columns)
+            self.assertTrue(
+                pd.to_numeric(pred["trade_filter_prob_pctl"], errors="coerce").notna().any(),
+                "predictions must carry non-OOT calibrated trade_filter percentiles",
+            )
 
     def test_build_last_oot_decile_table_uses_last_window_test_only(self) -> None:
         df = pd.DataFrame(
@@ -434,6 +440,8 @@ class TestModelPipelinePart01(unittest.TestCase):
             use_intrabar_stop_tracking=True,
             intrabar_tracking_interval="60min",
             intrabar_stop_loss_pct=0.001,
+            intrabar_stop_loss_pct_by_cluster_interval={},
+            enforce_stop_loss_consistency=False,
             benchmark_annual_return=0.0,
             risk_free_annual_return=0.0,
             annualization_factor=12.0,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from cta.model.pipeline_diagnostics import _build_valid_test_gap_alerts
+from cta.model.reporting.pipeline_diagnostics import _build_valid_test_gap_alerts
 
 
 def test_pipeline_diagnostics_gap_alerts() -> None:

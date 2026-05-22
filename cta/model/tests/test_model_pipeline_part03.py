@@ -33,10 +33,10 @@ from cta.model.model_pipeline import (
     run_model_pipeline,
     run_model_pipeline_multi,
 )
-from cta.model.pipeline_oot_evaluation import _build_position_lifetime_table
+from cta.model.oot.pipeline_oot_evaluation import _build_position_lifetime_table
 from cta.config.model_oot_eval_config import OotEvaluationConfig
 from cta.portfolio_logic.config import PortfolioLogicConfig, RiskThrottleConfig, ThrottleLevel
-from cta.model.trade_filter_model import TradeFilterModel
+from cta.model.training.trade_filter_model import TradeFilterModel
 
 
 
@@ -217,6 +217,7 @@ class TestModelPipelinePart03(unittest.TestCase):
             commission_pct_per_trade=0.0,
             slippage_pct_per_trade=0.0,
             use_position_sizing=False,
+            max_position_scale=1.0,
             use_portfolio_constraints=True,
             margin_rate=1.0,
             max_total_leverage=1.0,
@@ -227,6 +228,8 @@ class TestModelPipelinePart03(unittest.TestCase):
             use_intrabar_stop_tracking=True,
             intrabar_tracking_interval="60min",
             intrabar_stop_loss_pct=0.001,
+            intrabar_stop_loss_pct_by_cluster_interval={},
+            enforce_stop_loss_consistency=False,
             benchmark_annual_return=0.0,
             risk_free_annual_return=0.0,
             annualization_factor=12.0,

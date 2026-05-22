@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from cta.config.baseline_skill_suite_config import BASELINE_SIGNAL_TYPES, TRAINING_FEATURE_COLUMNS
+from cta.config.mean_reversion_setup_config import MeanReversionSetupConfig
 from cta.config.skill_tight_range_breakout_config import BacktestConfig, VALID_SIDE_MODES
 from cta.skills.data_backtest.event_driven_backtest import EngineConfig, run_backtest
 from cta.skills.data_backtest.trade_evaluation import summarize_trades
@@ -33,6 +34,22 @@ from cta.strategy.skill_tight_range_backtest import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _mean_reversion_cfg_from_enabled_cells(raw_cells: Sequence[str]) -> MeanReversionSetupConfig:
+    cells: list[str] = []
+    seen: set[str] = set()
+    for token in raw_cells:
+        for cell in str(token).split(","):
+            normalized = cell.strip().lower()
+            if not normalized or normalized in seen:
+                continue
+            cells.append(normalized)
+            seen.add(normalized)
+    return MeanReversionSetupConfig(
+        use_mean_reversion_setup=bool(cells),
+        enabled_by_cluster_interval={cell: True for cell in cells},
+    )
 
 
 def _compute_metrics(
@@ -67,6 +84,7 @@ def run_baseline_suite(
     initial_capital: float = 1_000_000.0,
     periods_per_year: int | None = None,
     output_root: Path | None = None,
+    mean_reversion_cfg: MeanReversionSetupConfig | None = None,
 ) -> BaselineSuiteRunResult:
     """Run baseline suite and export summary + training samples."""
     interval_norm = normalize_interval(interval)
@@ -103,6 +121,8 @@ def run_baseline_suite(
             frame=frame,
             contract=contract,
             trade_side_mode=mode,
+            mean_reversion_cfg=mean_reversion_cfg,
+            interval=interval_norm,
         )
         engine_cfg = EngineConfig(
             fill_rule="next_open",
@@ -147,6 +167,7 @@ def run_baseline_suite(
             signal_type=st,
             horizon_bars=20,
             trade_side_mode=mode,
+            mean_reversion_cfg=mean_reversion_cfg,
         )
         if candidates.empty:
             samples = build_training_samples_from_trade_log(
@@ -247,6 +268,7 @@ def run_baseline_suite_multi(
     initial_capital: float = 1_000_000.0,
     periods_per_year: int | None = None,
     output_root: Path | None = None,
+    mean_reversion_cfg: MeanReversionSetupConfig | None = None,
 ) -> list[BaselineSuiteRunResult]:
     """Run baseline suite across multiple intervals."""
     interval_tuple = _normalize_intervals(intervals)
@@ -271,6 +293,7 @@ def run_baseline_suite_multi(
                 initial_capital=initial_capital,
                 periods_per_year=periods_per_year,
                 output_root=output_root,
+                mean_reversion_cfg=mean_reversion_cfg,
             )
         except Exception:
             logger.exception("baseline suite failed for symbol=%s interval=%s", symbol, interval)
@@ -313,6 +336,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--initial-capital", type=float, default=1_000_000.0)
     parser.add_argument("--periods-per-year", type=int, default=None)
     parser.add_argument("--output-root", default=None)
+    parser.add_argument(
+        "--mean-reversion-enabled-cells",
+        nargs="*",
+        default=[],
+        help="灰度开启 mean_reversion_range 的 cluster|interval cells；支持空格或逗号分隔",
+    )
     return parser.parse_args(argv)
 
 
@@ -322,6 +351,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     signal_types = tuple(s.strip() for s in str(args.signal_types).split(",") if s.strip())
     intervals = _normalize_intervals(args.interval)
     output_root = Path(args.output_root).resolve() if args.output_root else None
+    mean_reversion_cfg = _mean_reversion_cfg_from_enabled_cells(args.mean_reversion_enabled_cells)
+    if mean_reversion_cfg.use_mean_reversion_setup:
+        logger.info(
+            "mean_reversion_range gray cells enabled: %s",
+            list(mean_reversion_cfg.enabled_by_cluster_interval),
+        )
 
     top_n = int(getattr(args, "top_n_symbols", 0))
     if top_n > 0:
@@ -360,6 +395,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             initial_capital=args.initial_capital,
             periods_per_year=args.periods_per_year,
             output_root=output_root,
+            mean_reversion_cfg=mean_reversion_cfg,
         )
         all_results.extend(results)
         for result in results:
@@ -383,6 +419,6 @@ __all__ = [
     "run_baseline_suite",
     "run_baseline_suite_multi",
     "_parse_args",
+    "_mean_reversion_cfg_from_enabled_cells",
     "main",
 ]
-

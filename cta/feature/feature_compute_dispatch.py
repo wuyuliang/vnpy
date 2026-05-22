@@ -172,7 +172,9 @@ def _worker_compute(
     overwrite: bool,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    voi_enabled_cells: tuple[str, ...] = (),
 ) -> Dict[str, object]:
+    from cta.config.voi_momentum_config import VoiMomentumConfig
     from cta.feature.compute import compute_single_symbol_features
 
     canon = normalize_interval(interval)
@@ -213,7 +215,18 @@ def _worker_compute(
 
     t0 = datetime.now().timestamp()
     try:
-        feat = compute_single_symbol_features(df, interval=canon)
+        voi_cfg = VoiMomentumConfig(
+            use_voi_regime_adaptive_momentum=bool(voi_enabled_cells),
+            enabled_by_cluster_interval={str(cell): True for cell in voi_enabled_cells},
+        )
+        from cta.config.symbol_cluster_config import infer_symbol_cluster
+
+        feat = compute_single_symbol_features(
+            df,
+            interval=canon,
+            voi_cfg=voi_cfg,
+            cluster=infer_symbol_cluster(symbol),
+        )
     except Exception as e:  # noqa: BLE001
         tb = traceback.format_exc(limit=8)
         del df

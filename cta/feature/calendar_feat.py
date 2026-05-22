@@ -60,11 +60,8 @@ def is_week_start(dt: pd.Series) -> pd.Series:
 
 
 def is_week_end(dt: pd.Series) -> pd.Series:
-    """是否为交易周最后一天（dayofweek 比后一天大，说明即将跨周）"""
-    dow = dt.dt.dayofweek
-    next_dow = dow.shift(-1)
-    # 末行无法判断，默认为 False
-    return (dow > next_dow).fillna(False).astype(int)
+    """是否为自然周最后一个交易日（通常周五）。"""
+    return (dt.dt.dayofweek == 4).astype(int)
 
 
 def is_month_start(dt: pd.Series) -> pd.Series:
@@ -76,11 +73,8 @@ def is_month_start(dt: pd.Series) -> pd.Series:
 
 
 def is_month_end(dt: pd.Series) -> pd.Series:
-    """是否为月度最后交易日"""
-    m = dt.dt.month
-    next_m = m.shift(-1)
-    # 末行: m != NaN 会返回 True，用 fillna 修正
-    return (m != next_m).fillna(False).astype(int)
+    """是否为自然月末（无需依赖下一行数据）。"""
+    return dt.dt.is_month_end.astype(int)
 
 
 # ============================================================

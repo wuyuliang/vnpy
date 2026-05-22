@@ -14,6 +14,10 @@ BASELINE_SIGNAL_TYPES: Final[tuple[str, ...]] = (
     "atr_breakout",
     "tight_range_breakout",
     "breakout_pullback_continuation",
+    "trend_acceleration_breakout",
+    "bull_pullback_continuation",
+    "bull_volatility_contraction_breakout",
+    "mean_reversion_range",
 )
 
 TRAINING_FEATURE_COLUMNS: Final[tuple[str, ...]] = (
@@ -44,6 +48,17 @@ TRAINING_FEATURE_COLUMNS: Final[tuple[str, ...]] = (
     "bp_breakout_level",
     "bp_bars_since_breakout",
     "bp_confirmed",
+    "trend_acceleration_score",
+    "pullback_quality",
+    "volatility_contraction_pctl",
+    "breakout_body_strength",
+    "mr_sma",
+    "mr_zscore",
+    "mr_bb_upper",
+    "mr_bb_lower",
+    "mr_rsi",
+    "mr_adx",
+    "mr_signal_strength",
 )
 
 DEFAULT_REPORT_ROOT: Final[Path] = CTA_ROOT / "report" / "backtest"
@@ -55,6 +70,14 @@ LABEL_THRESHOLD: Final[float] = 0.2
 # U: opportunity_score 不可信（atr_warmup 期或缺价），由 candidate_training_dataset 设置。
 OPPORTUNITY_CLASS_A_BREAK: Final[float] = 1.2
 OPPORTUNITY_CLASS_B_BREAK: Final[float] = 0.6
+
+# Bull-market baseline setup thresholds.  The short side is deliberately stricter
+# to reduce counter-trend shorts during broad upside regimes.
+TREND_ACCELERATION_LONG_MIN_SCORE: Final[float] = 0.55
+TREND_ACCELERATION_LONG_MIN_BODY: Final[float] = 0.60
+TREND_ACCELERATION_SHORT_MAX_SCORE: Final[float] = -0.75
+TREND_ACCELERATION_SHORT_MIN_BODY: Final[float] = 0.70
+BULL_PULLBACK_MIN_QUALITY: Final[float] = 0.55
 
 
 _VALID_BASELINE_SIDE_MODES: Final[frozenset[str]] = frozenset({"both", "long", "short"})
@@ -106,5 +129,10 @@ __all__ = [
     "LABEL_THRESHOLD",
     "OPPORTUNITY_CLASS_A_BREAK",
     "OPPORTUNITY_CLASS_B_BREAK",
+    "TREND_ACCELERATION_LONG_MIN_SCORE",
+    "TREND_ACCELERATION_LONG_MIN_BODY",
+    "TREND_ACCELERATION_SHORT_MAX_SCORE",
+    "TREND_ACCELERATION_SHORT_MIN_BODY",
+    "BULL_PULLBACK_MIN_QUALITY",
     "BaselineSuiteConfig",
 ]

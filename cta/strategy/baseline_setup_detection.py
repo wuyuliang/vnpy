@@ -6,10 +6,19 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from cta.config.baseline_skill_suite_config import (
+    BULL_PULLBACK_MIN_QUALITY,
+    TREND_ACCELERATION_LONG_MIN_BODY,
+    TREND_ACCELERATION_LONG_MIN_SCORE,
+    TREND_ACCELERATION_SHORT_MAX_SCORE,
+    TREND_ACCELERATION_SHORT_MIN_BODY,
+)
 from cta.config.skill_tight_range_breakout_config import VALID_SIDE_MODES
+from cta.config.mean_reversion_setup_config import MeanReversionSetupConfig
 from cta.skills.price_action.breakout_pullback import PullbackSetup, pullback_entry_trigger
 from cta.skills.price_action.tight_range_breakout import TightRangeSetup, resolve_breakout_trigger
 from cta.strategy.baseline_helpers import _safe_bool, _safe_float, _side_allowed
+from cta.strategy.mean_reversion_range_setup import MeanReversionRangeSetupGenerator
 
 
 def _infer_regime_label(row: pd.Series) -> str:
@@ -152,6 +161,10 @@ def _build_raw_setup_candidates(
     signal_type: str,
     contract: Any,
     mode: str,
+    *,
+    mean_reversion_cfg: MeanReversionSetupConfig | None = None,
+    cluster: str | None = None,
+    interval: str = "day",
 ) -> list[dict[str, Any]]:
     mode_l = str(mode).strip().lower()
     if mode_l not in VALID_SIDE_MODES:
@@ -296,6 +309,108 @@ def _build_raw_setup_candidates(
                 "filtered_reason": ",".join(reasons) if reasons else None,
             }
         )
+        return out
+
+    if signal_type == "mean_reversion_range":
+        candidate = MeanReversionRangeSetupGenerator(
+            mean_reversion_cfg or MeanReversionSetupConfig()
+        ).candidate_from_row(bar, cluster=cluster, interval=interval)
+        if candidate is None:
+            return out
+        side = str(candidate["side"]).strip().lower()
+        out.append(
+            {
+                "side": side,
+                "order_type": "market",
+                "trigger": np.nan,
+                "target_price": _safe_float(candidate.get("target_price", np.nan)),
+                "stop_price": _safe_float(candidate.get("stop_price", np.nan)),
+                "filtered_reason": None if _side_allowed(mode_l, side) else "side_mode",
+            }
+        )
+        return out
+
+    if signal_type == "trend_acceleration_breakout":
+        close = _safe_float(bar.get("close", np.nan))
+        high = _safe_float(bar.get("high", np.nan))
+        low = _safe_float(bar.get("low", np.nan))
+        don_up = _safe_float(bar.get("don_upper_entry", np.nan))
+        don_lo = _safe_float(bar.get("don_lower_entry", np.nan))
+        accel = _safe_float(bar.get("trend_acceleration_score", np.nan))
+        body = _safe_float(bar.get("breakout_body_strength", np.nan))
+        trend_dir = _safe_float(bar.get("trend_dir", np.nan))
+        trend_score = _safe_float(bar.get("trend_score", np.nan))
+        if (
+            np.isfinite(don_up)
+            and close > don_up
+            and trend_dir > 0
+            and trend_score > 0
+            and accel >= float(TREND_ACCELERATION_LONG_MIN_SCORE)
+            and body >= float(TREND_ACCELERATION_LONG_MIN_BODY)
+        ):
+            out.append(
+                {
+                    "side": "long",
+                    "order_type": "stop",
+                    "trigger": high + tick if np.isfinite(high) else np.nan,
+                    "filtered_reason": None if _side_allowed(mode_l, "long") else "side_mode",
+                }
+            )
+        elif (
+            np.isfinite(don_lo)
+            and close < don_lo
+            and trend_dir < 0
+            and accel <= float(TREND_ACCELERATION_SHORT_MAX_SCORE)
+            and body >= float(TREND_ACCELERATION_SHORT_MIN_BODY)
+        ):
+            # 空头保守触发：默认阈值更高，避免牛市增强策略误做反向单。
+            out.append(
+                {
+                    "side": "short",
+                    "order_type": "stop",
+                    "trigger": low - tick if np.isfinite(low) else np.nan,
+                    "filtered_reason": None if _side_allowed(mode_l, "short") else "side_mode",
+                }
+            )
+        return out
+
+    if signal_type == "bull_pullback_continuation":
+        if not _safe_bool(bar.get("bp_valid", False)):
+            return out
+        side = str(bar.get("bp_direction", "long")).strip().lower()
+        if side != "long":
+            return out
+        if not _safe_bool(bar.get("bp_confirmed", False)):
+            return out
+        if _safe_float(bar.get("pullback_quality", 0.0)) < float(BULL_PULLBACK_MIN_QUALITY):
+            return out
+        level = _safe_float(bar.get("bp_breakout_level", np.nan))
+        trigger = level + tick if np.isfinite(level) else _safe_float(bar.get("high", np.nan)) + tick
+        out.append(
+            {
+                "side": "long",
+                "order_type": "stop",
+                "trigger": trigger,
+                "filtered_reason": None if _side_allowed(mode_l, "long") else "side_mode",
+            }
+        )
+        return out
+
+    if signal_type == "bull_volatility_contraction_breakout":
+        close = _safe_float(bar.get("close", np.nan))
+        tr_valid = _safe_bool(bar.get("tr_valid", False))
+        tr_upper = _safe_float(bar.get("tr_upper", np.nan))
+        contraction_pctl = _safe_float(bar.get("volatility_contraction_pctl", np.nan))
+        trend_dir = _safe_float(bar.get("trend_dir", np.nan))
+        if tr_valid and np.isfinite(tr_upper) and close >= tr_upper and trend_dir > 0 and contraction_pctl <= 0.35:
+            out.append(
+                {
+                    "side": "long",
+                    "order_type": "stop",
+                    "trigger": _safe_float(bar.get("high", np.nan)) + tick,
+                    "filtered_reason": None if _side_allowed(mode_l, "long") else "side_mode",
+                }
+            )
         return out
 
     return out

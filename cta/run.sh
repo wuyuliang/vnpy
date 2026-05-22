@@ -6,7 +6,11 @@
 # ----
 #   bash cta/run.sh <step>
 #
-#   step ∈ {data, data_index_bond, validate, feature, candidate, train, pool, group_pool, index_pool, summary, all}
+#   step ∈ {data, data_index_bond, validate, feature, candidate, train, pool, group_pool, index_pool, bull_models, summary, all}
+#
+#   bull_models 是 2026-05-21 后引入的专项 step，覆盖 day / 60min / 30min 三个频率，
+#   验证新增 3 个训练模型（bull_regime_strength / trend_persistence /
+#   pyramid_eligibility）端到端 fit + OOT。详见 run.md §4.4.5。
 #
 # 也可以直接 `bash cta/run.sh all` 一把跑完。各步骤通过环境变量调参，缺省覆盖
 # run.md 中的推荐值，保持可复现。
@@ -33,7 +37,11 @@
 #   POOL_INTERVALS   池化训练频率（默认 day 60min；day 单品种样本不足）
 #   GROUP_BY         分组池化分组键（默认 tier）
 #   GROUP_MIN_SIZE   分组池化最小组样本数（默认 2）
-#   GROUP_INTERVALS  分组池化训练频率（默认 day 60min）
+#   GROUP_INTERVALS  分组池化训练频率（默认 day 60min 30min；3 个新模型
+#                       bull_regime_strength / trend_persistence /
+#                       pyramid_eligibility 会在每个 interval 上自动 fit，
+#                       30min 是为了让 hold_extend / pyramid 列在分钟级也有覆盖）
+#   BULL_MODELS_INTERVALS  3 个新训练模型专项联动频率（默认 day 60min 30min）
 #   INDEX_GROUP_INTERVALS  股指期货专项训练频率（默认 day 60min 30min 15min）
 #   USE_PORTFOLIO_LOGIC_RUNTIME  OOT 评估走 portfolio_logic 真实逻辑（默认 0；
 #                       设 1 时启用 HTF gate + ranker + trailing + pyramid +
@@ -69,9 +77,12 @@ GLOBAL_SEED="${GLOBAL_SEED:-${RUN_TAG}}"
 POOL_INTERVALS="${POOL_INTERVALS:-day 60min}"
 GROUP_BY="${GROUP_BY:-cluster}"
 GROUP_MIN_SIZE="${GROUP_MIN_SIZE:-2}"
-GROUP_INTERVALS="${GROUP_INTERVALS:-day 60min}"
+GROUP_INTERVALS="${GROUP_INTERVALS:-day 60min 30min}"
 # 股指期货专项分组训练频率（IF/IH/IC/IM，日内流动性极佳，可加密到 15min）
 INDEX_GROUP_INTERVALS="${INDEX_GROUP_INTERVALS:-day 60min 30min 15min}"
+# 3 个新训练模型联动专项频率：day 验证 trend filter 主战场（INDEX 2024 bias），
+# 60min 验证 mfe_mae / trend_persistence 主战场，30min 验证 pyramid_eligibility 主战场。
+BULL_MODELS_INTERVALS="${BULL_MODELS_INTERVALS:-day 60min 30min}"
 USE_PORTFOLIO_LOGIC_RUNTIME="${USE_PORTFOLIO_LOGIC_RUNTIME:-0}"
 INCLUDE_DISABLED="${INCLUDE_DISABLED:-0}"
 LOG_DIR="${LOG_DIR:-cta/report/run_log/${RUN_TAG}}"
@@ -313,6 +324,77 @@ step_index_pool() {
             --seed "${GLOBAL_SEED}"
 }
 
+step_bull_models() {
+    # 专项验证 2026-05-21 引入的 3 个新训练模型在 day / 60min / 30min 三个频率上端到端：
+    #   - BullRegimeStrengthModel   → bull_strength_score / bull_mode
+    #   - TrendPersistenceModel     → hold_extend_score / recommended_horizon_extension_bars
+    #   - PyramidEligibilityModel   → pyramid_add_score / pyramid_size_mult
+    # 每个 interval 跑一次 group_pool + portfolio_logic_runtime（强制开启，
+    # 因为 hold_extend / pyramid_size_mult 列只在 portfolio_logic 路径里被消费），
+    # 然后跑 4.4.4 的快速核对脚本确认 3 个模型的输出列都进入 predictions.csv。
+    require_ranking
+    ensure_dirs
+    log "bull_models: training+OOT with 3 new models on intervals=[${BULL_MODELS_INTERVALS}]"
+    local include_flag=()
+    if [[ "${INCLUDE_DISABLED}" == "1" ]]; then
+        include_flag+=(--include-disabled-symbols)
+    fi
+    for itv in ${BULL_MODELS_INTERVALS}; do
+        log "bull_models[${itv}]: starting"
+        # shellcheck disable=SC2086
+        run_step "06_train_bull_models_${itv}" \
+            ${PYTHON} -m cta.model.model_pipeline \
+                --group-pool \
+                --group-by cluster \
+                --group-min-size 2 \
+                --symbols-ranking-path "${RANKING_CSV}" \
+                --top-n-symbols "${TOP_N}" \
+                --interval "${itv}" \
+                --start "${START}" --end "${END}" \
+                --train-end "${TRAIN_END}" --valid-end "${VALID_END}" \
+                --window-mode expanding \
+                --max-walk-forward-windows 3 \
+                --by-signal-type \
+                --generic-mode auto \
+                --use-portfolio-logic-runtime \
+                --min-used-symbols 2 \
+                "${include_flag[@]}" \
+                --seed "${GLOBAL_SEED}"
+        log "bull_models[${itv}]: verifying new-model columns in predictions.csv"
+        ${PYTHON} - <<'PY' "${itv}"
+import sys
+from pathlib import Path
+import pandas as pd
+
+itv = sys.argv[1]
+runs = sorted(Path("cta/report/backtest").glob(f"*_GRP_*_{itv}_*model_pipeline"))
+if not runs:
+    print(f"[bull_models verify][{itv}] no run dir matched")
+    sys.exit(0)
+run_dir = runs[-1]
+pred_files = list(run_dir.glob("*_predictions.csv"))
+if not pred_files:
+    print(f"[bull_models verify][{itv}] no predictions.csv in {run_dir.name}")
+    sys.exit(0)
+pred = pd.read_csv(pred_files[0])
+must = [
+    "bull_strength_score", "bull_mode",
+    "hold_extend_score", "recommended_horizon_extension_bars",
+    "pyramid_add_score", "pyramid_size_mult",
+]
+present = [c for c in must if c in pred.columns]
+missing = [c for c in must if c not in pred.columns]
+print(f"[bull_models verify][{itv}] run={run_dir.name}")
+print(f"  present: {present}")
+if missing:
+    print(f"  MISSING: {missing}  -> 3 new models pipeline broken at this interval")
+    sys.exit(1)
+print(f"  ok ({len(present)}/{len(must)} columns)")
+PY
+        log "bull_models[${itv}]: done"
+    done
+}
+
 step_summary() {
     log "summary: locating latest model_pipeline outputs"
     if compgen -G "cta/report/backtest/${RUN_TAG}_*model_pipeline" > /dev/null; then
@@ -349,6 +431,7 @@ case "${ACTION}" in
     pool)        step_pool ;;
     group_pool)  step_group_pool ;;
     index_pool)  step_index_pool ;;
+    bull_models) step_bull_models ;;
     summary)     step_summary ;;
     all)         run_all ;;
     -h|--help|help)

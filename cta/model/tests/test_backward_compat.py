@@ -6,7 +6,7 @@ import unittest
 import pandas as pd
 
 from cta.config.model_oot_eval_config import OotEvaluationConfig
-from cta.model.pipeline_oot_evaluation import _evaluate_oot_real_execution
+from cta.model.oot.pipeline_oot_evaluation import _evaluate_oot_real_execution
 from cta.portfolio_logic.config import PortfolioLogicConfig
 
 

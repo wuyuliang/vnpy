@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from cta.config.model_oot_eval_config import OotEvaluationConfig
+from cta.config.model_oot_eval_config import DEFAULT_OOT_EVAL_CONFIG, OotEvaluationConfig
 from cta.portfolio_logic.config import PortfolioLogicConfig
 
 
@@ -13,6 +13,51 @@ class TestOotEvaluationConfigValidation(unittest.TestCase):
         self.assertGreater(float(cfg.weekly_max_drawdown_pct), 0.0)
         self.assertGreater(float(cfg.monthly_max_drawdown_pct), 0.0)
         self.assertAlmostEqual(float(cfg.weekly_max_drawdown_pct), 0.03, places=12)
+        self.assertTrue(bool(cfg.enforce_stop_loss_consistency))
+        self.assertEqual(str(cfg.ma_cross_alignment_column), "generic_ma_alignment")
+        self.assertFalse(bool(cfg.portfolio_logic.horizon_extend.use_model_recommendation))
+        self.assertFalse(bool(cfg.portfolio_logic.pyramid.apply_model_size_multiplier))
+
+    def test_production_default_uses_cluster_interval_trade_filter_percentile(self) -> None:
+        self.assertEqual(str(DEFAULT_OOT_EVAL_CONFIG.trade_filter_gate_mode), "cluster_interval_percentile")
+        self.assertAlmostEqual(float(DEFAULT_OOT_EVAL_CONFIG.trade_filter_percentile_threshold), 70.0, places=12)
+
+    def test_trade_filter_cluster_interval_threshold_validation(self) -> None:
+        cfg = OotEvaluationConfig(
+            trade_filter_gate_mode="raw",
+            trade_filter_raw_threshold_by_cluster_interval={"index|day": 0.45},
+            trade_filter_percentile_threshold_by_cluster_interval={"index|day": 65.0},
+        )
+        self.assertEqual(float(cfg.trade_filter_raw_threshold_by_cluster_interval["index|day"]), 0.45)
+        with self.assertRaises(ValueError):
+            OotEvaluationConfig(trade_filter_gate_mode="bad_mode")
+        with self.assertRaises(ValueError):
+            OotEvaluationConfig(trade_filter_raw_threshold_by_cluster_interval={"index|day": 1.2})
+        with self.assertRaises(ValueError):
+            OotEvaluationConfig(trade_filter_percentile_threshold_by_cluster_interval={"index|day": 120.0})
+
+    def test_post_init_rejects_unknown_cluster_or_interval_in_cluster_interval_mappings(self) -> None:
+        with self.assertRaises(ValueError):
+            OotEvaluationConfig(ma_cross_enabled_by_cluster_interval={"indxe|day": True})
+        with self.assertRaises(ValueError):
+            OotEvaluationConfig(ma_cross_enabled_by_cluster_interval={"index|bad_interval": True})
+        with self.assertRaises(ValueError):
+            OotEvaluationConfig(regime_short_filter_enabled_by_cluster_interval={"index|bad_interval": True})
+        with self.assertRaises(ValueError):
+            OotEvaluationConfig(intrabar_stop_loss_pct_by_cluster_interval={"index|bad_interval": 0.02})
+
+    def test_mapping_fields_are_read_only_views(self) -> None:
+        cfg = OotEvaluationConfig(
+            ma_cross_enabled_by_cluster_interval={"index|day": True},
+            regime_short_filter_enabled_by_cluster_interval={"index|day": True},
+            intrabar_stop_loss_pct_by_cluster_interval={"index|day": 0.02},
+        )
+        with self.assertRaises(TypeError):
+            cfg.ma_cross_enabled_by_cluster_interval["index|day"] = False  # type: ignore[index]
+        with self.assertRaises(TypeError):
+            cfg.regime_short_filter_enabled_by_cluster_interval["index|day"] = False  # type: ignore[index]
+        with self.assertRaises(TypeError):
+            cfg.intrabar_stop_loss_pct_by_cluster_interval["index|day"] = 0.03  # type: ignore[index]
 
     def test_rejects_out_of_range_risk_values(self) -> None:
         with self.assertRaises(ValueError):

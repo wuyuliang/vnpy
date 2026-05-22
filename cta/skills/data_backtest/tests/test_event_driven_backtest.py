@@ -141,6 +141,11 @@ class TestLiquidityCap(unittest.TestCase):
         self.assertIsNotNone(fill)
         self.assertEqual(fill["lots"], 999)
 
+    def test_engine_config_default_cost_fn_is_realistic_cost_model(self) -> None:
+        from cta.skills.data_backtest.transaction_cost import estimate_cost
+        cfg = EngineConfig()
+        self.assertIs(cfg.cost_fn, estimate_cost)
+
     def test_below_cap_no_truncation(self) -> None:
         cur = pd.Series({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 100.0})
         nxt = pd.Series({"open": 101.0, "high": 102.0, "low": 100.0, "close": 101.5, "volume": 100.0})
@@ -151,7 +156,32 @@ class TestLiquidityCap(unittest.TestCase):
         self.assertIsNotNone(fill)
         self.assertEqual(fill["lots"], 5)
 
+    def test_liquidity_cap_aggregates_within_same_symbol_bar(self) -> None:
+        cur = pd.Series({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 100.0})
+        nxt = pd.Series({"open": 101.0, "high": 102.0, "low": 100.0, "close": 101.5, "volume": 100.0})
+        cfg = EngineConfig(liquidity_ratio=0.1)  # cap = 10
+        state = {}
+        f1 = simulate_fill(
+            {"side": "long", "order_type": "market", "lots": 8},
+            cur,
+            nxt,
+            cfg,
+            liquidity_state=state,
+            liquidity_key=("RB0", "2024-01-01T09:00:00"),
+        )
+        f2 = simulate_fill(
+            {"side": "long", "order_type": "market", "lots": 8},
+            cur,
+            nxt,
+            cfg,
+            liquidity_state=state,
+            liquidity_key=("RB0", "2024-01-01T09:00:00"),
+        )
+        self.assertIsNotNone(f1)
+        self.assertEqual(int(f1["lots"]), 8)
+        self.assertIsNotNone(f2)
+        self.assertEqual(int(f2["lots"]), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
-

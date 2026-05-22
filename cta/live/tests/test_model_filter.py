@@ -80,8 +80,8 @@ class TestMakeTradeFilter(unittest.TestCase):
             adapter = _adapter_with_frame(_frame_with({"f1": 1.0}))
             self.assertTrue(f({"side": "flat"}, adapter))
 
-    def test_no_frame_passes_with_warning(self) -> None:
-        """adapter._frame 为空时不拦截（warmup 期间），并写日志。"""
+    def test_no_frame_blocks_by_default_with_warning(self) -> None:
+        """P0: live 默认 fail-closed。adapter._frame 为空时拒单并写日志。"""
         with tempfile.TemporaryDirectory() as tmp:
             tmp_p = Path(tmp)
             mp = tmp_p / "model.pkl"
@@ -90,10 +90,10 @@ class TestMakeTradeFilter(unittest.TestCase):
             pd.DataFrame({"name": ["f1"]}).to_csv(fc, index=False)
             f = make_trade_filter(str(mp), feature_columns_csv=str(fc), threshold=0.5)
             adapter = _adapter_with_frame(pd.DataFrame())
-            self.assertTrue(f({"side": "long"}, adapter))
+            self.assertFalse(f({"side": "long"}, adapter))
             self.assertTrue(any("frame" in m.lower() for m in adapter._logs))
 
-    def test_missing_feature_columns_passes_with_warning(self) -> None:
+    def test_missing_feature_columns_blocks_by_default_with_warning(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_p = Path(tmp)
             mp = tmp_p / "model.pkl"
@@ -102,9 +102,25 @@ class TestMakeTradeFilter(unittest.TestCase):
             pd.DataFrame({"name": ["f1", "missing_f"]}).to_csv(fc, index=False)
             f = make_trade_filter(str(mp), feature_columns_csv=str(fc), threshold=0.5)
             adapter = _adapter_with_frame(_frame_with({"f1": 1.0}))
-            self.assertTrue(f({"side": "long"}, adapter))
+            self.assertFalse(f({"side": "long"}, adapter))
             self.assertTrue(any("missing" in m.lower() or "column" in m.lower()
                                 for m in adapter._logs))
+
+    def test_missing_feature_columns_can_fail_open_when_configured(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_p = Path(tmp)
+            mp = tmp_p / "model.pkl"
+            fc = tmp_p / "model_features.csv"
+            _dump(_FakeModel(prob=0.0), mp)
+            pd.DataFrame({"name": ["f1", "missing_f"]}).to_csv(fc, index=False)
+            f = make_trade_filter(
+                str(mp),
+                feature_columns_csv=str(fc),
+                threshold=0.5,
+                fail_open=True,
+            )
+            adapter = _adapter_with_frame(_frame_with({"f1": 1.0}))
+            self.assertTrue(f({"side": "long"}, adapter))
 
     def test_auto_locates_features_csv(self) -> None:
         """未传 feature_columns_csv 时，按 model 同名 _features.csv 自动加载。"""

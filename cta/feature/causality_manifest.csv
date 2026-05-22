@@ -3,10 +3,41 @@ feature_close,1,signal bar observable
 feature_open,1,signal bar observable
 feature_high,1,signal bar observable
 feature_low,1,signal bar observable
+feature_open_interest,1,signal bar observable
+feature_turnover,1,signal bar observable
+feature_trend_score,1,derived from historical bars
+feature_trend_dir,1,derived from historical bars
+feature_tr_range_atr,1,derived from historical bars
+feature_don_upper_entry,1,derived from historical bars
+feature_don_lower_entry,1,derived from historical bars
+feature_don_upper_exit,1,derived from historical bars
+feature_don_lower_exit,1,derived from historical bars
+feature_don_atr20,1,derived from historical bars
+feature_atr_ma,1,derived from historical bars
+feature_atr_value,1,derived from historical bars
+feature_atr_upper,1,derived from historical bars
+feature_atr_lower,1,derived from historical bars
+feature_is_one_way_bar,1,derived from current/signal bar
+feature_is_limit_up_close,1,derived from current/signal bar
+feature_is_limit_down_close,1,derived from current/signal bar
+feature_bp_breakout_level,1,derived from historical bars
+feature_bp_bars_since_breakout,1,derived from historical bars
+feature_bp_confirmed,1,derived from historical bars
 feature_volume,1,signal bar observable
 feature_atr14,1,past-window volatility
 feature_breakout_score,1,rule-based signal quality
 feature_setup_quality,1,rule-based setup quality
+feature_trend_acceleration_score,1,derived from historical bars
+feature_pullback_quality,1,derived from historical bars
+feature_volatility_contraction_pctl,1,derived from historical bars
+feature_breakout_body_strength,1,derived from current/signal bar
+feature_mr_sma,1,rolling mean from historical bars
+feature_mr_zscore,1,rolling Bollinger z-score from signal bar history
+feature_mr_bb_upper,1,rolling Bollinger upper boundary
+feature_mr_bb_lower,1,rolling Bollinger lower boundary
+feature_mr_rsi,1,rolling RSI from historical bars
+feature_mr_adx,1,rolling ADX from historical bars
+feature_mr_signal_strength,1,mean-reversion score from signal bar history
 generic_centered_swing,0,centered swing needs future bars
 generic_centered_ma_20,0,centered window likely lookahead
 generic_rollingmax_5,0,naming flagged as potential lookahead

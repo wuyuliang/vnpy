@@ -6,8 +6,9 @@ import logging
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
+from cta.config.voi_momentum_config import VoiMomentumConfig
 from cta.feature.feature_compute_dispatch import FEATURE_DIR, FINISHED_CSV, FAIL_CSV, finished_success_pairs, load_finished
 from cta.feature.feature_interval_runner import load_ranking, resolve_intervals, run_cross_section, run_interval
 
@@ -39,7 +40,34 @@ def _build_parser() -> argparse.ArgumentParser:
         default=str(CTA_ROOT / "data" / "feature" / "macro" / "macro_daily.parquet"),
         help="macro feature output parquet path",
     )
+    parser.add_argument(
+        "--voi-enabled-cells",
+        nargs="*",
+        default=[],
+        help="灰度开启 VOI 特征的 cluster|interval cells；支持空格或逗号分隔",
+    )
     return parser
+
+
+def _normalize_enabled_cells(raw_cells: Iterable[str]) -> tuple[str, ...]:
+    cells: list[str] = []
+    seen: set[str] = set()
+    for token in raw_cells:
+        for cell in str(token).split(","):
+            normalized = cell.strip().lower()
+            if not normalized or normalized in seen:
+                continue
+            cells.append(normalized)
+            seen.add(normalized)
+    return tuple(cells)
+
+
+def _voi_cfg_from_enabled_cells(raw_cells: Iterable[str]) -> VoiMomentumConfig:
+    cells = _normalize_enabled_cells(raw_cells)
+    return VoiMomentumConfig(
+        use_voi_regime_adaptive_momentum=bool(cells),
+        enabled_by_cluster_interval={cell: True for cell in cells},
+    )
 
 
 def _check_date(s: Optional[str], name: str) -> Optional[str]:
@@ -103,6 +131,10 @@ def main() -> None:
     finished_df = load_finished()
     finished_pairs = finished_success_pairs(finished_df)
     logger.info("已完成 (symbol, interval) 数: %s", len(finished_pairs))
+    voi_cfg = _voi_cfg_from_enabled_cells(args.voi_enabled_cells)
+    voi_cells = tuple(voi_cfg.enabled_by_cluster_interval)
+    if voi_cells:
+        logger.info("VOI feature gray cells enabled: %s", list(voi_cells))
 
     t_total = time.time()
     summary: Dict[str, Tuple[int, int, int]] = {}
@@ -115,6 +147,7 @@ def main() -> None:
             overwrite=args.overwrite,
             start_date=start_date,
             end_date=end_date,
+            voi_enabled_cells=voi_cells,
         )
         summary[interval] = (ok, fail, skip)
 
@@ -128,7 +161,7 @@ def main() -> None:
         _run_macro_feature(args.macro_feature_path)
 
 
-__all__ = ["resolve_intervals", "main"]
+__all__ = ["resolve_intervals", "_voi_cfg_from_enabled_cells", "main"]
 
 
 if __name__ == "__main__":

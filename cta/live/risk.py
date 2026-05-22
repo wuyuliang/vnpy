@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 import pandas as pd
+from cta.portfolio_logic.config import CapsConfig, RiskThrottleConfig
+from cta.portfolio_logic.risk_throttle import RiskThrottle
 
 
 @dataclass
@@ -35,6 +37,11 @@ class RiskContext:
     daily_pnl: float
     capital: float
     now: pd.Timestamp
+    drawdown_pct: float = 0.0
+    weekly_return_pct: float = 0.0
+    monthly_return_pct: float = 0.0
+    open_positions_total: int = 0
+    open_positions_by_cluster: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -123,6 +130,42 @@ class OrderRateLimit(_BaseRule):
         return RiskDecision(True, "")
 
 
+@dataclass
+class PortfolioThrottleRule(_BaseRule):
+    """Reuse portfolio_logic.RiskThrottle in live pre-trade checks."""
+
+    base_caps: CapsConfig
+    cfg: RiskThrottleConfig
+    name: str = "portfolio_throttle"
+    _engine: RiskThrottle = field(init=False, repr=False)
+    _current_level: object | None = field(default=None, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._engine = RiskThrottle(self.cfg)
+
+    def check(self, order: dict, ctx: RiskContext) -> RiskDecision:
+        if str(order.get("offset", "")).lower() != "open":
+            return RiskDecision(True, "")
+        snap = self._engine.make_snapshot(
+            drawdown_pct=float(getattr(ctx, "drawdown_pct", 0.0)),
+            weekly_return_pct=float(getattr(ctx, "weekly_return_pct", 0.0)),
+            monthly_return_pct=float(getattr(ctx, "monthly_return_pct", 0.0)),
+            equity=float(getattr(ctx, "capital", 0.0)),
+        )
+        level = self._engine.compute(snap, self._current_level)
+        self._current_level = level
+        caps = self._engine.apply_to_caps(self.base_caps, level)
+        total_open = int(getattr(ctx, "open_positions_total", 0))
+        if total_open + 1 > int(caps.max_total_positions):
+            return RiskDecision(False, f"{self.name}:throttle_total>{caps.max_total_positions}")
+        cluster = str(order.get("cluster", "other")).strip().lower() or "other"
+        by_cluster = dict(getattr(ctx, "open_positions_by_cluster", {}) or {})
+        cluster_open = int(by_cluster.get(cluster, 0))
+        if cluster_open + 1 > int(caps.max_total_per_cluster):
+            return RiskDecision(False, f"{self.name}:throttle_cluster>{caps.max_total_per_cluster}")
+        return RiskDecision(True, "")
+
+
 class RiskGuard:
     """风控总开关。短路：第一条失败即整体拒绝。"""
 
@@ -192,6 +235,7 @@ __all__ = [
     "MaxOrderSize",
     "MaxPositionLimit",
     "OrderRateLimit",
+    "PortfolioThrottleRule",
     "RiskContext",
     "RiskDecision",
     "RiskGuard",

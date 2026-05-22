@@ -33,10 +33,10 @@ from cta.model.model_pipeline import (
     run_model_pipeline,
     run_model_pipeline_multi,
 )
-from cta.model.pipeline_oot_evaluation import _build_position_lifetime_table
+from cta.model.oot.pipeline_oot_evaluation import _build_position_lifetime_table
 from cta.config.model_oot_eval_config import OotEvaluationConfig
 from cta.portfolio_logic.config import PortfolioLogicConfig, RiskThrottleConfig, ThrottleLevel
-from cta.model.trade_filter_model import TradeFilterModel
+from cta.model.training.trade_filter_model import TradeFilterModel
 
 
 
@@ -303,6 +303,7 @@ class TestModelPipelinePart06(unittest.TestCase):
             use_last_window_only=False,
             require_executed_only=True,
             use_trade_filter_gate=True,
+            trade_filter_gate_mode="raw",
             trade_filter_threshold=0.55,
             use_regime_gate=True,
             allow_range_in_regime_gate=False,
@@ -329,8 +330,14 @@ class TestModelPipelinePart06(unittest.TestCase):
         _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
         self.assertEqual(int(summary.iloc[0]["selected_rows"]), 1)
         self.assertEqual(int(summary.iloc[0]["trade_count"]), 1)
-        self.assertEqual(len(trades), 1)
-        self.assertAlmostEqual(float(trades.iloc[0]["final_decision_score"]), 0.90, places=9)
+        # OOT 明细会保留被模型挡掉的候选，便于排查 block_reason；
+        # 真实交易计数仍只统计 executed 行。
+        self.assertEqual(len(trades), 2)
+        executed = trades.loc[trades["execution_status"].astype(str) == "executed"]
+        blocked = trades.loc[trades["execution_status"].astype(str) == "blocked_final_decision_gate"]
+        self.assertEqual(len(executed), 1)
+        self.assertEqual(len(blocked), 1)
+        self.assertAlmostEqual(float(executed.iloc[0]["final_decision_score"]), 0.90, places=9)
 
     def test_evaluate_oot_real_execution_scales_down_after_weekly_dd_breach(self) -> None:
         """P2.5: 周回撤触发后不一定停手，可按配置缩仓。"""

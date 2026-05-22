@@ -36,6 +36,7 @@ class MultiRunSpec:
     title_fmt: str = "{symbol} / {interval}"
     monte_carlo_iter: int = 200       # 多组合时降一些 默认 1000 太慢
     capital_base: float = 1_000_000.0
+    enforce_portfolio_interval_consistency: bool = False
 
 
 @dataclass
@@ -68,6 +69,15 @@ def aggregate_portfolio(equities: list[pd.Series]) -> pd.Series:
         return pd.Series(dtype=float, name="equity")
     arr = np.stack([s.iloc[:min_len].astype(float).to_numpy() for s in equities])
     return pd.Series(arr.mean(axis=0), name="equity")
+
+
+def _validate_portfolio_interval_consistency(intervals: list[str]) -> None:
+    uniq = sorted({str(x).strip().lower() for x in intervals if str(x).strip()})
+    if len(uniq) > 1:
+        raise ValueError(
+            "mixed intervals are not allowed for a single portfolio aggregation: "
+            f"{uniq}. Split runs by interval or disable strict check."
+        )
 
 
 def _build_monthly_long(
@@ -155,6 +165,8 @@ def run_multi(spec: MultiRunSpec) -> MultiRunResult:
         ).sort_index()
         monthly_pivot.to_csv(out_root / "monthly_pnl_pivot.csv", encoding="utf-8-sig")
 
+    if bool(spec.enforce_portfolio_interval_consistency):
+        _validate_portfolio_interval_consistency(summary.get("interval", pd.Series(dtype=str)).astype(str).tolist())
     portfolio_equity = aggregate_portfolio(equities)
     portfolio_metrics: dict[str, Any] = {}
     if len(portfolio_equity) > 1:

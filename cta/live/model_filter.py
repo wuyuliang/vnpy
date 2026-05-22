@@ -75,6 +75,7 @@ def make_trade_filter(
     threshold: float = 0.5,
     proba_index: int = 1,
     feature_provider: Callable[[Any, list[str]], pd.DataFrame | None] | None = None,
+    fail_open: bool = False,
 ) -> Callable[[dict, Any], bool]:
     """加载 trade_filter 模型并返回 ``adapter.order_filter`` 兼容的 callable。
 
@@ -117,13 +118,9 @@ def make_trade_filter(
         # 2) fallback: adapter._frame 最后一行
         frame = getattr(adapter, "_frame", None)
         if frame is None or len(frame) == 0:
-            _log(adapter, "model_filter: no frame (warmup); allowing pass-through")
+            _log(adapter, "model_filter: no frame (warmup)")
             return None
-        try:
-            return frame.iloc[-1:].reindex(columns=columns)
-        except KeyError as e:
-            _log(adapter, f"model_filter: missing column {e}; allow")
-            return None
+        return frame.iloc[-1:].reindex(columns=columns)
 
     def _filter(order: dict, adapter: Any) -> bool:
         side = str(order.get("side", "")).lower()
@@ -131,16 +128,17 @@ def make_trade_filter(
             return True
         X = _extract_features(adapter)
         if X is None:
-            return True
+            _log(adapter, f"model_filter: no usable features; allow={bool(fail_open)}")
+            return bool(fail_open)
         if X.isna().any().any():
             missing = [c for c in columns if c in X.columns and X[c].isna().all()]
-            _log(adapter, f"model_filter: missing/null columns {missing[:5]}; allow")
-            return True
+            _log(adapter, f"model_filter: missing/null columns {missing[:5]}; allow={bool(fail_open)}")
+            return bool(fail_open)
         try:
             prob = float(model.predict_proba(X)[:, pi][0])
         except Exception as e:  # noqa: BLE001
-            _log(adapter, f"model_filter: predict_proba error {e}; allow")
-            return True
+            _log(adapter, f"model_filter: predict_proba error {e}; allow={bool(fail_open)}")
+            return bool(fail_open)
         passed = prob >= th
         if not passed:
             _log(adapter, f"model_filter: prob={prob:.4f} < {th}, blocking")

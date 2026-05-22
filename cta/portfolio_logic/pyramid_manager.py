@@ -275,15 +275,17 @@ class PyramidManager:
         trade_filter_prob: float,
         trade_filter_prob_pctl: float,
         trailing_cfg: TrailingExitConfig,
+        size_multiplier: float = 1.0,
     ) -> Layer:
         layer_id = int(len(pos.layers))
+        scaled_notional = float(notional) * max(0.0, float(size_multiplier))
         layer = Layer(
             layer_id=layer_id,
             interval=str(interval),
             direction=str(pos.direction).lower(),
             entry_time=pd.Timestamp(entry_time),
             entry_price=float(entry_price),
-            notional=float(notional),
+            notional=float(scaled_notional),
             atr_pct_at_entry=float(atr_pct_at_entry) if atr_pct_at_entry is not None else float("nan"),
             signal_score=float(signal_score),
             trade_filter_prob=float(trade_filter_prob),

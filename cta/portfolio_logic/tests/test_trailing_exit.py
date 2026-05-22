@@ -5,7 +5,7 @@ import unittest
 
 import pandas as pd
 
-from cta.portfolio_logic.config import IntervalTrailingParams, PyramidConfig, TrailingExitConfig
+from cta.portfolio_logic.config import HorizonExtendConfig, IntervalTrailingParams, PyramidConfig, TrailingExitConfig
 from cta.portfolio_logic.pyramid_manager import PyramidManager
 from cta.portfolio_logic.trailing_exit import TrailingExitSimulator, simulate_trailing_exit
 
@@ -73,6 +73,68 @@ class TestTrailingExit(unittest.TestCase):
         )
         self.assertEqual(str(sim["exit_reason"]), "horizon_exit")
         self.assertEqual(int(sim["trailing_activated"]), 0)
+
+    def test_horizon_extension_uses_hold_extend_score_and_recommended_bars(self) -> None:
+        bars = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(
+                    [
+                        "2024-01-02 09:00:00",
+                        "2024-01-02 10:00:00",
+                        "2024-01-02 11:00:00",
+                        "2024-01-02 12:00:00",
+                    ]
+                ),
+                "open": [100.0, 100.5, 101.0, 101.5],
+                "high": [100.2, 100.8, 101.2, 101.8],
+                "low": [99.8, 100.2, 100.8, 101.2],
+                "close": [100.0, 100.7, 101.1, 101.6],
+            }
+        )
+        horizon_cfg = HorizonExtendConfig(
+            enabled=True,
+            extend_when_regime=("trend_up",),
+            max_extensions=1,
+            extension_bars=1,
+            use_model_recommendation=True,
+            min_hold_extend_score=0.7,
+            max_model_extension_bars=4,
+        )
+        sim_low = simulate_trailing_exit(
+            side="long",
+            entry_ts=pd.Timestamp("2024-01-02 09:00:00"),
+            planned_exit_ts=pd.Timestamp("2024-01-02 10:00:00"),
+            entry_price_hint=100.0,
+            stop_loss_pct=0.20,
+            bars=bars,
+            interval="60min",
+            atr_pct_at_entry=None,
+            regime_label="trend_up",
+            cfg=TrailingExitConfig(enabled=False),
+            horizon_cfg=horizon_cfg,
+            hold_extend_score=0.20,
+            recommended_extension_bars=3,
+        )
+        self.assertEqual(pd.Timestamp(sim_low["final_exit_datetime"]), pd.Timestamp("2024-01-02 10:00:00"))
+        self.assertEqual(int(sim_low["extensions_used"]), 0)
+
+        sim_high = simulate_trailing_exit(
+            side="long",
+            entry_ts=pd.Timestamp("2024-01-02 09:00:00"),
+            planned_exit_ts=pd.Timestamp("2024-01-02 10:00:00"),
+            entry_price_hint=100.0,
+            stop_loss_pct=0.20,
+            bars=bars,
+            interval="60min",
+            atr_pct_at_entry=None,
+            regime_label="trend_up",
+            cfg=TrailingExitConfig(enabled=False),
+            horizon_cfg=horizon_cfg,
+            hold_extend_score=0.95,
+            recommended_extension_bars=2,
+        )
+        self.assertEqual(pd.Timestamp(sim_high["final_exit_datetime"]), pd.Timestamp("2024-01-02 12:00:00"))
+        self.assertEqual(int(sim_high["extensions_used"]), 1)
 
     def test_unknown_interval_uses_default_params(self) -> None:
         bars = pd.DataFrame(

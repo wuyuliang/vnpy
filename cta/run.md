@@ -54,6 +54,10 @@ python3 -m cta.model.model_pipeline \
   --max-walk-forward-windows 3 \
   --by-signal-type \
   --generic-mode auto \
+  --min-train-samples 50 \
+  --min-valid-samples 20 \
+  --min-test-samples 20 \
+  --max-unaudited-features 500 \
   --seed 20260512
 ```
 
@@ -164,6 +168,40 @@ python3 -m cta.feature.run_all_features \
 python3 -m cta.feature.run_all_features --interval all --cross-section
 ```
 
+### 2.4 VOI regime-adaptive momentum 特征（灰度）
+
+`voi_*` 是默认关闭的 regime-aware 因子。只有显式命中的
+`cluster|interval` 才会把 `voi_vol_regime / voi_adaptive_momentum /
+voi_momentum_signed_score` 等列拼进
+特征表；未启用时不会改变已有 parquet schema。
+
+批量落盘时用灰度 cell 显式开启：
+
+```bash
+python3 -m cta.feature.run_all_features \
+  --interval day 60min \
+  --max-rank 10 \
+  --voi-enabled-cells 'index|day' 'black|60min'
+```
+
+程序化研究入口：
+
+```python
+from cta.config.voi_momentum_config import VoiMomentumConfig
+from cta.feature.compute import compute_single_symbol_features
+
+voi_cfg = VoiMomentumConfig(
+    use_voi_regime_adaptive_momentum=True,
+    enabled_by_cluster_interval={"index|day": True, "black|60min": True},
+)
+feature_df = compute_single_symbol_features(
+    bars_df,
+    interval="day",
+    cluster="index",
+    voi_cfg=voi_cfg,
+)
+```
+
 ---
 
 ## 3. 生成候选样本（`cta/data/model_feature`，parquet-only）
@@ -179,7 +217,8 @@ python3 -m cta.strategy.baseline_skill_suite \
   --interval day,60min 30min,15min,5min,min \
   --start 2010-01-01 \
   --end 2025-12-31 \
-  --trade-side-mode both
+  --trade-side-mode both \
+  --mean-reversion-enabled-cells 'index|day' 'metal|day'
 ```
 
 单品种版本（保留旧用法）：
@@ -194,6 +233,28 @@ python3 -m cta.strategy.baseline_skill_suite \
   --trade-side-mode both
 ```
 
+`mean_reversion_range` 已加入 baseline signal 集合，但内部默认关闭。灰度验证时用
+`MeanReversionSetupConfig` 显式打开目标 `cluster|interval`；候选仍沿用同一份 schema，
+并额外保留 `mr_zscore / mr_rsi / mr_adx / target_price` 等 setup 解释字段。
+
+```python
+from cta.config.mean_reversion_setup_config import MeanReversionSetupConfig
+from cta.strategy.baseline_skill_suite import generate_candidate_opportunities
+
+mr_cfg = MeanReversionSetupConfig(
+    use_mean_reversion_setup=True,
+    enabled_by_cluster_interval={"index|day": True, "metal|day": True},
+)
+candidate_df = generate_candidate_opportunities(
+    frame=feature_frame,
+    symbol="IF0",
+    exchange="CFFEX",
+    interval="day",
+    signal_type="mean_reversion_range",
+    mean_reversion_cfg=mr_cfg,
+)
+```
+
 ### 3.2 候选事件 + 训练样本拼接（支持 topN + 多 interval）
 
 ```bash
@@ -204,6 +265,7 @@ python3 -m cta.model.feature.candidate_training_dataset \
   --start 2010-01-01 \
   --end 2025-12-31 \
   --trade-side-mode both \
+  --mean-reversion-enabled-cells 'index|day' 'metal|day' \
   --run-tag $(date +%Y%m%d)
 ```
 
@@ -224,7 +286,28 @@ python3 -m cta.model.feature.candidate_training_dataset \
 
 ---
 
-## 4. 训练三类模型 + 离线评估
+## 4. 训练模型 + 离线评估
+
+> 当前 pipeline 一次性 fit 7 个模型：4 个核心（`trade_filter` / `regime_classifier` /
+> `mfe_mae` / `final_decision_stack`）+ 3 个 2026-05-21 引入的新模型
+> （`bull_regime_strength` / `trend_persistence` / `pyramid_eligibility`，详见 §4.4.5）。
+> 所有 7 个模型在每次 `cta.model.model_pipeline` 命令里自动联动训练，**无需新增 CLI flag**。
+>
+> **§4 目录速查**：
+>
+> - §4.1 单品种训练（60min）
+> - §4.2 topN 品种 + 多周期批量训练
+>   - §4.2.0 新增参数说明
+>   - §4.2.1 多 symbol 池化训练（`--pool`）
+>   - §4.2.2 多 symbol 分组池化训练（`--group-pool`）
+> - §4.3 离线评估结果快速查看
+> - **§4.4 牛市增强闭环命令（含 3 新模型）**
+>   - §4.4.1 生成牛市增强候选
+>   - §4.4.2 训练 + OOT（cluster 分组池化）
+>   - §4.4.3 `cluster|interval|side|bull_mode` 阈值（程序化）
+>   - §4.4.4 快速核对增强链路
+>   - **§4.4.5 新增 3 训练模型在 day / 60min / 30min 三个频率上的联动命令**
+> - §4.5 模型 → 回测 中间环节
 
 训练会输出：
 - `*_metrics.csv`
@@ -267,6 +350,43 @@ python3 -m cta.model.model_pipeline \
   --by-signal-type \
   --generic-mode auto \
   --seed 20260512
+```
+
+### 4.2.0 新增参数说明（用于清理 docs_sync 警告）
+
+下面这些参数是 `cta.model.model_pipeline` / `pipeline_cli` 新增且常用的控制项：
+
+- `--max-auc-gap`：训练集与验证集 AUC 最大允许差（防止过拟合选参）。
+- `--max-valid-test-gap`：valid 与 test AUC 差异告警阈值，超阈值写入告警文件。
+- `--no-by-signal-type`：关闭按 `signal_type` 分模型，改为混合训练。
+- `--only-clusters`：`--group-pool` 模式下仅跑指定 cluster（如 `index`、`bond`）。
+- `--output-root`：指定输出根目录（覆盖默认 `cta/report/backtest`）。
+- `--enable-oscillation-taper`：配合 runtime OOT，在当前 interval 启用震荡边界持仓降仓。
+- `--rolling-train-years`：`rolling` 模式下 train 窗口长度（年）。
+- `--rolling-valid-years`：`rolling` 模式下 valid 窗口长度（年）。
+- `--rolling-test-years`：`rolling` 模式下 test 窗口长度（年）。
+- `--rolling-step-years`：`rolling` 模式窗口每次向前滚动步长（年）。
+- `--top-feature-alert-pct`：单特征重要度占比告警阈值（写入 suspect feature 报告）。
+
+示例（rolling + group_pool + cluster 过滤）：
+
+```bash
+python3 -m cta.model.model_pipeline \
+  --group-pool \
+  --group-by cluster \
+  --only-clusters index bond \
+  --interval day 60min \
+  --window-mode rolling \
+  --rolling-train-years 3 \
+  --rolling-valid-years 1 \
+  --rolling-test-years 1 \
+  --rolling-step-years 1 \
+  --max-auc-gap 0.03 \
+  --max-valid-test-gap 0.10 \
+  --top-feature-alert-pct 0.50 \
+  --no-by-signal-type \
+  --output-root cta/report/backtest/custom_run \
+  --seed 20260519
 ```
 
 ### 4.2.1 多 symbol **池化**训练（一个共享模型）
@@ -362,6 +482,29 @@ python3 -m cta.model.model_pipeline \
     - `02_by_cluster/_comparison.csv`
     - `06_drilldown/gate_funnel.csv|block_reason_breakdown.csv`
     - `reports/executive.html|analyst.html|brief.md`
+- 若本次 runtime OOT 要启用 range/compression 震荡边界持仓降仓，再加
+  `--enable-oscillation-taper`。它会在当前命令 `--interval` 覆盖的周期上为
+  已知 cluster 打开 taper；逐笔明细用 `position_taper_*` 列核对实际降仓。
+
+`day + 60min + 30min` 一把跑并打开震荡边界持仓降仓：
+
+```bash
+nohup python3 -m cta.model.model_pipeline \
+  --group-pool \
+  --group-by cluster \
+  --group-min-size 2 \
+  --top-n-symbols 77 \
+  --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
+  --interval day 60min 30min \
+  --start 2010-01-01 --end 2025-12-31 \
+  --train-end 2020-12-31 --valid-end 2023-12-31 \
+  --window-mode expanding --max-walk-forward-windows 3 \
+  --by-signal-type --generic-mode auto \
+  --use-portfolio-logic-runtime \
+  --enable-oscillation-taper \
+  --min-used-symbols 2 \
+  --seed 20260521 > 20260521.out 2>&1 &
+```
 
 ### 4.3 离线评估结果快速查看
 
@@ -400,21 +543,242 @@ OOT 绩效参数配置文件：
 - `cta/config/model_oot_eval_config.py`
 - 关键参数示例：
   - `max_single_loss_pct = 0.002`（单笔最大亏损，默认 0.2%）
-  - `trade_filter_threshold` / `use_regime_gate` / `min_pred_edge_atr`（各模型过滤阈值）
+  - `trade_filter_gate_mode` / `trade_filter_percentile_threshold` / `trade_filter_threshold` / `use_regime_gate` / `min_pred_edge_atr`（各模型过滤阈值）
   - `use_portfolio_logic_runtime`（是否启用组合层运行时）
   - `portfolio_logic.enable_*`（HTF gate / ranker / trailing / pyramid / throttle 分项开关）
+
+trade filter 默认使用 `cluster_interval_percentile`：按 `cluster+interval`
+内的分位数阈值筛选，避免用一个全局 raw probability 阈值误杀
+`INDEX/day`。这里的 `trade_filter_prob_pctl` 由训练流程用非 OOT 的
+`train+valid` 预测分布校准后写入 `*_predictions.csv`；OOT 评估不会再用
+OOT 自身分布现场 rank，缺失 `_pctl` 时 percentile gate 会 fail-closed。
+常用配置例子：
+
+```python
+from dataclasses import replace
+from cta.config.model_oot_eval_config import DEFAULT_OOT_EVAL_CONFIG
+
+cfg = replace(
+    DEFAULT_OOT_EVAL_CONFIG,
+    trade_filter_percentile_threshold_by_cluster_interval={"index|day": 65.0},
+)
+
+raw_cfg = replace(
+    DEFAULT_OOT_EVAL_CONFIG,
+    trade_filter_gate_mode="raw",
+    trade_filter_raw_threshold_by_cluster_interval={"index|day": 0.45},
+)
+```
 
 `*_metrics.csv` 内含 IC / Sharpe / hit-rate 等离线指标，是判断模型是否值得进入回测阶段的门槛。
 经验阈值：``oos_ic > 0.02`` 且 ``oos_hit_rate > 0.52`` 才推到下一步。
 
 ---
 
-## 4.5 模型 → 回测 中间环节（**关键衔接**）
+### 4.4 牛市增强闭环命令（已接入版本）
+
+这部分对应 `cta/docs/bull_market_return_enhancement_strategy.md` 当前已经落地的能力：
+- 新增 3 类 baseline 信号：`trend_acceleration_breakout` / `bull_pullback_continuation` / `bull_volatility_contraction_breakout`
+- 训练阶段新增 3 个牛市模型输出列：`bull_strength_score`、`hold_extend_score`、`pyramid_add_score`
+- OOT gate 支持 `cluster|interval|side|bull_mode` 场景阈值
+
+#### 4.4.1 生成牛市增强候选（topN + 多周期）
+
+```bash
+python3 -m cta.strategy.baseline_skill_suite \
+  --top-n-symbols 77 \
+  --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
+  --interval day 60min 30min \
+  --start 2010-01-01 \
+  --end 2025-12-31 \
+  --trade-side-mode both
+```
+
+#### 4.4.2 训练 + OOT（按 cluster 分组池化，接 portfolio runtime）
+
+```bash
+python3 -m cta.model.model_pipeline \
+  --group-pool \
+  --group-by cluster \
+  --top-n-symbols 77 \
+  --interval day 60min \
+  --start 2010-01-01 \
+  --end 2025-12-31 \
+  --train-end 2020-12-31 \
+  --valid-end 2023-12-31 \
+  --window-mode expanding \
+  --max-walk-forward-windows 3 \
+  --by-signal-type \
+  --generic-mode auto \
+  --use-portfolio-logic-runtime \
+  --min-used-symbols 2 \
+  --seed 20260520
+```
+
+#### 4.4.3 指定 `cluster|interval|side|bull_mode` 阈值（程序化）
+
+CLI 目前不直接暴露该参数，使用 Python 入口传 `oot_eval_config`：
+
+```bash
+python3 - <<'PY'
+from dataclasses import replace
+from cta.config.model_oot_eval_config import DEFAULT_OOT_EVAL_CONFIG
+from cta.model.orchestration.pipeline_run import run_model_pipeline
+
+cfg = replace(
+    DEFAULT_OOT_EVAL_CONFIG,
+    use_portfolio_logic_runtime=True,
+    trade_filter_percentile_threshold_by_cluster_interval_side_bull_mode={
+        "index|day|long|attack": 65.0,
+        "index|day|short|attack": 85.0,
+        "index|60min|long|attack": 60.0,
+    },
+)
+
+run_model_pipeline(
+    symbol="RB0",
+    exchange="SHFE",
+    interval="day",
+    start_date="2010-01-01",
+    end_date="2025-12-31",
+    train_end="2020-12-31",
+    valid_end="2023-12-31",
+    oot_eval_config=cfg,
+    seed=20260520,
+)
+PY
+```
+
+#### 4.4.4 快速核对增强链路是否生效
+
+```bash
+LATEST_RUN=$(ls -td cta/report/backtest/*_model_pipeline | head -n 1)
+echo "$LATEST_RUN"
+python3 - <<'PY'
+from pathlib import Path
+import pandas as pd
+run_dir = Path(sorted(Path("cta/report/backtest").glob("*_model_pipeline"))[-1])
+pred = pd.read_csv(next(run_dir.glob("*_predictions.csv")))
+trd = pd.read_csv(next(run_dir.glob("*_oot_trade_details.csv")))
+print("pred cols:", [c for c in ["bull_strength_score","bull_mode","hold_extend_score","pyramid_add_score"] if c in pred.columns])
+print("trade cols:", [c for c in ["bull_strength_proxy","bull_mode","trade_filter_gate_threshold"] if c in trd.columns])
+PY
+```
+
+#### 4.4.5 新增 3 个训练模型在 day / 60min / 30min 三个频率上的联动命令
+
+2026-05-21 起 `cta.model.orchestration.pipeline_run.py:174-179` 在每次训练时自动 fit
+下面 3 个模型（**不需要新增 CLI flag**，跟随 trade_filter / regime / mfe_mae / final_decision
+一起跑）：
+
+| 新模型 | 类位置 | 写入 predictions.csv 的列 | 主战场 interval |
+|---|---|---|---|
+| `BullRegimeStrengthModel` | [bull_regime_strength_model.py](../model/training/bull_regime_strength_model.py) | `bull_strength_score` / `bull_mode` | **day**（trend regime 判定） |
+| `TrendPersistenceModel` | [trend_persistence_model.py](../model/training/trend_persistence_model.py) | `hold_extend_score` / `recommended_horizon_extension_bars` | **60min**（horizon 延长） |
+| `PyramidEligibilityModel` | [pyramid_eligibility_model.py](../model/training/pyramid_eligibility_model.py) | `pyramid_add_score` / `pyramid_size_mult` | **30min**（pyramid 加仓） |
+
+所以**为验证新 3 模型完整闭环，必须在 day / 60min / 30min 三个频率各跑一遍**。
+推荐用 `--group-pool` + `--use-portfolio-logic-runtime`，因为 `hold_extend_score`
+和 `pyramid_size_mult` 只在 portfolio_logic 运行时被消费（见 [trailing_exit.py:248-266](../portfolio_logic/trailing_exit.py) 和 [pipeline_oot_evaluation.py:487-501](../model/oot/pipeline_oot_evaluation.py)）。
+
+#### day（trend filter 主战场 — INDEX 2024 bias 治本场景）
+
+```bash
+python3 -m cta.model.model_pipeline \
+  --group-pool \
+  --group-by cluster \
+  --group-min-size 2 \
+  --top-n-symbols 77 \
+  --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
+  --interval day \
+  --start 2010-01-01 --end 2025-12-31 \
+  --train-end 2020-12-31 --valid-end 2023-12-31 \
+  --window-mode expanding --max-walk-forward-windows 3 \
+  --by-signal-type --generic-mode auto \
+  --use-portfolio-logic-runtime \
+  --enable-oscillation-taper \
+  --min-used-symbols 2 \
+  --seed 20260521
+```
+
+#### 60min（horizon 延长 / mfe_mae 主战场）
+
+```bash
+python3 -m cta.model.model_pipeline \
+  --group-pool \
+  --group-by cluster \
+  --group-min-size 2 \
+  --top-n-symbols 77 \
+  --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
+  --interval 60min \
+  --start 2010-01-01 --end 2025-12-31 \
+  --train-end 2020-12-31 --valid-end 2023-12-31 \
+  --window-mode expanding --max-walk-forward-windows 3 \
+  --by-signal-type --generic-mode auto \
+  --use-portfolio-logic-runtime \
+  --min-used-symbols 2 \
+  --seed 20260521
+```
+
+#### 30min（pyramid 加仓主战场）
+
+```bash
+python3 -m cta.model.model_pipeline \
+  --group-pool \
+  --group-by cluster \
+  --group-min-size 2 \
+  --top-n-symbols 77 \
+  --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
+  --interval 30min \
+  --start 2010-01-01 --end 2025-12-31 \
+  --train-end 2020-12-31 --valid-end 2023-12-31 \
+  --window-mode expanding --max-walk-forward-windows 3 \
+  --by-signal-type --generic-mode auto \
+  --use-portfolio-logic-runtime \
+  --min-used-symbols 2 \
+  --seed 20260521
+```
+
+#### 三 interval 一把跑 + 自动校验（用 `run.sh bull_models`）
+
+```bash
+# 默认覆盖 day 60min 30min
+TOP_N=77 RUN_TAG=20260521 bash cta/run.sh bull_models
+
+# 或自定义 interval 列表（注意需用空格分隔）
+BULL_MODELS_INTERVALS="day 60min" bash cta/run.sh bull_models
+```
+
+`run.sh:step_bull_models` 在每个 interval 训练完毕后会自动跑一段 Python 校验脚本，
+读最新 `*_predictions.csv` 并断言以下 6 列**全部存在**：
+
+```
+bull_strength_score, bull_mode,
+hold_extend_score, recommended_horizon_extension_bars,
+pyramid_add_score, pyramid_size_mult
+```
+
+任一缺失会以非零退出码报错并提示 "**3 new models pipeline broken at this interval**"。
+
+#### 各 interval 下应观察到的关键 OOT 变化
+
+| interval | 关键变化点 | 验证目标 |
+|---|---|---|
+| **day** | `pred` 表多 6 个新列；details.csv `bull_mode` 列非空、`pyramid_size_mult_used` 列非 NaN | 新 3 模型在 day 频率成功 fit + predict |
+| **60min** | `hold_extend_score` 分布合理（0~1）；trailing_exit 真实触发 `horizon_extend`（当 `use_model_recommendation=True` 时） | TrendPersistenceModel 在分钟级有信号区分度 |
+| **30min** | `pyramid_add_score` 分布合理；details.csv 有 `is_add_layer=True` 行 | PyramidEligibilityModel 实战生效 |
+
+如果某 interval 下新列**全部为 NaN 或常量**，看 [bull_regime_strength_model.py:55](../model/training/bull_regime_strength_model.py) 类似的 `on_dummy_fallback` warning，
+通常是单类标签（pos=0 或 neg=0）导致退化到 DummyClassifier。
+
+---
+
+### 4.5 模型 → 回测 中间环节（**关键衔接**）
 
 第 4 步 ``model_pipeline`` 输出的是**离线评估指标 + 模型权重**，并不是真正的 PnL 回测；
 要从模型走到第 5 步带 PnL 的策略回测，**必须**显式做以下三件事：
 
-### 4.5.1 选定模型文件
+#### 4.5.1 选定模型文件
 
 ```bash
 # brooks v3 路径（推荐用作模型驱动的样板）
@@ -426,7 +790,7 @@ echo "model: $LATEST_MODEL"
 ls -lah cta/report/backtest/*_model_pipeline/models/
 ```
 
-### 4.5.2 校验离线指标 vs 上线门槛
+#### 4.5.2 校验离线指标 vs 上线门槛
 
 ```bash
 # 找出最新一轮离线评估
@@ -437,7 +801,7 @@ column -t -s, "$LATEST_RUN/$(ls $LATEST_RUN | grep _metrics.csv | head -n 1)"
 
 不达标的模型**不要**进入第 5 步，回到第 3 / 第 4 重新调样本或参数。
 
-### 4.5.3 把模型注入策略
+#### 4.5.3 把模型注入策略
 
 - **Brooks v3**：``runner.py --model <path>``（见 5.3 第二条）。runner 内部加载 ``.ubj`` →
   在 ``BrooksV3LiveStrategy.on_bar`` 中调用模型 ``predict_proba`` 过滤候选 → 触发下单。
@@ -459,6 +823,10 @@ adapter.order_filter = make_trade_filter(
     feature_provider=loader,           # ← 关键：从 cta/data/feature 加载完整特征
 )
 ```
+
+默认行为更新（P0）：`make_trade_filter` 现在是 **fail-closed**。
+如果 `feature_provider` 缺特征 / 预测报错，开仓单默认拒绝（平仓单始终放行）。
+若在仿真预热阶段需要旧行为，可显式传 `fail_open=True`。
 
 分组模型上线（按 symbol 自动路由）：
 
@@ -501,7 +869,7 @@ adapter.order_filter = make_group_trade_filter(
    仿真启动器（``run_sim``，见 §6.2）自动挂 ``risk_filter``；模型过滤需要在
    ``run_sim`` 返回后给 ``main_engine.cta_engine.strategies[name]`` 二次包装。
 
-### 4.5.4 单组合上线前 sanity check
+#### 4.5.4 单组合上线前 sanity check
 
 ```bash
 python3 -m cta.strategy.brooks.online.runner \

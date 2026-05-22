@@ -2,14 +2,19 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 
 from cta.config.model_oot_eval_config import DEFAULT_OOT_EVAL_CONFIG
-from cta.model.oot_intrabar import _simulate_intrabar_exit
-from cta.model.oot_metrics import _calc_roll_cost, _count_roll_dates_between, _max_drawdown_from_return_series
-from cta.model.oot_position_lifetime import _build_position_lifetime_table
+from cta.model.oot.oot_gates import filter_candidates
+from cta.model.oot.oot_intrabar import _IntrabarBarCache, _simulate_intrabar_exit
+from cta.model.oot.oot_metrics import _calc_roll_cost, _count_roll_dates_between, _max_drawdown_from_return_series
+from cta.model.oot.oot_portfolio_constraints import ConstraintCaps, cap_notional
+from cta.model.oot.oot_position_lifetime import _build_position_lifetime_table
+from cta.model.oot.oot_position_sizing import compute_contract_position
+from cta.model.oot.oot_trade_simulation import simulate_trades
 
 
 class TestOotSplitModules(unittest.TestCase):
@@ -109,6 +114,88 @@ class TestOotSplitModules(unittest.TestCase):
         self.assertEqual(len(out), 1)
         self.assertEqual(int(out.iloc[0]["layer_count"]), 2)
         self.assertGreater(float(out.iloc[0]["peak_notional"]), 0.0)
+
+    def test_gate_module_marks_model_block_reason(self) -> None:
+        df = pd.DataFrame(
+            {
+                "trade_filter_prob": [0.2, 0.9],
+                "side": ["long", "long"],
+            }
+        )
+        out = filter_candidates(
+            df,
+            use_trade_filter_gate=True,
+            trade_filter_threshold=0.5,
+            use_stacking_gate=False,
+        )
+        self.assertFalse(bool(out.iloc[0]["model_gate_pass"]))
+        self.assertEqual(str(out.iloc[0]["model_gate_reason"]), "blocked_trade_filter")
+        self.assertTrue(bool(out.iloc[1]["model_gate_pass"]))
+
+    def test_position_sizing_contract_rounding(self) -> None:
+        qty, ntl = compute_contract_position(
+            desired_notional=10_000.0,
+            entry_price=100.0,
+            contract_size=10.0,
+            lot_size=3.0,
+        )
+        self.assertAlmostEqual(qty, 9.0, places=9)
+        self.assertAlmostEqual(ntl, 9_000.0, places=9)
+
+    def test_portfolio_constraints_cap_reason_priority(self) -> None:
+        capped, reason = cap_notional(
+            desired_notional=100_000.0,
+            caps=ConstraintCaps(
+                cap_daily=10_000.0,
+                cap_leverage=9_000.0,
+                cap_cash=0.0,
+                cap_week=8_000.0,
+                cap_symbol=7_000.0,
+                cap_cluster=6_000.0,
+            ),
+        )
+        self.assertEqual(float(capped), 0.0)
+        self.assertEqual(reason, "blocked_margin_cash")
+
+    def test_trade_simulation_keeps_blocked_rows_flat(self) -> None:
+        df = pd.DataFrame(
+            {
+                "execution_status": ["executed", "blocked_trade_filter", "executed"],
+                "trade_return_pct": [0.01, 0.50, -0.02],
+            }
+        )
+        out = simulate_trades(df, initial_capital=100_000.0)
+        self.assertAlmostEqual(float(out.iloc[0]["equity_after"]), 101_000.0, places=6)
+        self.assertAlmostEqual(float(out.iloc[1]["equity_after"]), 101_000.0, places=6)
+        self.assertAlmostEqual(float(out.iloc[2]["equity_after"]), 98_980.0, places=6)
+
+    def test_intrabar_cache_missing_data_error_returns_empty_frame(self) -> None:
+        cache = _IntrabarBarCache(
+            interval="60min",
+            date_span_by_symbol={
+                ("RB0", "SHFE"): (
+                    pd.Timestamp("2024-01-01 00:00:00"),
+                    pd.Timestamp("2024-01-02 00:00:00"),
+                )
+            },
+        )
+        with patch("cta.model.oot.oot_intrabar.load_bars", side_effect=FileNotFoundError("missing")):
+            out = cache.load("RB0", "SHFE")
+        self.assertTrue(out.empty)
+
+    def test_intrabar_cache_unexpected_error_raises_runtime_error(self) -> None:
+        cache = _IntrabarBarCache(
+            interval="60min",
+            date_span_by_symbol={
+                ("RB0", "SHFE"): (
+                    pd.Timestamp("2024-01-01 00:00:00"),
+                    pd.Timestamp("2024-01-02 00:00:00"),
+                )
+            },
+        )
+        with patch("cta.model.oot.oot_intrabar.load_bars", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                cache.load("RB0", "SHFE")
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Sequence
 
 from cta.config.baseline_skill_suite_config import BASELINE_SIGNAL_TYPES
+from cta.config.mean_reversion_setup_config import MeanReversionSetupConfig
 from cta.strategy.baseline_backtest_cli import (
     _compute_metrics,
     _parse_args,
@@ -56,6 +57,7 @@ def run_baseline_suite_multi(
     initial_capital: float = 1_000_000.0,
     periods_per_year: int | None = None,
     output_root: Path | None = None,
+    mean_reversion_cfg: MeanReversionSetupConfig | None = None,
 ) -> list[BaselineSuiteRunResult]:
     """Run baseline suite across multiple intervals.
 
@@ -84,6 +86,7 @@ def run_baseline_suite_multi(
                 initial_capital=initial_capital,
                 periods_per_year=periods_per_year,
                 output_root=output_root,
+                mean_reversion_cfg=mean_reversion_cfg,
             )
         except Exception:
             logger.exception("baseline suite failed for symbol=%s interval=%s", symbol, interval)

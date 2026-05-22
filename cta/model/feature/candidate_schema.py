@@ -13,7 +13,7 @@ from cta.config.baseline_skill_suite_config import (
     OPPORTUNITY_CLASS_A_BREAK,
     OPPORTUNITY_CLASS_B_BREAK,
 )
-from cta.model.block_reasons import (
+from cta.model.oot.block_reasons import (
     BR_CAPACITY_BLOCKED,
     BR_EXECUTION_RULE_BLOCKED,
     BR_FILTERED_BY_RULE,

@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 
 import cta.model.model_pipeline as mp
-import cta.model.pipeline_orchestrator as _impl
+import cta.model.orchestration.pipeline_orchestrator as _impl
 
 
 def _fake_candidate_df(symbol: str, n: int = 80) -> pd.DataFrame:

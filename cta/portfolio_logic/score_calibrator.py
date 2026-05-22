@@ -10,6 +10,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
+from cta.config.symbol_cluster_config import infer_symbol_cluster
 from cta.portfolio_logic.config import normalize_portfolio_interval
 
 logger = logging.getLogger(__name__)
@@ -122,11 +123,22 @@ class ScoreCalibrator:
     def _lookup_stats(self, cluster: str, interval: str, model_kind: str) -> CalibrationStats | None:
         interval_key = normalize_portfolio_interval(interval)
         model_key = str(model_kind)
-        cluster_key = str(cluster)
-        stats = self.calibrations.get((cluster_key, interval_key, model_key))
-        if stats is None:
-            stats = self.calibrations.get((cluster_key, str(interval), model_key))
-        return stats
+        raw_cluster = str(cluster)
+        cluster_keys = [raw_cluster]
+        lower = raw_cluster.lower()
+        if lower.startswith("grp_"):
+            lower = lower[4:]
+        if lower.startswith("cluster_"):
+            cluster_keys.append(lower[8:])
+        else:
+            cluster_keys.append(f"cluster_{lower}")
+        for cluster_key in dict.fromkeys(cluster_keys):
+            stats = self.calibrations.get((cluster_key, interval_key, model_key))
+            if stats is None:
+                stats = self.calibrations.get((cluster_key, str(interval), model_key))
+            if stats is not None:
+                return stats
+        return None
 
     def to_percentile(self, cluster: str, interval: str, model_kind: str, raw_score: float) -> float:
         """Convert raw score to percentile (0-100)."""
@@ -162,6 +174,14 @@ class ScoreCalibrator:
                 return col
         return None
 
+    def _cluster_values(self, df: pd.DataFrame, cluster_col: str | None) -> pd.Series:
+        if cluster_col is not None:
+            return df[cluster_col].astype(str)
+        if "symbol" in df.columns:
+            return df["symbol"].astype(str).map(infer_symbol_cluster)
+        logger.warning("ScoreCalibrator fallback: no cluster or symbol column in dataframe.")
+        return pd.Series([""] * len(df), index=df.index)
+
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
         """Append percentile columns to a prediction table."""
         if df.empty:
@@ -169,11 +189,7 @@ class ScoreCalibrator:
 
         out = df.copy()
         cluster_col = self._resolve_cluster_column(out)
-        if cluster_col is None:
-            logger.warning("ScoreCalibrator fallback: no cluster column in dataframe.")
-            out["__cluster"] = ""
-        else:
-            out["__cluster"] = out[cluster_col].astype(str)
+        out["__cluster"] = self._cluster_values(out, cluster_col)
         out["__interval"] = out.get("interval", pd.Series([""] * len(out), index=out.index)).astype(str)
 
         mapping: list[tuple[str, str]] = [
@@ -211,4 +227,3 @@ class ScoreCalibrator:
                 out.loc[idx, pct_col] = pct
 
         return out.drop(columns=["__cluster", "__interval"])
-

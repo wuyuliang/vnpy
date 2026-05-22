@@ -27,6 +27,7 @@ import pandas as pd
 
 
 _LABELS = ["trend_up", "trend_down", "range", "compression", "expansion", "transition"]
+REGIME_LABELS = tuple(_LABELS)
 
 
 def _softmax(arr: np.ndarray) -> np.ndarray:
@@ -118,3 +119,6 @@ def compute_regime_features(feat: pd.DataFrame) -> pd.DataFrame:
     result["transition_risk"] = result["transition_risk"].clip(0, 1)
 
     return result
+
+
+__all__ = ["compute_regime_features", "REGIME_LABELS"]

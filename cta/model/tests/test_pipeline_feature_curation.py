@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cta.model.pipeline_feature_curation import _safe_name
+from cta.model.dataset.pipeline_feature_curation import _safe_name
 
 
 def test_pipeline_feature_curation_safe_name() -> None:

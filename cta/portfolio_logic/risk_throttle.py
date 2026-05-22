@@ -85,9 +85,11 @@ class EquityTracker:
 
     def _period_return_pct(self, days: int) -> float:
         if not self.equity_history:
-            return 0.0
+            return float("nan")
         now = self.equity_history[-1][0]
         cutoff = now - pd.Timedelta(days=int(days))
+        if self.equity_history[0][0] > cutoff:
+            return float("nan")
         base_equity = self.equity_history[0][1]
         for ts, eq in self.equity_history:
             if ts >= cutoff:
@@ -95,7 +97,7 @@ class EquityTracker:
                 break
         current = self.equity_history[-1][1]
         if float(base_equity) <= 0.0:
-            return 0.0
+            return float("nan")
         return float(current) / float(base_equity) - 1.0
 
     def weekly_return_pct(self) -> float:
@@ -177,12 +179,16 @@ class RiskThrottle:
 
     def apply_to_caps(self, base_caps: CapsConfig, level: ThrottleLevel) -> CapsConfig:
         """Scale position caps using the selected throttle level."""
+        mult = max(0.0, float(level.max_total_positions_mult))
         total = max(0, int(base_caps.max_total_positions * float(level.max_total_positions_mult)))
         per_cluster = max(0, int(base_caps.max_total_per_cluster * float(level.max_per_cluster_mult)))
         return replace(
             base_caps,
             max_total_positions=total,
             max_total_per_cluster=per_cluster,
+            max_symbol_notional_pct=max(1e-9, float(base_caps.max_symbol_notional_pct) * mult),
+            max_cluster_notional_pct=max(1e-9, float(base_caps.max_cluster_notional_pct) * mult),
+            max_total_notional_pct=max(1e-9, float(base_caps.max_total_notional_pct) * mult),
         )
 
     def apply_to_pyramid(self, base_cfg: PyramidConfig, level: ThrottleLevel) -> PyramidConfig:

@@ -24,10 +24,15 @@ class OpportunityRanker:
         self,
         cfg: OpportunityRankerConfig,
         edge_stats: dict[tuple[str, str], tuple[float, float]] | None = None,
+        interval_rank: dict[str, float] | None = None,
     ) -> None:
         self.cfg = cfg
         self.edge_stats = edge_stats or {}
-        self.interval_rank_weight = IntervalGateConfig().interval_rank
+        rank_cfg = interval_rank if interval_rank is not None else IntervalGateConfig().interval_rank
+        self.interval_rank_weight = {
+            normalize_portfolio_interval(k): float(v)
+            for k, v in dict(rank_cfg).items()
+        }
 
     @staticmethod
     def _cluster_of_row(row: pd.Series) -> str:
