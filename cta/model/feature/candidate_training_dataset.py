@@ -9,7 +9,6 @@ from typing import Iterable, Sequence
 import pandas as pd
 
 from cta.config.baseline_skill_suite_config import BASELINE_SIGNAL_TYPES
-from cta.config.mean_reversion_setup_config import MeanReversionSetupConfig
 from cta.config.skill_tight_range_breakout_config import CTA_ROOT
 from cta.model.feature.candidate_baseline_bridge import (
     SYMBOLS_RANKING_PATH,
@@ -25,29 +24,6 @@ logger = logging.getLogger(__name__)
 
 MODEL_FEATURE_ROOT: Path = CTA_ROOT / "data" / "model_feature"
 DEFAULT_MACRO_FEATURE_PATH: Path = CTA_ROOT / "data" / "feature" / "macro" / "macro_daily.parquet"
-
-
-def _enabled_cells(raw_cells: Iterable[str]) -> tuple[str, ...]:
-    cells: list[str] = []
-    seen: set[str] = set()
-    for token in raw_cells:
-        for cell in str(token).split(","):
-            normalized = cell.strip().lower()
-            if not normalized or normalized in seen:
-                continue
-            cells.append(normalized)
-            seen.add(normalized)
-    return tuple(cells)
-
-
-def _mean_reversion_cfg_from_enabled_cells(
-    raw_cells: Iterable[str],
-) -> MeanReversionSetupConfig:
-    cells = _enabled_cells(raw_cells)
-    return MeanReversionSetupConfig(
-        use_mean_reversion_setup=bool(cells),
-        enabled_by_cluster_interval={cell: True for cell in cells},
-    )
 
 
 def _load_macro_feature_table(path: Path) -> pd.DataFrame:
@@ -205,7 +181,6 @@ def generate_and_save_candidate_training_dataset(
     generic_columns: Iterable[str] | None = None,
     enable_macro_features: bool = True,
     macro_feature_path: Path = DEFAULT_MACRO_FEATURE_PATH,
-    mean_reversion_cfg: MeanReversionSetupConfig | None = None,
 ) -> CandidateTrainingDatasetResult:
     """One-stop API: generate candidate events from baselines and persist dataset."""
     candidate_df = generate_candidate_events_from_baselines(
@@ -217,7 +192,6 @@ def generate_and_save_candidate_training_dataset(
         trade_side_mode=trade_side_mode,
         signal_types=signal_types,
         horizon_bars=horizon_bars,
-        mean_reversion_cfg=mean_reversion_cfg,
     )
     return build_and_save_candidate_training_dataset(
         candidate_df=candidate_df,
@@ -247,7 +221,6 @@ def generate_and_save_candidate_training_dataset_multi(
     generic_columns: Iterable[str] | None = None,
     enable_macro_features: bool = True,
     macro_feature_path: Path = DEFAULT_MACRO_FEATURE_PATH,
-    mean_reversion_cfg: MeanReversionSetupConfig | None = None,
 ) -> list[CandidateTrainingDatasetResult]:
     """Run candidate dataset generation for multiple intervals."""
     interval_tuple = _normalize_intervals(intervals)
@@ -276,7 +249,6 @@ def generate_and_save_candidate_training_dataset_multi(
                 generic_columns=generic_columns,
                 enable_macro_features=enable_macro_features,
                 macro_feature_path=macro_feature_path,
-                mean_reversion_cfg=mean_reversion_cfg,
             )
         except Exception:
             logger.exception("candidate dataset generation failed for interval=%s", interval)
@@ -307,12 +279,6 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--signal-types", default=",".join(BASELINE_SIGNAL_TYPES))
     parser.add_argument("--macro-feature-path", default=str(DEFAULT_MACRO_FEATURE_PATH))
     parser.add_argument(
-        "--mean-reversion-enabled-cells",
-        nargs="*",
-        default=[],
-        help="灰度开启 mean_reversion_range 的 cluster|interval cells；支持空格或逗号分隔",
-    )
-    parser.add_argument(
         "--enable-macro-features",
         dest="enable_macro_features",
         action="store_true",
@@ -340,12 +306,6 @@ def main(argv: Sequence[str] | None = None) -> None:
     output_root = Path(args.output_root).resolve()
     feature_root = Path(args.feature_root).resolve()
     macro_feature_path = Path(args.macro_feature_path).resolve()
-    mean_reversion_cfg = _mean_reversion_cfg_from_enabled_cells(args.mean_reversion_enabled_cells)
-    if mean_reversion_cfg.use_mean_reversion_setup:
-        logger.info(
-            "mean_reversion_range gray cells enabled: %s",
-            list(mean_reversion_cfg.enabled_by_cluster_interval),
-        )
 
     top_n = int(getattr(args, "top_n_symbols", 0))
     if top_n > 0:
@@ -383,7 +343,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             feature_root=feature_root,
             enable_macro_features=bool(args.enable_macro_features),
             macro_feature_path=macro_feature_path,
-            mean_reversion_cfg=mean_reversion_cfg,
         )
         for interval, result in zip(intervals, results):
             logger.info("[%s][%s] candidate_events: %s", symbol, interval, result.candidate_events_parquet)
@@ -402,7 +361,6 @@ __all__ = [
     "_normalize_intervals",
     "_load_top_n_symbols_from_ranking",
     "_resolve_run_exchange",
-    "_mean_reversion_cfg_from_enabled_cells",
     "_parse_args",
     "standardize_candidate_events",
     "generate_candidate_events_from_baselines",

@@ -12,6 +12,52 @@
 
 ---
 
+## 2026-05-22 (五) · rollback · 移除均值回归 setup / 震荡 taper / VOI 特征实验链路
+
+### 任务
+
+按 `cta/docs/mean_reversion_voi_regime_adaptive_design.md` 的模块边界安全回退三条
+实验链路：`mean_reversion_range` 候选、oscillation taper OOT 持仓降仓、VOI
+regime-adaptive momentum 特征。
+
+### 主要修改文件
+
+- `cta/config/baseline_skill_suite_config.py`、`cta/strategy/baseline_*`
+  - baseline signal 集合与 candidate 生成移除 `mean_reversion_range` 分支和 `mr_*`
+    训练列。
+- `cta/feature/compute.py`、`cta/feature/run_all_features.py`、
+  `cta/feature/feature_*`
+  - 通用特征生成入口移除 `VoiMomentumConfig`、`voi_*` 拼接和批量灰度 flag。
+- `cta/portfolio_logic/config.py`、`cta/portfolio_logic/trailing_exit.py`、
+  `cta/model/oot/pipeline_oot_evaluation.py`、`cta/model/orchestration/pipeline_cli.py`
+  - OOT/portfolio runtime 移除 taper 配置、逐笔 `position_taper_*` 字段与 CLI flag。
+- 删除三条链路的专属实现与专属测试文件：
+  - `cta/config/mean_reversion_setup_config.py`
+  - `cta/strategy/mean_reversion_range_setup.py`
+  - `cta/feature/mean_reversion.py`
+  - `cta/config/voi_momentum_config.py`
+  - `cta/feature/voi_momentum.py`
+  - `cta/portfolio_logic/oscillation_taper.py`
+- 文档同步：
+  - `cta/run.md`、`cta/model/model.md`、`cta/feature/FEATURES.md`
+  - `cta/strategy/readme.md`、`cta/portfolio_logic/README.md`
+  - `cta/docs/block_reason.md`、`cta/keyword.md`
+
+### 验证命令
+
+```bash
+python3 -m pytest -q \
+  cta/strategy/tests/test_baseline_skill_suite_part03.py::TestBaselineSkillSuitePart03::test_baseline_signal_types_do_not_publish_range_mean_reversion \
+  cta/feature/tests/test_loader_and_scheduler.py::TestLoaderAndScheduler::test_batch_feature_cli_does_not_publish_voi_opt_in_flag \
+  cta/model/tests/test_pipeline_cli.py::test_pipeline_cli_does_not_publish_oscillation_taper_flag
+```
+
+### 风险与后续
+
+- 历史报告里已有 `position_taper_*` 或 `mean_reversion_range` 字段不会重写；本次只回退
+  当前代码入口。
+- 设计文档仍保留为历史研究稿，后续若重启实验应重新按 TDD 评审接入边界。
+
 ## 2026-05-21 (四) · model/runtime · CLI 开启震荡边界持仓降仓
 
 ### 任务

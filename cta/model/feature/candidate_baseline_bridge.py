@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 
 from cta.config.baseline_skill_suite_config import BASELINE_SIGNAL_TYPES
-from cta.config.mean_reversion_setup_config import MeanReversionSetupConfig
 from cta.config.skill_tight_range_breakout_config import BacktestConfig, CTA_ROOT
 from cta.strategy.baseline_skill_suite import generate_candidate_opportunities, prepare_master_feature_frame
 from cta.strategy.skill_tight_range_backtest import load_bars, normalize_interval, resolve_exchange
@@ -100,7 +99,6 @@ def generate_candidate_events_from_baselines(
     trade_side_mode: str = "both",
     signal_types: tuple[str, ...] = BASELINE_SIGNAL_TYPES,
     horizon_bars: int = 20,
-    mean_reversion_cfg: MeanReversionSetupConfig | None = None,
 ) -> pd.DataFrame:
     """Generate candidate samples from baseline rule strategies."""
     sym = str(symbol).upper()
@@ -120,7 +118,6 @@ def generate_candidate_events_from_baselines(
             signal_type=str(signal_type),
             horizon_bars=horizon_bars,
             trade_side_mode=trade_side_mode,
-            mean_reversion_cfg=mean_reversion_cfg,
         )
         if not cand.empty:
             parts.append(cand)

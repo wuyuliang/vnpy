@@ -75,6 +75,9 @@ class TestBaselineSkillSuitePart03(unittest.TestCase):
                     side = str(od.get("side", "")).lower()
                     self.assertIn(side, {"long", "short", "flat"})
 
+    def test_baseline_signal_types_do_not_publish_range_mean_reversion(self) -> None:
+        self.assertNotIn("mean_reversion_range", BASELINE_SIGNAL_TYPES)
+
     def test_generate_candidate_uses_entry_bar_atr_for_label_norm(self) -> None:
         frame = pd.DataFrame(
             {

@@ -164,7 +164,7 @@
 
 | 术语 | 中文 | 定义 | 项目里 |
 |------|------|------|------|
-| **Signal Type** | 信号类型 | baseline setup 的标识 | `signal_type ∈ {donchian_breakout, atr_breakout, tight_range_breakout, breakout_pullback, mean_reversion_range, ...}` |
+| **Signal Type** | 信号类型 | baseline setup 的标识 | `signal_type ∈ {donchian_breakout, atr_breakout, tight_range_breakout, breakout_pullback, ...}` |
 | **Candidate Event** | 候选事件 | 满足信号触发条件的一行样本（不一定真成交） | `cta/data/model_feature/candidate_*.parquet` |
 | **is_executed** | 是否成交 | 候选在回测引擎中是否真的开仓（受撮合规则影响） | candidate_df 列 |
 | **atr_warmed** | ATR 已 warm-up | atr14 已稳定（前 14 根之外） | candidate_df 列 |
@@ -184,8 +184,6 @@
 | **Generic Features** | 通用特征 | 按 cta/feature/* 算出的 ~400 个跨品种特征 | `cta/data/feature/{interval}/{prefix}/{date}.parquet` |
 | **Generic Mode = auto** | 自动取全部 | 训练时把 parquet 上所有数值列纳入特征 | `--generic-mode auto`（默认）|
 | **Generic Mode = whitelist** | 白名单 18 列 | 仅取 `DEFAULT_GENERIC_COLUMNS` | `--generic-mode whitelist` |
-| **VOI Adaptive Momentum** | VOI 自适应动量 | 按波动 regime 切换快慢动量窗口并融合日内位置/量能确认 | `cta/feature/voi_momentum.py` / `voi_*` |
-| **Oscillation Taper** | 震荡边界降仓 | 持仓在 range/compression 边界附近分段锁定仓位 | `cta/portfolio_logic/oscillation_taper.py` / `position_taper_*` |
 
 ---
 
@@ -274,7 +272,6 @@
 | `--no-by-signal-type` | 关闭按 `signal_type` 分模型，改为混合训练。 |
 | `--only-clusters` | `--group-pool` 模式下仅运行指定 cluster（如 `index`/`bond`）。 |
 | `--output-root` | 指定报告与模型输出根目录。 |
-| `--enable-oscillation-taper` | 配合 `--use-portfolio-logic-runtime`，在本次 interval 上启用震荡边界持仓降仓。 |
 | `--rolling-train-years` | `rolling` 模式 train 窗口长度（年）。 |
 | `--rolling-valid-years` | `rolling` 模式 valid 窗口长度（年）。 |
 | `--rolling-test-years` | `rolling` 模式 test 窗口长度（年）。 |

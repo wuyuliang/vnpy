@@ -31,13 +31,6 @@ feature_trend_acceleration_score,1,derived from historical bars
 feature_pullback_quality,1,derived from historical bars
 feature_volatility_contraction_pctl,1,derived from historical bars
 feature_breakout_body_strength,1,derived from current/signal bar
-feature_mr_sma,1,rolling mean from historical bars
-feature_mr_zscore,1,rolling Bollinger z-score from signal bar history
-feature_mr_bb_upper,1,rolling Bollinger upper boundary
-feature_mr_bb_lower,1,rolling Bollinger lower boundary
-feature_mr_rsi,1,rolling RSI from historical bars
-feature_mr_adx,1,rolling ADX from historical bars
-feature_mr_signal_strength,1,mean-reversion score from signal bar history
 generic_centered_swing,0,centered swing needs future bars
 generic_centered_ma_20,0,centered window likely lookahead
 generic_rollingmax_5,0,naming flagged as potential lookahead

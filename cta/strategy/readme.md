@@ -16,7 +16,6 @@
 | [baseline_helpers.py](baseline_helpers.py) | 通用工具 |
 | [baseline_backtest_cli.py](baseline_backtest_cli.py) | baseline 策略组回测 CLI |
 | [baseline_strategies.py](baseline_strategies.py) | baseline 各策略类的注册/调度 |
-| [mean_reversion_range_setup.py](mean_reversion_range_setup.py) | `mean_reversion_range` 反向 setup：range regime 中按 Bollinger zscore + RSI + ADX 生成候选，默认 off、按 `cluster|interval` 灰度 |
 
 ### 具体策略
 | 文件 | 主题 | 文档 |

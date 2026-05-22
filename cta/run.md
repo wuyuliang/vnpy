@@ -39,6 +39,29 @@ OOT 风控默认值提示：
 - 特征空值统计（均值/最大值/空值列数量）
 - 特征 IC 统计（label/regime/return）
 
+最简单最全的两条命令：
+nohup python3 -m cta.feature.run_all_features   --interval day 60min 30min 15min 5min min   --start 2010-01-01 --end 2025-12-31   --workers 4   > 20260522_features.out 2>&1 &
+
+nohup python3 -m cta.model.model_pipeline \
+  --group-pool \
+  --group-by cluster \
+  --group-min-size 2 \
+  --top-n-symbols 77 \
+  --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
+  --interval day 60min 30min \
+  --start 2010-01-01 \
+  --end 2025-12-31 \
+  --train-end 2020-12-31 \
+  --valid-end 2023-12-31 \
+  --window-mode expanding \
+  --max-walk-forward-windows 3 \
+  --by-signal-type \
+  --generic-mode auto \
+  --use-portfolio-logic-runtime \
+  --min-used-symbols 2 \
+  --seed 2026052208 \
+  > 2026052208.out 2>&1 &
+
 最小运行命令：
 
 ```bash
@@ -168,42 +191,6 @@ python3 -m cta.feature.run_all_features \
 python3 -m cta.feature.run_all_features --interval all --cross-section
 ```
 
-### 2.4 VOI regime-adaptive momentum 特征（灰度）
-
-`voi_*` 是默认关闭的 regime-aware 因子。只有显式命中的
-`cluster|interval` 才会把 `voi_vol_regime / voi_adaptive_momentum /
-voi_momentum_signed_score` 等列拼进
-特征表；未启用时不会改变已有 parquet schema。
-
-批量落盘时用灰度 cell 显式开启：
-
-```bash
-python3 -m cta.feature.run_all_features \
-  --interval day 60min \
-  --max-rank 10 \
-  --voi-enabled-cells 'index|day' 'black|60min'
-```
-
-程序化研究入口：
-
-```python
-from cta.config.voi_momentum_config import VoiMomentumConfig
-from cta.feature.compute import compute_single_symbol_features
-
-voi_cfg = VoiMomentumConfig(
-    use_voi_regime_adaptive_momentum=True,
-    enabled_by_cluster_interval={"index|day": True, "black|60min": True},
-)
-feature_df = compute_single_symbol_features(
-    bars_df,
-    interval="day",
-    cluster="index",
-    voi_cfg=voi_cfg,
-)
-```
-
----
-
 ## 3. 生成候选样本（`cta/data/model_feature`，parquet-only）
 
 ### 3.1 规则 baseline 先跑一遍（支持 topN + 多 interval 候选机会）
@@ -217,8 +204,7 @@ python3 -m cta.strategy.baseline_skill_suite \
   --interval day,60min 30min,15min,5min,min \
   --start 2010-01-01 \
   --end 2025-12-31 \
-  --trade-side-mode both \
-  --mean-reversion-enabled-cells 'index|day' 'metal|day'
+  --trade-side-mode both
 ```
 
 单品种版本（保留旧用法）：
@@ -233,28 +219,6 @@ python3 -m cta.strategy.baseline_skill_suite \
   --trade-side-mode both
 ```
 
-`mean_reversion_range` 已加入 baseline signal 集合，但内部默认关闭。灰度验证时用
-`MeanReversionSetupConfig` 显式打开目标 `cluster|interval`；候选仍沿用同一份 schema，
-并额外保留 `mr_zscore / mr_rsi / mr_adx / target_price` 等 setup 解释字段。
-
-```python
-from cta.config.mean_reversion_setup_config import MeanReversionSetupConfig
-from cta.strategy.baseline_skill_suite import generate_candidate_opportunities
-
-mr_cfg = MeanReversionSetupConfig(
-    use_mean_reversion_setup=True,
-    enabled_by_cluster_interval={"index|day": True, "metal|day": True},
-)
-candidate_df = generate_candidate_opportunities(
-    frame=feature_frame,
-    symbol="IF0",
-    exchange="CFFEX",
-    interval="day",
-    signal_type="mean_reversion_range",
-    mean_reversion_cfg=mr_cfg,
-)
-```
-
 ### 3.2 候选事件 + 训练样本拼接（支持 topN + 多 interval）
 
 ```bash
@@ -265,7 +229,6 @@ python3 -m cta.model.feature.candidate_training_dataset \
   --start 2010-01-01 \
   --end 2025-12-31 \
   --trade-side-mode both \
-  --mean-reversion-enabled-cells 'index|day' 'metal|day' \
   --run-tag $(date +%Y%m%d)
 ```
 
@@ -361,7 +324,6 @@ python3 -m cta.model.model_pipeline \
 - `--no-by-signal-type`：关闭按 `signal_type` 分模型，改为混合训练。
 - `--only-clusters`：`--group-pool` 模式下仅跑指定 cluster（如 `index`、`bond`）。
 - `--output-root`：指定输出根目录（覆盖默认 `cta/report/backtest`）。
-- `--enable-oscillation-taper`：配合 runtime OOT，在当前 interval 启用震荡边界持仓降仓。
 - `--rolling-train-years`：`rolling` 模式下 train 窗口长度（年）。
 - `--rolling-valid-years`：`rolling` 模式下 valid 窗口长度（年）。
 - `--rolling-test-years`：`rolling` 模式下 test 窗口长度（年）。
@@ -482,11 +444,7 @@ python3 -m cta.model.model_pipeline \
     - `02_by_cluster/_comparison.csv`
     - `06_drilldown/gate_funnel.csv|block_reason_breakdown.csv`
     - `reports/executive.html|analyst.html|brief.md`
-- 若本次 runtime OOT 要启用 range/compression 震荡边界持仓降仓，再加
-  `--enable-oscillation-taper`。它会在当前命令 `--interval` 覆盖的周期上为
-  已知 cluster 打开 taper；逐笔明细用 `position_taper_*` 列核对实际降仓。
-
-`day + 60min + 30min` 一把跑并打开震荡边界持仓降仓：
+`day + 60min + 30min` 一把跑：
 
 ```bash
 nohup python3 -m cta.model.model_pipeline \
@@ -501,7 +459,6 @@ nohup python3 -m cta.model.model_pipeline \
   --window-mode expanding --max-walk-forward-windows 3 \
   --by-signal-type --generic-mode auto \
   --use-portfolio-logic-runtime \
-  --enable-oscillation-taper \
   --min-used-symbols 2 \
   --seed 20260521 > 20260521.out 2>&1 &
 ```
@@ -696,7 +653,6 @@ python3 -m cta.model.model_pipeline \
   --window-mode expanding --max-walk-forward-windows 3 \
   --by-signal-type --generic-mode auto \
   --use-portfolio-logic-runtime \
-  --enable-oscillation-taper \
   --min-used-symbols 2 \
   --seed 20260521
 ```

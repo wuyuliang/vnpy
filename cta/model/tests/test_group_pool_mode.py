@@ -95,23 +95,6 @@ class TestGroupPoolHelpers(unittest.TestCase):
         ns = mp._parse_args(["--group-pool", "--use-portfolio-logic-runtime"])
         self.assertTrue(bool(ns.use_portfolio_logic_runtime))
 
-    def test_parse_args_enable_oscillation_taper_default_false(self) -> None:
-        ns = mp._parse_args(["--group-pool"])
-        self.assertFalse(bool(ns.enable_oscillation_taper))
-
-    def test_effective_oot_cfg_enables_oscillation_taper_for_requested_intervals(self) -> None:
-        cfg = mp._build_effective_oot_config(
-            use_portfolio_logic_runtime=True,
-            enable_oscillation_taper=True,
-            intervals=("day", "60min"),
-        )
-        pl = cfg.portfolio_logic
-        self.assertTrue(cfg.use_portfolio_logic_runtime)
-        self.assertTrue(pl.enable_oscillation_taper)
-        self.assertTrue(pl.oscillation_taper.is_enabled("index", "day"))
-        self.assertTrue(pl.oscillation_taper.is_enabled("black", "minute60"))
-        self.assertFalse(pl.oscillation_taper.is_enabled("index", "30min"))
-
     def test_effective_oot_cfg_replaced_when_flag_on(self) -> None:
         """OotEvaluationConfig 的 use_portfolio_logic_runtime 被正确设为 True。"""
         from cta.config.model_oot_eval_config import DEFAULT_OOT_EVAL_CONFIG

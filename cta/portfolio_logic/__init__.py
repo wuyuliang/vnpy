@@ -5,7 +5,6 @@ from cta.portfolio_logic.config import (
     IntervalGateConfig,
     IntervalTrailingParams,
     OpportunityRankerConfig,
-    OscillationTaperConfig,
     PortfolioLogicConfig,
     PyramidConfig,
     RiskThrottleConfig,
@@ -20,7 +19,6 @@ from cta.portfolio_logic.pyramid_manager import Layer, PyramidManager, PyramidPo
 from cta.portfolio_logic.risk_throttle import EquitySnapshot, EquityTracker, RiskThrottle
 from cta.portfolio_logic.score_calibrator import CalibrationStats, ScoreCalibrator
 from cta.portfolio_logic.trailing_exit import TrailingExitSimulator, simulate_trailing_exit
-from cta.portfolio_logic.oscillation_taper import OscillationUpperBandTaper, TaperDecision
 
 __all__ = [
     "CapsConfig",
@@ -33,8 +31,6 @@ __all__ = [
     "IntervalTrailingParams",
     "OpportunityRanker",
     "OpportunityRankerConfig",
-    "OscillationTaperConfig",
-    "OscillationUpperBandTaper",
     "PortfolioLogicConfig",
     "PortfolioState",
     "Layer",
@@ -45,7 +41,6 @@ __all__ = [
     "RiskThrottleConfig",
     "ScoreCalibrator",
     "ThrottleLevel",
-    "TaperDecision",
     "TrailingExitSimulator",
     "TrailingExitConfig",
     "normalize_portfolio_interval",

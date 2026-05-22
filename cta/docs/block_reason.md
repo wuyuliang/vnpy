@@ -2,11 +2,6 @@
 
 > **本文档面向 codex 实施。** 起因：`20260517_GRP_CLUSTER_METAL_day/details.csv` 中绝大多数样本的 `block_reason == "htf_missing"`，几乎吞掉全部交易。本文档把 CTA 代码库里**所有 32 种 `block_reason` 字面量**（外加 1 个易混淆的 `execution_status` sentinel）重新 review 了一遍，每种都给出触发条件、根因、修复方案、验收命令。
 >
-> `block_reason` 只解释入场为何被挡住。持仓后的震荡边界降仓不是 block：
-> 开启 `oscillation_upper_band_taper` 后请看交易明细的
-> `position_taper_count / position_taper_target_ratio / position_taper_realized_ratio`
-> 与 `exit_reason="oscillation_upper_band_taper"`。
->
 > **2026-05-20 更新**：§1.1 表新增两条 OOT 执行期 block_reason —— `blocked_ma_cross_trend` 和 `blocked_regime_short_filter`，默认 off，按 (cluster, interval) 灰度启用，详见 [ma_cross_regime_aware_design.md](./ma_cross_regime_aware_design.md)。
 >
 > **codex 实施纪律**：

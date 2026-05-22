@@ -176,55 +176,6 @@ class HorizonExtendConfig:
 
 
 @dataclass(frozen=True)
-class OscillationTaperConfig:
-    """Range-bound partial exit configuration."""
-
-    use_oscillation_upper_band_taper: bool = False
-    taper_regimes: tuple[str, ...] = ("range", "compression")
-    upper_taper_trigger: float = 0.20
-    lower_taper_trigger: float = 0.20
-    boundary_method: str = "donchian_bb_max"
-    donchian_window: int = 20
-    bb_window: int = 20
-    bb_std_mult: float = 2.0
-    taper_curve: str = "linear"
-    min_taper_step_pct: float = 0.10
-    require_profit_to_taper: bool = True
-    min_profit_pct_to_taper: float = 0.005
-    enabled_by_cluster_interval: dict[str, bool] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        for name in ("upper_taper_trigger", "lower_taper_trigger", "min_taper_step_pct"):
-            value = float(getattr(self, name))
-            if not (0.0 <= value <= 1.0):
-                raise ValueError(f"{name} must be in [0, 1]")
-        if int(self.donchian_window) <= 0 or int(self.bb_window) <= 0:
-            raise ValueError("boundary windows must be > 0")
-        if float(self.bb_std_mult) <= 0.0 or float(self.min_profit_pct_to_taper) < 0.0:
-            raise ValueError("bb_std_mult must be > 0 and min_profit_pct_to_taper must be >= 0")
-        if self.boundary_method not in {"donchian_bb_max", "donchian", "bollinger"}:
-            raise ValueError(f"unsupported boundary_method={self.boundary_method}")
-        if self.taper_curve not in {"linear", "stepwise"}:
-            raise ValueError(f"unsupported taper_curve={self.taper_curve}")
-        enabled: dict[str, bool] = {}
-        for key, value in dict(self.enabled_by_cluster_interval).items():
-            parts = str(key).strip().lower().split("|")
-            if len(parts) != 2 or not parts[0] or not parts[1]:
-                raise ValueError(f"enabled_by_cluster_interval key must be cluster|interval: {key!r}")
-            if not isinstance(value, bool):
-                raise ValueError(f"enabled_by_cluster_interval[{key!r}] must be bool")
-            enabled[f"{parts[0]}|{normalize_portfolio_interval(parts[1])}"] = bool(value)
-        object.__setattr__(self, "enabled_by_cluster_interval", MappingProxyType(enabled))
-
-    def is_enabled(self, cluster: str | None, interval: str) -> bool:
-        """Return whether taper is enabled for a rollout cell."""
-        if not bool(self.use_oscillation_upper_band_taper):
-            return False
-        key = f"{str(cluster or 'other').strip().lower()}|{normalize_portfolio_interval(interval)}"
-        return bool(self.enabled_by_cluster_interval.get(key, False))
-
-
-@dataclass(frozen=True)
 class PyramidConfig:
     """Pyramid (add-on) entry behavior."""
 
@@ -364,7 +315,6 @@ class PortfolioLogicConfig:
     enable_trailing: bool = True
     enable_pyramid: bool = True
     enable_horizon_extend: bool = True
-    enable_oscillation_taper: bool = False
     enable_score_calibration: bool = True
     enable_risk_throttle: bool = True
 
@@ -372,7 +322,6 @@ class PortfolioLogicConfig:
     ranker: OpportunityRankerConfig = field(default_factory=OpportunityRankerConfig)
     trailing: TrailingExitConfig = field(default_factory=TrailingExitConfig)
     horizon_extend: HorizonExtendConfig = field(default_factory=HorizonExtendConfig)
-    oscillation_taper: OscillationTaperConfig = field(default_factory=OscillationTaperConfig)
     pyramid: PyramidConfig = field(default_factory=PyramidConfig)
     risk_throttle: RiskThrottleConfig = field(default_factory=RiskThrottleConfig)
     caps: CapsConfig = field(default_factory=CapsConfig)

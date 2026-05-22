@@ -4,7 +4,7 @@ from __future__ import annotations
 import unittest
 
 from cta.feature.loader import load_symbols_ranked, normalize_interval
-from cta.feature.run_all_features import resolve_intervals
+from cta.feature.run_all_features import _build_parser, resolve_intervals
 
 
 class TestLoaderAndScheduler(unittest.TestCase):
@@ -35,7 +35,9 @@ class TestLoaderAndScheduler(unittest.TestCase):
         for v in vals:
             self.assertIn(v, {"minute", "minute5", "minute15", "minute30", "minute60"})
 
+    def test_batch_feature_cli_does_not_publish_voi_opt_in_flag(self) -> None:
+        self.assertNotIn("--voi-enabled-cells", _build_parser().format_help())
+
 
 if __name__ == "__main__":
     unittest.main()
-

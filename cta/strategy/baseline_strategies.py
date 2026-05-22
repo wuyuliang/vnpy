@@ -7,13 +7,11 @@ import numpy as np
 import pandas as pd
 
 from cta.config.baseline_skill_suite_config import BASELINE_SIGNAL_TYPES
-from cta.config.mean_reversion_setup_config import MeanReversionSetupConfig
 from cta.config.skill_tight_range_breakout_config import StrategyConfig, VALID_SIDE_MODES
 from cta.skills.price_action.breakout_pullback import PullbackSetup, pullback_entry_trigger
 from cta.skills.price_action.tight_range_breakout import TightRangeSetup, resolve_breakout_trigger
 from cta.strategy.baseline_helpers import _entry_order, _safe_bool, _safe_float, _side_allowed
 from cta.strategy.skill_tight_range_breakout import ContractSpec, SkillTightRangeBreakoutStrategy
-from cta.strategy.mean_reversion_range_setup import MeanReversionRangeSetupGenerator
 
 
 class DonchianBaselineStrategy:
@@ -271,48 +269,11 @@ class BullExtensionBaselineStrategy:
         return []
 
 
-class MeanReversionRangeBaselineStrategy:
-    """Opt-in market-entry strategy wrapper for range mean-reversion setups."""
-
-    def __init__(
-        self,
-        frame: pd.DataFrame,
-        contract: ContractSpec,
-        trade_side_mode: str,
-        cfg: MeanReversionSetupConfig,
-        interval: str,
-    ) -> None:
-        self.frame = frame.reset_index(drop=True)
-        self.contract = contract
-        self.trade_side_mode = trade_side_mode
-        self.interval = str(interval)
-        self.generator = MeanReversionRangeSetupGenerator(cfg)
-
-    def on_bar(self, i: int, bar: pd.Series, position: int) -> list[dict[str, Any]]:
-        if position != 0:
-            return []
-        from cta.config.symbol_cluster_config import infer_symbol_cluster
-
-        candidate = self.generator.candidate_from_row(
-            bar,
-            cluster=infer_symbol_cluster(str(getattr(self.contract, "symbol", ""))),
-            interval=self.interval,
-        )
-        if candidate is None:
-            return []
-        side = str(candidate["side"])
-        if not _side_allowed(self.trade_side_mode, side):
-            return []
-        return [_entry_order(self.contract, side, lots=1, order_type="market")]
-
-
 def create_baseline_strategy(
     signal_type: str,
     frame: pd.DataFrame,
     contract: ContractSpec,
     trade_side_mode: str = "both",
-    mean_reversion_cfg: MeanReversionSetupConfig | None = None,
-    interval: str = "day",
 ) -> Any:
     """Factory for baseline strategy objects."""
     st = str(signal_type).strip().lower()
@@ -352,14 +313,6 @@ def create_baseline_strategy(
             trade_side_mode=mode,
             signal_kind=st,
         )
-    if st == "mean_reversion_range":
-        return MeanReversionRangeBaselineStrategy(
-            frame=frame,
-            contract=contract,
-            trade_side_mode=mode,
-            cfg=mean_reversion_cfg or MeanReversionSetupConfig(),
-            interval=interval,
-        )
     raise ValueError(f"unsupported signal_type={signal_type}, valid={BASELINE_SIGNAL_TYPES}")
 
 
@@ -368,6 +321,5 @@ __all__ = [
     "ATRBreakoutBaselineStrategy",
     "BreakoutPullbackBaselineStrategy",
     "BullExtensionBaselineStrategy",
-    "MeanReversionRangeBaselineStrategy",
     "create_baseline_strategy",
 ]

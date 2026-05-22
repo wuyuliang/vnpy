@@ -17,7 +17,6 @@ BASELINE_SIGNAL_TYPES: Final[tuple[str, ...]] = (
     "trend_acceleration_breakout",
     "bull_pullback_continuation",
     "bull_volatility_contraction_breakout",
-    "mean_reversion_range",
 )
 
 TRAINING_FEATURE_COLUMNS: Final[tuple[str, ...]] = (
@@ -52,13 +51,6 @@ TRAINING_FEATURE_COLUMNS: Final[tuple[str, ...]] = (
     "pullback_quality",
     "volatility_contraction_pctl",
     "breakout_body_strength",
-    "mr_sma",
-    "mr_zscore",
-    "mr_bb_upper",
-    "mr_bb_lower",
-    "mr_rsi",
-    "mr_adx",
-    "mr_signal_strength",
 )
 
 DEFAULT_REPORT_ROOT: Final[Path] = CTA_ROOT / "report" / "backtest"

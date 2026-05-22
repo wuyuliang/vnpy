@@ -29,42 +29,16 @@ from cta.model.dataset.pipeline_symbol_ranking import (
     _load_top_n_symbols_from_ranking,
     _resolve_run_exchange,
 )
-from cta.config.symbol_cluster_config import SYMBOL_CLUSTER_BY_PREFIX
-
-
-def _oscillation_taper_cells(intervals: Sequence[str]) -> dict[str, bool]:
-    """Enable taper for every known cluster at the intervals in this run."""
-    clusters = {"other", *{str(v).strip().lower() for v in SYMBOL_CLUSTER_BY_PREFIX.values()}}
-    return {
-        f"{cluster}|{interval}": True
-        for cluster in sorted(clusters)
-        for interval in _normalize_intervals(intervals)
-    }
 
 
 def _build_effective_oot_config(
     *,
     use_portfolio_logic_runtime: bool,
-    enable_oscillation_taper: bool,
-    intervals: Sequence[str],
 ) -> OotEvaluationConfig:
     """Build CLI OOT config without mutating repo defaults."""
     if not bool(use_portfolio_logic_runtime):
         return DEFAULT_OOT_EVAL_CONFIG
-    cfg = dc_replace(DEFAULT_OOT_EVAL_CONFIG, use_portfolio_logic_runtime=True)
-    if not bool(enable_oscillation_taper):
-        return cfg
-    taper_cfg = dc_replace(
-        cfg.portfolio_logic.oscillation_taper,
-        use_oscillation_upper_band_taper=True,
-        enabled_by_cluster_interval=_oscillation_taper_cells(intervals),
-    )
-    portfolio_cfg = dc_replace(
-        cfg.portfolio_logic,
-        enable_oscillation_taper=True,
-        oscillation_taper=taper_cfg,
-    )
-    return dc_replace(cfg, portfolio_logic=portfolio_cfg)
+    return dc_replace(DEFAULT_OOT_EVAL_CONFIG, use_portfolio_logic_runtime=True)
 
 
 def _parse_args(argv: Sequence[str] | None=None) -> argparse.Namespace:
@@ -105,7 +79,6 @@ def _parse_args(argv: Sequence[str] | None=None) -> argparse.Namespace:
     parser.add_argument('--group-min-size', type=int, default=2, help='group-pool 模式保留的最小组大小（默认 2）。')
     parser.add_argument('--only-clusters', nargs='+', default=None, help="group-pool 模式下仅训练指定 cluster（基础名，不带 'cluster_' 前缀）。例: --only-clusters index → 仅训练 cluster_index（IF0/IH0/IC0/IM0）；    --only-clusters index bond → 训练股指+国债两个 cluster。未指定（默认 None）= 训练 ranking 中全部 cluster。")
     parser.add_argument('--use-portfolio-logic-runtime', action='store_true', default=False, help='OOT 评估按线上 portfolio_logic 真实逻辑走（HTF gate + ranker + trailing + pyramid + score_calibration + risk_throttle）。默认 False = 用旧 FCFS 路径。等价于 OotEvaluationConfig(use_portfolio_logic_runtime=True)。依赖 cluster_registry.json 与 *_calibration.joblib 已生成。')
-    parser.add_argument('--enable-oscillation-taper', action='store_true', default=False, help='配合 --use-portfolio-logic-runtime，在本次 --interval 范围内启用 range/compression 震荡边界持仓降仓。')
     parser.add_argument('--include-disabled-symbols', action='store_true', help='不应用 symbol_disable_manifest 过滤。默认会过滤掉被标记禁用的品种；若要覆盖 70+ 全量品种可打开该开关。')
     parser.add_argument('--min-used-symbols', type=int, default=2, help='POOL 模式最少实际参与训练的品种数（默认 2）。若低于该阈值则报错，避免把单品种误当池化模型。')
     return parser.parse_args(argv)
@@ -124,11 +97,9 @@ def main(argv: Sequence[str] | None=None) -> None:
     respect_disabled_manifest = not bool(getattr(args, 'include_disabled_symbols', False))
     effective_oot_cfg = _build_effective_oot_config(
         use_portfolio_logic_runtime=bool(getattr(args, 'use_portfolio_logic_runtime', False)),
-        enable_oscillation_taper=bool(getattr(args, 'enable_oscillation_taper', False)),
-        intervals=intervals,
     )
     if bool(effective_oot_cfg.use_portfolio_logic_runtime):
-        logger.info('OOT eval will use portfolio_logic runtime (htf=%s ranker=%s trail=%s taper=%s pyramid=%s calib=%s throttle=%s)', effective_oot_cfg.portfolio_logic.enable_htf_gate, effective_oot_cfg.portfolio_logic.enable_ranker, effective_oot_cfg.portfolio_logic.enable_trailing, effective_oot_cfg.portfolio_logic.enable_oscillation_taper, effective_oot_cfg.portfolio_logic.enable_pyramid, effective_oot_cfg.portfolio_logic.enable_score_calibration, effective_oot_cfg.portfolio_logic.enable_risk_throttle)
+        logger.info('OOT eval will use portfolio_logic runtime (htf=%s ranker=%s trail=%s pyramid=%s calib=%s throttle=%s)', effective_oot_cfg.portfolio_logic.enable_htf_gate, effective_oot_cfg.portfolio_logic.enable_ranker, effective_oot_cfg.portfolio_logic.enable_trailing, effective_oot_cfg.portfolio_logic.enable_pyramid, effective_oot_cfg.portfolio_logic.enable_score_calibration, effective_oot_cfg.portfolio_logic.enable_risk_throttle)
     if bool(getattr(args, 'group_pool', False)):
         run_date_tag = pd.Timestamp.now().strftime('%Y%m%d')
         group_specs = _load_symbol_groups_from_ranking(Path(args.symbols_ranking_path), top_n=top_n, group_by=str(args.group_by), min_symbols_per_group=int(args.group_min_size), respect_disabled_manifest=respect_disabled_manifest)

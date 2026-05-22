@@ -50,20 +50,6 @@ python3 -m cta.feature.run_all_features --interval all
 python3 -m cta.feature.run_all_features --interval 60min --symbols RB0
 ```
 
-默认通用特征仍保持现有 schema。若要灰度接入 VOI regime-adaptive momentum，使用
-`VoiMomentumConfig` 调 `compute_single_symbol_features(..., voi_cfg=..., cluster=...)`，
-命中的 `cluster|interval` 才会新增 `voi_*` 列；这样可以先离线比较再决定是否扩进批量
-特征落盘。
-
-批量灰度落盘命令：
-
-```bash
-python3 -m cta.feature.run_all_features \
-  --interval day 60min \
-  --symbols IF0 RB0 \
-  --voi-enabled-cells 'index|day' 'black|60min'
-```
-
 ### Step B：生成候选事件 + 训练样本（候选特征 + 通用特征拼接）
 
 `cta.model.feature.candidate_training_dataset` 现已支持：
@@ -79,7 +65,6 @@ python3 -m cta.model.feature.candidate_training_dataset \
   --start 2010-01-01 \
   --end 2019-12-31 \
   --trade-side-mode both \
-  --mean-reversion-enabled-cells 'black|60min' \
   --run-tag 20260427
 
 # 单品种 + 多 interval（空格分隔）
@@ -117,10 +102,6 @@ python3 -m cta.model.feature.candidate_training_dataset \
 - 多 interval / 多品种是顺序批量执行，单个 interval 失败不会阻断其它 interval。
 - 输出目录按 `interval/symbol/run_tag` 隔离，互不覆盖。
 - `cta/data/model_feature` 已改为 parquet-only，不再落地 csv。
-- `mean_reversion_range` 是新增反向 setup：只在 `MeanReversionSetupConfig` 显式打开且
-  `cluster|interval` 命中时产出候选，默认不改变既有 breakout baseline 分布；
-  CLI 用 `--mean-reversion-enabled-cells 'index|day' 'metal|day'` 灰度。
-
 产物示例：
 - `cta/data/model_feature/minute60/RB0/20260427/*_candidate_events.parquet`
 - `cta/data/model_feature/minute60/RB0/20260427/*_training_samples.parquet`
@@ -364,13 +345,6 @@ portfolio_logic 运行时开关（默认向后兼容关闭）：
   - risk throttle（`blocked_throttle_halt`）
   - pyramid 分层持仓（`pos_id` / `layer_id`）
   - trailing stop（`trailing_stop_exit_rows`）
-  - oscillation taper（range/compression 边界降仓；交易明细写
-    `position_taper_count / position_taper_target_ratio / position_taper_realized_ratio`，
-    触发出场原因写 `oscillation_upper_band_taper`）
-- CLI 入口中，`--enable-oscillation-taper` 需要和
-  `--use-portfolio-logic-runtime` 一起使用；它只在本次命令的 `--interval`
-  范围内为已知 cluster 打开 oscillation taper，不修改默认
-  `DEFAULT_OOT_EVAL_CONFIG`。
 - 多 interval（如 `day,60min`）场景下，pipeline 会在各 interval 首轮评估后，
   自动用“跨 interval 合并预测表”重算一次 OOT HTF gate，
   让 `day` 与 `60min` 互相提供趋势状态，避免单 interval 评估出现整批 `htf_missing`。

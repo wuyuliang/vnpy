@@ -8,8 +8,6 @@ import numpy as np
 import pandas as pd
 
 from cta.config.baseline_skill_suite_config import BASELINE_SIGNAL_TYPES, LABEL_MAE_PENALTY, LABEL_THRESHOLD, TRAINING_FEATURE_COLUMNS
-from cta.config.mean_reversion_setup_config import MeanReversionSetupConfig
-from cta.config.symbol_cluster_config import infer_symbol_cluster
 from cta.config.skill_tight_range_breakout_config import VALID_SIDE_MODES
 from cta.strategy.baseline_helpers import _safe_float
 from cta.strategy.baseline_setup_detection import (
@@ -138,7 +136,6 @@ def generate_candidate_opportunities(
     label_stop_loss_pct: float = 0.01,
     drop_horizon_truncated: bool = False,
     feature_columns: tuple[str, ...] = TRAINING_FEATURE_COLUMNS,
-    mean_reversion_cfg: MeanReversionSetupConfig | None = None,
 ) -> pd.DataFrame:
     """Generate candidate opportunities from baseline signal logic."""
     cols = [
@@ -189,8 +186,6 @@ def generate_candidate_opportunities(
         frame=frame,
         contract=contract,
         trade_side_mode=mode,
-        mean_reversion_cfg=mean_reversion_cfg,
-        interval=interval,
     )
     dt = pd.to_datetime(frame.get("datetime", pd.Series([pd.NaT] * len(frame))), errors="coerce")
     hz = max(2, int(horizon_bars))
@@ -227,9 +222,6 @@ def generate_candidate_opportunities(
             signal_type=st,
             contract=contract,
             mode=mode,
-            mean_reversion_cfg=mean_reversion_cfg,
-            cluster=infer_symbol_cluster(str(symbol).upper()),
-            interval=interval,
         )
         if not raw_setups and order_by_side:
             for side, od in order_by_side.items():

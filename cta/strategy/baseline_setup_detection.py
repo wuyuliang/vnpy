@@ -14,11 +14,9 @@ from cta.config.baseline_skill_suite_config import (
     TREND_ACCELERATION_SHORT_MIN_BODY,
 )
 from cta.config.skill_tight_range_breakout_config import VALID_SIDE_MODES
-from cta.config.mean_reversion_setup_config import MeanReversionSetupConfig
 from cta.skills.price_action.breakout_pullback import PullbackSetup, pullback_entry_trigger
 from cta.skills.price_action.tight_range_breakout import TightRangeSetup, resolve_breakout_trigger
 from cta.strategy.baseline_helpers import _safe_bool, _safe_float, _side_allowed
-from cta.strategy.mean_reversion_range_setup import MeanReversionRangeSetupGenerator
 
 
 def _infer_regime_label(row: pd.Series) -> str:
@@ -161,10 +159,6 @@ def _build_raw_setup_candidates(
     signal_type: str,
     contract: Any,
     mode: str,
-    *,
-    mean_reversion_cfg: MeanReversionSetupConfig | None = None,
-    cluster: str | None = None,
-    interval: str = "day",
 ) -> list[dict[str, Any]]:
     mode_l = str(mode).strip().lower()
     if mode_l not in VALID_SIDE_MODES:
@@ -307,25 +301,6 @@ def _build_raw_setup_candidates(
                 "order_type": "stop",
                 "trigger": trigger,
                 "filtered_reason": ",".join(reasons) if reasons else None,
-            }
-        )
-        return out
-
-    if signal_type == "mean_reversion_range":
-        candidate = MeanReversionRangeSetupGenerator(
-            mean_reversion_cfg or MeanReversionSetupConfig()
-        ).candidate_from_row(bar, cluster=cluster, interval=interval)
-        if candidate is None:
-            return out
-        side = str(candidate["side"]).strip().lower()
-        out.append(
-            {
-                "side": side,
-                "order_type": "market",
-                "trigger": np.nan,
-                "target_price": _safe_float(candidate.get("target_price", np.nan)),
-                "stop_price": _safe_float(candidate.get("stop_price", np.nan)),
-                "filtered_reason": None if _side_allowed(mode_l, side) else "side_mode",
             }
         )
         return out

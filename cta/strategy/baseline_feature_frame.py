@@ -11,7 +11,6 @@ from cta.skills.trend_strategies.atr_breakout import compute_atr_channel
 from cta.skills.trend_strategies.donchian_breakout import compute_donchian
 from cta.strategy.baseline_helpers import _compute_atr14
 from cta.strategy.skill_tight_range_breakout import prepare_strategy_frame
-from cta.feature.mean_reversion import compute_mean_reversion_features
 
 
 def prepare_master_feature_frame(
@@ -64,9 +63,6 @@ def prepare_master_feature_frame(
     out["is_limit_down_close"] = limit_down.fillna(False).astype(int)
 
     out["atr14"] = _compute_atr14(out)
-    mr_df = compute_mean_reversion_features(out["close"], out["high"], out["low"])
-    for c in mr_df.columns:
-        out[c] = mr_df[c]
 
     don_df = compute_donchian(out, n_entry=55, n_exit=20, interval=interval)
     for c in ("don_upper_entry", "don_lower_entry", "don_upper_exit", "don_lower_exit", "don_atr20"):
