@@ -9,7 +9,7 @@
 | 文件 | 作用 |
 |---|---|
 | [leakage_audit.py](leakage_audit.py) | **特征穿越审计**：扫描 training dataset 的所有特征，按"shift / 时间一致性 / future_*"规则报警；上线策略前必跑 |
-| [auto_flag_persistent_loss_symbols.py](auto_flag_persistent_loss_symbols.py) | 扫 `cta/report/backtest/*_oot_summary.csv`，找出连续 N 个 OOT 窗口净亏的品种，写到 [cta/config/symbol_disable.py](../../config/symbol_disable.py) 用的 manifest |
+| [auto_flag_persistent_loss_symbols.py](auto_flag_persistent_loss_symbols.py) | 扫 `cta/backtest/*_oot_summary.csv`，找出连续 N 个 OOT 窗口净亏的品种，写到 [cta/config/symbol_disable.py](../../config/symbol_disable.py) 用的 manifest |
 | [generate_causality_manifest_seed.py](generate_causality_manifest_seed.py) | 给 [cta/feature/causality_manifest.csv](../../feature/causality_manifest.csv) 生成初始种子条目（新增特征时） |
 
 ## 详细过程
@@ -17,7 +17,7 @@
 ### leakage_audit
 ```bash
 python -m cta.model.tools.leakage_audit \
-    --pred-csv cta/report/backtest/<run_tag>/<...>_predictions.csv \
+    --pred-csv cta/backtest/<run_tag>/<...>_predictions.csv \
     --report-out /tmp/leak_report.md
 ```
 内部逻辑：
@@ -28,7 +28,7 @@ python -m cta.model.tools.leakage_audit \
 ### auto_flag_persistent_loss_symbols
 ```bash
 python -m cta.model.tools.auto_flag_persistent_loss_symbols \
-    --backtest-root cta/report/backtest \
+    --backtest-root cta/backtest \
     --min-windows 3 \
     --out cta/config/symbol_disable_manifest.csv
 ```

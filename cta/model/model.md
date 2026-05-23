@@ -18,7 +18,7 @@
   - `minute60/`
 - 通用特征目录：`cta/data/feature/`
 - 模型训练样本目录：`cta/data/model_feature/`
-- 模型与报告输出目录：`cta/report/backtest/..._model_pipeline/`
+- 模型与报告输出目录：`cta/backtest/..._model_pipeline/`
 
 ---
 
@@ -489,10 +489,10 @@ import pandas as pd
 from cta.model.trade_filter_model import TradeFilterModel
 from cta.model.pipeline_dataset_prep import _select_feature_columns
 
-model_path = Path("cta/report/backtest/<run>/models/donchian_breakout/window_00/trade_filter.joblib")
+model_path = Path("cta/backtest/<run>/models/donchian_breakout/window_00/trade_filter.joblib")
 model = TradeFilterModel.load(model_path)
 
-df = pd.read_csv("cta/report/backtest/<run>/<...>_feature_table.csv")
+df = pd.read_csv("cta/backtest/<run>/<...>_feature_table.csv")
 # 注意：必须复用 pipeline 的白名单选列函数，简单 prefix 抓 cols 会把
 # `feature_label` 这类字符串列也带上，再被 ColumnTransformer 强转 NaN，
 # 推理分布会跟训练对不上。
@@ -509,7 +509,7 @@ from pathlib import Path
 import pandas as pd
 from cta.model.pipeline_diagnostics import _build_last_oot_decile_table
 
-p = Path("cta/report/backtest/<run>/<...>_predictions.csv")
+p = Path("cta/backtest/<run>/<...>_predictions.csv")
 df = pd.read_csv(p)
 dec = _build_last_oot_decile_table(df, bins=10)
 out = p.parent / "<...>_last_oot_decile_returns.csv"

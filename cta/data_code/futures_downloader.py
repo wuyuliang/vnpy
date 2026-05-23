@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -24,6 +25,7 @@ CTA_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = CTA_ROOT / "data"
 DATA_ORIGIN_DIR = DATA_DIR / "origin"
 DAY_DIR = DATA_ORIGIN_DIR / "day"
+CONTRACT_DIR = DATA_ORIGIN_DIR / "contract"
 
 # 支持的分钟级频率（与目录名一一对应）
 MINUTE_INTERVALS: Tuple[str, ...] = ("minute", "minute5", "minute15", "minute30", "minute60")
@@ -395,6 +397,148 @@ class FuturesDownloader:
 
         return results
 
+    # =========================================================
+    # 按显式合约下载（calendar spread 基建）
+    # =========================================================
+    def fetch_contract_minute_range(
+        self,
+        *,
+        contract_code: str,
+        start_date: str,
+        end_date: str,
+        freq: str = "1min",
+    ) -> pd.DataFrame:
+        """Fetch explicit contract minute bars in a date range."""
+        start_ts = pd.Timestamp(start_date)
+        end_ts = pd.Timestamp(end_date)
+        if start_ts > end_ts:
+            raise ValueError(f"start_date must be <= end_date: {start_date} > {end_date}")
+        self._limiter.acquire()
+        try:
+            raw = _safe_retry(
+                self._get_pro().ft_mins,
+                ts_code=str(contract_code),
+                freq=str(freq),
+                start_date=f"{start_ts.strftime('%Y-%m-%d')} 00:00:00",
+                end_date=f"{end_ts.strftime('%Y-%m-%d')} 23:59:59",
+                retries=3,
+                wait=2.0,
+            )
+        finally:
+            if self.sleep_after_call:
+                time.sleep(self.sleep_after_call)
+        if raw is None or raw.empty:
+            return pd.DataFrame()
+        return _normalize_ftmins_df(raw, str(contract_code))
+
+    def download_explicit_contract(
+        self,
+        *,
+        symbol: str,
+        exchange: str,
+        contract_code: str,
+        start_date: str,
+        end_date: str,
+        intervals: Iterable[str] = ("minute",),
+        out_root: Optional[Path] = None,
+        overwrite: bool = False,
+    ) -> Dict[str, DownloadResult]:
+        """Download explicit contract minute data and persist parquet by interval.
+
+        Output layout:
+        ``{out_root}/contract/{SYMBOL}/{interval}/{CONTRACT}.parquet``
+        """
+        out_root = out_root or DATA_ORIGIN_DIR
+        intervals_norm = [str(itv).strip().lower() for itv in intervals]
+        for itv in intervals_norm:
+            if itv not in MINUTE_INTERVALS:
+                raise ValueError(f"unsupported interval for explicit contract: {itv}")
+        if not intervals_norm:
+            return {}
+
+        contract_name = _normalize_contract_filename(contract_code)
+        symbol_u = str(symbol).strip().upper()
+        exchange_u = str(exchange).strip().upper()
+        date_start = pd.Timestamp(start_date).strftime("%Y-%m-%d")
+        date_end = pd.Timestamp(end_date).strftime("%Y-%m-%d")
+
+        # fetch once at 1min
+        df_1min = self.fetch_contract_minute_range(
+            contract_code=str(contract_code).strip().upper(),
+            start_date=date_start,
+            end_date=date_end,
+            freq="1min",
+        )
+        results: Dict[str, DownloadResult] = {}
+        if df_1min.empty:
+            for itv in intervals_norm:
+                results[itv] = DownloadResult(
+                    symbol=symbol_u,
+                    exchange=exchange_u,
+                    interval=itv,
+                    status="empty",
+                    detail="explicit contract minute empty",
+                )
+            return results
+
+        df_1min = df_1min.copy()
+        df_1min["symbol"] = symbol_u
+        df_1min["exchange"] = exchange_u
+        df_1min["contract_code"] = str(contract_code).strip().upper()
+
+        for itv in intervals_norm:
+            out_path = out_root / "contract" / symbol_u / itv / f"{contract_name}.parquet"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            if out_path.exists() and not overwrite:
+                try:
+                    existing = pd.read_parquet(out_path)
+                    results[itv] = DownloadResult(
+                        symbol=symbol_u,
+                        exchange=exchange_u,
+                        interval=itv,
+                        status="skip",
+                        rows=int(len(existing)),
+                        date_start=str(existing["datetime"].min())[:10] if len(existing) else "",
+                        date_end=str(existing["datetime"].max())[:10] if len(existing) else "",
+                        detail="file exists",
+                    )
+                    continue
+                except Exception:
+                    pass
+
+            if itv == "minute":
+                df_out = df_1min.copy()
+            else:
+                df_out = self.resample_minute(df_1min, RESAMPLE_FREQ[itv])
+                if not df_out.empty:
+                    df_out["symbol"] = symbol_u
+                    df_out["exchange"] = exchange_u
+                    df_out["contract_code"] = str(contract_code).strip().upper()
+                    if "ts_code" not in df_out.columns:
+                        df_out["ts_code"] = str(contract_code).strip().upper()
+            if df_out.empty:
+                results[itv] = DownloadResult(
+                    symbol=symbol_u,
+                    exchange=exchange_u,
+                    interval=itv,
+                    status="empty",
+                    detail="resample empty",
+                )
+                continue
+            df_out.to_parquet(out_path, index=False)
+            dt_col = pd.to_datetime(df_out["datetime"], errors="coerce")
+            results[itv] = DownloadResult(
+                symbol=symbol_u,
+                exchange=exchange_u,
+                interval=itv,
+                status="success",
+                rows=int(len(df_out)),
+                date_start=str(dt_col.min())[:10] if len(df_out) else "",
+                date_end=str(dt_col.max())[:10] if len(df_out) else "",
+                detail=f"path={out_path}",
+            )
+        return results
+
 
 def _normalize_daily_df(raw_df: pd.DataFrame, symbol: str, exchange: str) -> pd.DataFrame:
     """akshare futures_main_sina 结果 -> 统一 CSV 格式"""
@@ -497,3 +641,8 @@ def _normalize_ftmins_df(df: pd.DataFrame, contract_code: str) -> pd.DataFrame:
     keep = needed + ["ts_code"]
     keep = [c for c in keep if c in out.columns]
     return out[keep].copy()
+
+
+def _normalize_contract_filename(contract_code: str) -> str:
+    """Convert contract code to filesystem-safe stem."""
+    return str(contract_code).strip().upper().replace(".", "_")

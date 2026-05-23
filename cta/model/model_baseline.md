@@ -345,7 +345,7 @@ from cta.live.risk import make_risk_filter
 
 loader = OnlineFeatureLoader()  # 默认从 cta/data/feature/ 加载完整特征
 mf = make_trade_filter(
-    "cta/report/backtest/{run}/models/trade_filter_RB0_60min.joblib",
+    "cta/backtest/{run}/models/trade_filter_RB0_60min.joblib",
     threshold=0.55, feature_provider=loader,
 )
 rf = make_risk_filter(guard, capital=1_000_000,
@@ -365,7 +365,7 @@ python3 -m cta.model.model_pipeline \
     --pool                                      # ← 关键
 ```
 
-输出 `cta/report/backtest/{date}_POOL_day_both_model_pipeline/`。
+输出 `cta/backtest/{date}_POOL_day_both_model_pipeline/`。
 应用：与模式 C 完全一致，模型路径改成 POOL 目录下的 `trade_filter_*.joblib`，
 跨品种推理由 `OnlineFeatureLoader` 按 `adapter.vt_symbol` 自动路由特征。
 
@@ -414,7 +414,7 @@ class FullStackCta(SkillTightRangeBreakoutCta):
 跑完 baseline 后查看候选样本数：
 
 ```bash
-wc -l cta/report/backtest/*_model_pipeline/*_candidates.csv
+wc -l cta/backtest/*_model_pipeline/*_candidates.csv
 # day interval：单 symbol < 200 笔 → 必须 POOL 训练
 # 60min：单 symbol 1000+ 笔 → 可以 per-symbol
 # 5min：单 symbol 5000+ 笔 → per-symbol 信号丰富
@@ -461,7 +461,7 @@ risk_guard 的 `MaxPositionLimit` 会按总持仓限制；不同策略独立账�
                 └─→ cta.model.feature.candidate_training_dataset
                     └─→ cta/data/model_feature/                    (候选 + 标签)
                         └─→ cta.model.model_pipeline [--pool]
-                            └─→ cta/report/backtest/{date}_*_model_pipeline/
+                            └─→ cta/backtest/{date}_*_model_pipeline/
                                 ├── *_candidates.csv  / pool_members.csv
                                 ├── *_feature_table.csv
                                 ├── *_metrics.csv

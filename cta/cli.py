@@ -16,7 +16,7 @@
     python3 -m cta.cli backtest \\
         --strategy cta.strategy.demos:make_double_ma \\
         --bars cta/data/origin/day/RB0.csv \\
-        --out-dir cta/report/backtest/$(date +%Y%m%d)_double_ma_rb0 \\
+        --out-dir cta/backtest/$(date +%Y%m%d)_double_ma_rb0 \\
         --title "DoubleMA / RB0 / day"
 
     python3 -m cta.cli validate --interval day --max-rank 20 --out report.csv

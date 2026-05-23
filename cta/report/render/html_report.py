@@ -5,7 +5,7 @@
     >>> path = write_html_report(
     ...     trade_log=trade_log, equity=equity,
     ...     bars=bars, dates=bars["datetime"],
-    ...     cfg=HtmlReportConfig(out_dir="cta/report/backtest/20260509_demo",
+    ...     cfg=HtmlReportConfig(out_dir="cta/backtest/20260509_demo",
     ...                          title="DemoStrategy / RB0 / day"),
     ... )
 """

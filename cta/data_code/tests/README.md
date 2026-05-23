@@ -17,6 +17,7 @@
 | [test_tushare_client_split.py](test_tushare_client_split.py) | Tushare 客户端分页/重试/限速 |
 | [test_validate.py](test_validate.py) | 落盘后字段/连续性/重复检查 |
 | [test_cross_source_audit.py](test_cross_source_audit.py) | 跨数据源对账（Tushare vs 其他） |
+| [test_contract_downloader.py](test_contract_downloader.py) | 显式合约下载 + 主/次主力解析 + rollover 连续性 |
 
 ## 注意事项
 

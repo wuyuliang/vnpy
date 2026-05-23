@@ -180,6 +180,49 @@ def test_trade_filter_gate_can_use_cluster_interval_percentiles() -> None:
     assert "trade_filter_prob_pctl" in trades.columns
 
 
+def test_oot_trade_details_keep_spread_arbitrage_columns() -> None:
+    pred = _single_day_pred("short").copy()
+    pred["signal_type"] = "spread_arbitrage"
+    pred["spread_pair_key"] = "rb_hc"
+    pred["spread_side"] = "short_spread"
+    pred["spread_leg_id"] = "leg1"
+    pred["spread_zscore_at_entry"] = 2.2
+    pred["spread_zscore_at_exit"] = 0.4
+    pred["spread_pnl_pct"] = 0.011
+    cfg = OotEvaluationConfig(
+        use_stacking_gate=False,
+        use_trade_filter_gate=False,
+        use_regime_gate=False,
+        use_mfe_mae_gate=False,
+        use_test_split_only=True,
+        require_executed_only=True,
+        use_intrabar_stop_tracking=False,
+        use_portfolio_constraints=False,
+        use_position_sizing=False,
+    )
+    _monthly, _summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+    for col in (
+        "spread_pair_key",
+        "spread_side",
+        "spread_leg_id",
+        "spread_zscore_at_entry",
+        "spread_zscore_at_exit",
+        "spread_pnl_pct",
+        "trailing_tp_active",
+        "trailing_tp_highwater",
+        "horizon_extended_to",
+        "trend_aware_threshold_delta",
+    ):
+        assert col in trades.columns
+    row = trades.iloc[0]
+    assert str(row["spread_pair_key"]) == "rb_hc"
+    assert str(row["spread_side"]) == "short_spread"
+    assert str(row["spread_leg_id"]) == "leg1"
+    assert abs(float(row["spread_zscore_at_entry"]) - 2.2) < 1e-12
+    assert abs(float(row["spread_zscore_at_exit"]) - 0.4) < 1e-12
+    assert abs(float(row["spread_pnl_pct"]) - 0.011) < 1e-12
+
+
 def test_pyramid_add_score_gate_blocks_low_score_add_layer() -> None:
     pred = _pyramid_runtime_pred(add_score=0.10, add_size_mult=0.50)
     cfg = _pyramid_runtime_cfg()

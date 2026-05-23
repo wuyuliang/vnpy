@@ -3,6 +3,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import MappingProxyType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from cta.config.cross_sectional_rotation_config import CrossSectionalRotationConfig
 
 
 def _default_interval_rank() -> dict[str, float]:
@@ -65,6 +69,13 @@ def normalize_portfolio_interval(interval: object) -> str:
         return ""
     raw = str(interval).strip().lower()
     return _PORTFOLIO_INTERVAL_ALIASES.get(raw, raw)
+
+
+def _default_cross_sectional_rotation_config() -> "CrossSectionalRotationConfig":
+    """Lazily build rotation config without creating a config import cycle."""
+    from cta.config.cross_sectional_rotation_config import CrossSectionalRotationConfig
+
+    return CrossSectionalRotationConfig()
 
 
 @dataclass(frozen=True)
@@ -325,6 +336,9 @@ class PortfolioLogicConfig:
     pyramid: PyramidConfig = field(default_factory=PyramidConfig)
     risk_throttle: RiskThrottleConfig = field(default_factory=RiskThrottleConfig)
     caps: CapsConfig = field(default_factory=CapsConfig)
+    cross_sectional_rotation: "CrossSectionalRotationConfig" = field(
+        default_factory=_default_cross_sectional_rotation_config
+    )
 
     def __post_init__(self) -> None:
         if self.enable_pyramid and not self.enable_trailing:

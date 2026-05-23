@@ -7,13 +7,18 @@ import logging
 import numpy as np
 import pandas as pd
 
+from cta.config.profit_aware_horizon_config import ProfitAwareHorizonConfig
+from cta.config.trailing_take_profit_config import TrailingTakeProfitConfig
 from cta.portfolio_logic.config import (
     HorizonExtendConfig,
     IntervalTrailingParams,
     TrailingExitConfig,
     normalize_portfolio_interval,
 )
+from cta.portfolio_logic.position_trend_state import PositionTrendState
 from cta.portfolio_logic.pyramid_manager import PyramidPosition
+from cta.portfolio_logic.profit_aware_horizon import resolve_max_holding_bars
+from cta.portfolio_logic.trailing_take_profit import TrailingTakeProfitEvaluator
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +68,9 @@ def _empty_result(
         "trailing_activated": 0,
         "trailing_stop_price": float("nan"),
         "extensions_used": 0,
+        "trailing_tp_active": 0,
+        "trailing_tp_highwater": float("nan"),
+        "horizon_extended_to": 0,
     }
 
 
@@ -184,6 +192,9 @@ def simulate_trailing_exit(
     horizon_cfg: HorizonExtendConfig | None = None,
     hold_extend_score: float | None = None,
     recommended_extension_bars: int | None = None,
+    trailing_take_profit_cfg: TrailingTakeProfitConfig | None = None,
+    profit_aware_horizon_cfg: ProfitAwareHorizonConfig | None = None,
+    symbol_cluster: str | None = None,
 ) -> dict[str, Any]:
     """Simulate hard-stop, trailing stop and optional horizon extension."""
     ent = pd.to_datetime(entry_ts, errors="coerce")
@@ -246,6 +257,42 @@ def simulate_trailing_exit(
         and float(atr_pct_at_entry) > 0.0
     )
     atr_abs = float(entry_fill_price * float(atr_pct_at_entry)) if trailing_allowed else float("nan")
+    trailing_tp_eval = (
+        TrailingTakeProfitEvaluator(trailing_take_profit_cfg)
+        if trailing_take_profit_cfg is not None
+        else None
+    )
+    trailing_tp_active = 0
+    trailing_tp_highwater = float("nan")
+
+    use_profit_horizon_cap = bool(
+        profit_aware_horizon_cfg is not None
+        and bool(profit_aware_horizon_cfg.use_profit_aware_horizon)
+        and profit_aware_horizon_cfg.is_enabled(symbol_cluster, interval)
+    )
+    # Profit-aware horizon (simple, explicit cap in bar units).
+    base_holding_bars = max(1, int((b["datetime"] <= exi).sum()))
+    horizon_extended_to = int(base_holding_bars)
+    if use_profit_horizon_cap and profit_aware_horizon_cfg is not None:
+        init_state = PositionTrendState(
+            symbol="",
+            side=side_l,
+            entry_price=float(entry_fill_price),
+            current_price=float(entry_fill_price),
+            current_pnl_pct=0.0,
+            bars_held=0,
+            ma_alignment=1 if str(regime_label).lower() == "trend_up" else (-1 if str(regime_label).lower() == "trend_down" else 0),
+            regime_label=str(regime_label or "range"),
+            realized_vol_20d=float("nan"),
+            trend_score=0.5 if str(regime_label).lower() in {"trend_up", "trend_down"} else 0.0,
+        )
+        horizon_extended_to = resolve_max_holding_bars(
+            init_state,
+            interval=interval,
+            cfg=profit_aware_horizon_cfg,
+            cluster=symbol_cluster,
+        )
+        horizon_extended_to = max(int(horizon_extended_to), int(base_holding_bars))
 
     extensions_used = 0
     max_extensions = int(horizon_cfg.max_extensions) if horizon_cfg is not None else 0
@@ -298,6 +345,80 @@ def simulate_trailing_exit(
             if np.isfinite(bar_low):
                 running_low = min(running_low, bar_low)
 
+        if side_l == "short":
+            trailing_tp_highwater = (
+                min(float(trailing_tp_highwater), float(running_low))
+                if np.isfinite(trailing_tp_highwater)
+                else float(running_low)
+            )
+        else:
+            trailing_tp_highwater = (
+                max(float(trailing_tp_highwater), float(running_high))
+                if np.isfinite(trailing_tp_highwater)
+                else float(running_high)
+            )
+
+        if trailing_tp_eval is not None:
+            pnl_pct = (
+                (entry_fill_price - bar_close) / entry_fill_price
+                if side_l == "short"
+                else (bar_close - entry_fill_price) / entry_fill_price
+            )
+            tp_state = PositionTrendState(
+                symbol="",
+                side=side_l,
+                entry_price=float(entry_fill_price),
+                current_price=float(bar_close) if np.isfinite(bar_close) else float(entry_fill_price),
+                current_pnl_pct=float(pnl_pct) if np.isfinite(pnl_pct) else 0.0,
+                bars_held=int(idx + 1),
+                ma_alignment=1 if str(regime_label).lower() == "trend_up" else (-1 if str(regime_label).lower() == "trend_down" else 0),
+                regime_label=str(regime_label or "range"),
+                realized_vol_20d=float("nan"),
+                trend_score=0.5 if str(regime_label).lower() in {"trend_up", "trend_down"} else 0.0,
+            )
+            tp_decision = trailing_tp_eval.update(
+                tp_state,
+                highwater_price=float(trailing_tp_highwater),
+                cluster=str(symbol_cluster or "other"),
+                interval=interval,
+            )
+            if tp_decision is not None:
+                trailing_tp_active = 1
+                final_exit_dt = bar_dt
+                final_exit_price = float(tp_decision.price)
+                exit_reason = str(tp_decision.reason)
+                break
+
+        if use_profit_horizon_cap and profit_aware_horizon_cfg is not None:
+            pnl_pct = (
+                (entry_fill_price - bar_close) / entry_fill_price
+                if side_l == "short"
+                else (bar_close - entry_fill_price) / entry_fill_price
+            )
+            pa_state = PositionTrendState(
+                symbol="",
+                side=side_l,
+                entry_price=float(entry_fill_price),
+                current_price=float(bar_close) if np.isfinite(bar_close) else float(entry_fill_price),
+                current_pnl_pct=float(pnl_pct) if np.isfinite(pnl_pct) else 0.0,
+                bars_held=int(idx + 1),
+                ma_alignment=1 if str(regime_label).lower() == "trend_up" else (-1 if str(regime_label).lower() == "trend_down" else 0),
+                regime_label=str(regime_label or "range"),
+                realized_vol_20d=float("nan"),
+                trend_score=0.5 if str(regime_label).lower() in {"trend_up", "trend_down"} else 0.0,
+            )
+            resolved = resolve_max_holding_bars(
+                pa_state,
+                interval=interval,
+                cfg=profit_aware_horizon_cfg,
+                cluster=symbol_cluster,
+            )
+            horizon_extended_to = max(int(horizon_extended_to), int(resolved))
+            target_idx = min(len(b) - 1, max(0, int(horizon_extended_to) - 1))
+            target_dt = pd.Timestamp(b.iloc[target_idx]["datetime"])
+            if target_dt > horizon_end:
+                horizon_end = target_dt
+
         if trailing_allowed and np.isfinite(atr_abs) and atr_abs > 0.0:
             if side_l == "short":
                 profit_atr = (entry_fill_price - running_low) / atr_abs
@@ -346,6 +467,13 @@ def simulate_trailing_exit(
                 idx += 1
                 continue
 
+        # Profit-aware max holding cap in bar units.
+        if use_profit_horizon_cap and int(idx + 1) >= int(horizon_extended_to):
+            final_exit_dt = bar_dt
+            final_exit_price = bar_close
+            exit_reason = "horizon_exit"
+            break
+
         idx += 1
 
     if stop_triggered == 0:
@@ -376,6 +504,9 @@ def simulate_trailing_exit(
         "trailing_activated": int(trailing_activated),
         "trailing_stop_price": float(_effective_stop_for_side(side_l, hard_stop, trail_stop)),
         "extensions_used": int(extensions_used),
+        "trailing_tp_active": int(trailing_tp_active),
+        "trailing_tp_highwater": float(trailing_tp_highwater) if np.isfinite(trailing_tp_highwater) else float("nan"),
+        "horizon_extended_to": int(horizon_extended_to),
     }
 
 

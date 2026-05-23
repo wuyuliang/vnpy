@@ -53,7 +53,7 @@ TRAINING_FEATURE_COLUMNS: Final[tuple[str, ...]] = (
     "breakout_body_strength",
 )
 
-DEFAULT_REPORT_ROOT: Final[Path] = CTA_ROOT / "report" / "backtest"
+DEFAULT_REPORT_ROOT: Final[Path] = CTA_ROOT / "backtest"
 LABEL_MAE_PENALTY: Final[float] = 0.7
 LABEL_THRESHOLD: Final[float] = 0.2
 

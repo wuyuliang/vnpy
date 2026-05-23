@@ -4,6 +4,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from cta.config.adaptive_setup_window_config import AdaptiveSetupWindowConfig
+from cta.feature.adaptive_setup_window import resolve_setup_window
 from cta.config.skill_tight_range_breakout_config import StrategyConfig
 from cta.skills.price_action.breakout_pullback import detect_breakout_pullback
 from cta.skills.price_action.tight_range_breakout import resolve_breakout_trigger
@@ -19,6 +21,7 @@ def prepare_master_feature_frame(
     *,
     symbol: str | None = None,
     pricetick: float | None = None,
+    adaptive_setup_window_cfg: AdaptiveSetupWindowConfig | None = None,
 ) -> pd.DataFrame:
     """Prepare one dataframe containing baseline features for all strategies."""
     out = bars.copy().reset_index(drop=True)
@@ -64,11 +67,20 @@ def prepare_master_feature_frame(
 
     out["atr14"] = _compute_atr14(out)
 
-    don_df = compute_donchian(out, n_entry=55, n_exit=20, interval=interval)
+    adp_cfg = adaptive_setup_window_cfg or AdaptiveSetupWindowConfig()
+    setup_symbol = str(symbol or "")
+    don_base = int(adp_cfg.base_donchian_window)
+    don_window = resolve_setup_window(setup_symbol, interval, "donchian_breakout", adp_cfg)
+    # Keep historical 55/20 Donchian shape while allowing adaptive shrink/expand.
+    don_entry_window = max(5, int(round(don_window * 55.0 / max(float(don_base), 1.0))))
+    don_df = compute_donchian(out, n_entry=don_entry_window, n_exit=don_window, interval=interval)
     for c in ("don_upper_entry", "don_lower_entry", "don_upper_exit", "don_lower_exit", "don_atr20"):
         out[c] = don_df[c].astype(float)
 
-    atr_df = compute_atr_channel(out, ma_n=20, atr_n=14, k=2.5, interval=interval)
+    atr_base = int(adp_cfg.base_atr_window)
+    atr_window = resolve_setup_window(setup_symbol, interval, "atr_breakout", adp_cfg)
+    atr_n = max(5, int(round(atr_window * 14.0 / max(float(atr_base), 1.0))))
+    atr_df = compute_atr_channel(out, ma_n=atr_window, atr_n=atr_n, k=2.5, interval=interval)
     for c in ("atr_ma", "atr_value", "atr_upper", "atr_lower"):
         out[c] = atr_df[c].astype(float)
 
@@ -160,6 +172,7 @@ def prepare_master_feature_frame(
     out["volatility_contraction_pctl"] = (
         atr_pct.rolling(60, min_periods=20).rank(pct=True).fillna(0.5)
     )
+    out["adaptive_window_used"] = float(don_window)
 
     return out
 

@@ -108,7 +108,7 @@
             ▼
 [5] report
     reporting/oot_report_writer.py / reporting/pipeline_html_report.py
-        └─ cta/report/backtest/<run_tag>/{predictions, details, monthly, summary, *.md}
+        └─ cta/backtest/<run_tag>/{predictions, details, monthly, summary, *.md}
 ```
 
 ## 注意事项

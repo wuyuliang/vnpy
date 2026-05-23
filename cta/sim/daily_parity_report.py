@@ -37,7 +37,7 @@ COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
 
 # P2.4 time tolerance auto-derived from interval ("auto" string).
 TIME_TOLERANCE_BY_INTERVAL: dict[str, pd.Timedelta] = {
-    "day": pd.Timedelta("1d"),
+    "day": pd.Timedelta("1D"),
     "60min": pd.Timedelta("30min"),
     "minute60": pd.Timedelta("30min"),
     "30min": pd.Timedelta("15min"),

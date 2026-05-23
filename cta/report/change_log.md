@@ -12,6 +12,281 @@
 
 ---
 
+## 2026-05-23 (六) · profit_aware_trend_adaptive · CLI 接入 A/B/C 灰度开关
+
+### 任务
+
+补齐 `profit_aware_trend_adaptive` 在 `model_pipeline` 命令行侧的可用性：
+1. 支持命令行直接启用 A/C/B（trailing TP / profit-aware horizon / trend-aware trade-filter）；
+2. 支持 `cluster|interval` cells（空格/逗号混合）；
+3. 同步 `run.md` 与设计文档里的示例命令，移除不可用的 `--override` 示例。
+
+### 主要修改文件
+
+- `cta/model/orchestration/pipeline_cli.py`
+  - 新增参数：
+    - `--enable-trailing-take-profit`
+    - `--trailing-tp-enabled-cells`
+    - `--enable-profit-aware-horizon`
+    - `--profit-aware-horizon-enabled-cells`
+    - `--enable-trend-aware-trade-filter`
+    - `--trend-aware-trade-filter-enabled-cells`
+  - `_build_effective_oot_config(...)` 支持从 CLI 注入 `OotEvaluationConfig` 对应子配置；
+  - 新增 cells 解析 helper（支持 `a|b,c|d` 与多 token 混合写法）。
+- `cta/model/tests/test_pipeline_cli.py`
+  - 增加默认关闭断言；
+  - 增加启用后配置透传与 key 归一化断言。
+- `cta/docs/profit_aware_trend_adaptive_design.md`
+  - 把 `--override` 示例替换为新的 CLI 开关示例（A/B/C）。
+- `cta/run.md`
+  - 在参数说明中补充 A/B/C 三组新开关；
+  - 新增 precious/day 灰度启用示例命令。
+
+### 验证命令
+
+```bash
+python3 -m pytest -q cta/model/tests/test_pipeline_cli.py
+```
+
+### 风险与后续
+
+- 本次只补齐 A/B/C 的 CLI 接入；D/E（adaptive setup window / winning-position diversity）
+  目前仍是代码层可配置能力，下一步可继续透传到候选样本主流水线。
+
+---
+
+## 2026-05-23 (六) · profit_aware_trend_adaptive · P0-P3 首版落地（TDD）
+
+### 任务
+
+按 `cta/docs/profit_aware_trend_adaptive_design.md` 一次性落地五个模块（默认 off）：
+1. A：`trailing_take_profit`；
+2. B：`trend_aware_trade_filter` 阈值松绑；
+3. C：`profit_aware_horizon`；
+4. D：`adaptive_setup_window`；
+5. E：`winning_position_setup_diversity`（策略层 helper）。
+
+### 主要修改文件
+
+- 新增配置（`cta/config/`）
+  - `trailing_take_profit_config.py`
+  - `profit_aware_horizon_config.py`
+  - `adaptive_setup_window_config.py`
+  - `trend_aware_trade_filter_config.py`
+  - `winning_position_setup_diversity_config.py`
+  - `interval_utils.py`（避免 config↔portfolio_logic 循环依赖）
+- 新增核心逻辑
+  - `cta/portfolio_logic/position_trend_state.py`
+  - `cta/portfolio_logic/trailing_take_profit.py`
+  - `cta/portfolio_logic/profit_aware_horizon.py`
+  - `cta/feature/adaptive_setup_window.py`
+- 接入现有主链路
+  - `cta/portfolio_logic/trailing_exit.py`
+    - 接入 trailing TP；
+    - 接入 profit-aware horizon；
+    - 输出新增字段：`trailing_tp_active`、`trailing_tp_highwater`、`horizon_extended_to`。
+  - `cta/model/oot/oot_trade_filter_gate.py`
+    - 接入 trend-aware delta（raw / percentile 两种 gate 模式都支持）；
+    - 新增输出字段：`trend_aware_threshold_delta`、`trend_aware_relaxed`。
+  - `cta/model/oot/pipeline_oot_evaluation.py`
+    - OOT trade_details 新增并透传上述字段；
+    - intrabar trailing 模拟调用传入新配置。
+  - `cta/strategy/baseline_feature_frame.py`
+    - 支持 `adaptive_setup_window_cfg`；
+    - 输出 `adaptive_window_used`。
+  - `cta/strategy/baseline_candidate_gen.py`
+    - 增加 `filter_candidates_with_diversity` 及兼容 helper；
+    - candidate 行新增 `adaptive_window_used`、`diversity_signal_types_count`。
+- 新增/更新测试
+  - `cta/config/tests/test_*profit_aware*.py`（5 组）
+  - `cta/portfolio_logic/tests/test_position_trend_state.py`
+  - `cta/portfolio_logic/tests/test_trailing_take_profit.py`
+  - `cta/portfolio_logic/tests/test_profit_aware_horizon.py`
+  - `cta/feature/tests/test_adaptive_setup_window.py`
+  - `cta/strategy/tests/test_adaptive_setup_window_in_feature_frame.py`
+  - `cta/strategy/tests/test_winning_position_setup_diversity.py`
+  - `cta/model/tests/test_bull_mode_trade_filter_gate.py`（新增 trend-aware gate case）
+  - `cta/model/tests/test_pipeline_oot_evaluation.py`（新增字段透传断言）
+  - `cta/portfolio_logic/tests/test_trailing_exit.py`（trailing TP / profit-aware horizon case）
+
+### 验证命令
+
+```bash
+python3 -m pytest -q \
+  cta/config/tests/test_trailing_take_profit_config.py \
+  cta/config/tests/test_profit_aware_horizon_config.py \
+  cta/config/tests/test_adaptive_setup_window_config.py \
+  cta/config/tests/test_trend_aware_trade_filter_config.py \
+  cta/config/tests/test_winning_position_setup_diversity_config.py \
+  cta/portfolio_logic/tests/test_position_trend_state.py \
+  cta/portfolio_logic/tests/test_trailing_take_profit.py \
+  cta/portfolio_logic/tests/test_profit_aware_horizon.py \
+  cta/feature/tests/test_adaptive_setup_window.py \
+  cta/strategy/tests/test_winning_position_setup_diversity.py \
+  cta/strategy/tests/test_adaptive_setup_window_in_feature_frame.py \
+  cta/model/tests/test_bull_mode_trade_filter_gate.py \
+  cta/portfolio_logic/tests/test_trailing_exit.py
+```
+
+补充回归：
+
+```bash
+python3 -m pytest -q \
+  cta/model/tests/test_pipeline_oot_evaluation.py \
+  cta/model/tests/test_pool_training.py \
+  cta/model/tests/test_pipeline_cli.py \
+  cta/strategy/tests/test_baseline_skill_suite_part02.py \
+  cta/strategy/tests/test_baseline_skill_suite_part03.py \
+  cta/strategy/tests/test_baseline_skill_suite_part04.py \
+  cta/strategy/tests/test_baseline_skill_suite_part05.py \
+  cta/portfolio_logic/tests/test_config.py
+```
+
+### 风险与后续
+
+- 模块 D/E 目前已在策略层落地 helper 与特征输出，默认 off 且不改变现有训练分布；
+  若要在 `model_pipeline` 中灰度启用，下一步建议补 CLI 配置透传与按 `(cluster, interval)` 开关注入。
+- 模块 A/C 已接入 OOT intrabar 真实执行链路，默认 off，不影响历史结果复现。
+
+---
+
+## 2026-05-23 (六) · run/oot · P3：接入 spread_arbitrage step + OOT spread 字段全链路
+
+### 任务
+
+继续执行 `cross_instrument_calendar_spread_arbitrage` 的 P3：
+1. `run.sh/run.md` 接入 `step_spread_arbitrage`；
+2. OOT 交易明细把 spread 字段贯穿到最终 `*_oot_trade_details.csv`。
+
+### 主要修改文件
+
+- `cta/run/tests/test_run_script_actions.py`
+  - 先加 TDD：校验 `step_spread_arbitrage` 函数、case action、以及 spread 专项测试命令存在。
+- `cta/model/tests/test_pipeline_oot_evaluation.py`
+  - 先加 TDD：`test_oot_trade_details_keep_spread_arbitrage_columns`，
+    断言 `spread_*` 字段在 OOT trade_details 中保留且值不丢失。
+- `cta/run.sh`
+  - 新增 `step_spread_arbitrage()`，一键运行 spread 相关测试与 OOT 字段透传回归；
+  - action 列表新增 `spread_arbitrage`。
+- `cta/model/oot/pipeline_oot_evaluation.py`
+  - `trade_cols` 增加：
+    `spread_pair_key` / `spread_side` / `spread_leg_id` /
+    `spread_zscore_at_entry` / `spread_zscore_at_exit` / `spread_pnl_pct`；
+  - trade_details 输出改为 `reindex(columns=trade_cols)`，保证列集合稳定。
+- `cta/run.md`
+  - 顶部 run.sh 常用命令增加 `bash cta/run.sh spread_arbitrage`；
+  - 新增 “3.3 跨品种/跨期价差套利专项校验（P3）”章节。
+
+### 验证命令
+
+```bash
+python3 -m pytest -q \
+  cta/run/tests/test_run_script_actions.py \
+  cta/model/tests/test_pipeline_oot_evaluation.py
+```
+
+### 风险与后续
+
+- 当前 `step_spread_arbitrage` 先以“专项回归测试 step”为主，后续如果 spread
+  候选正式并入模型训练主线，可再把该 step 升级为“数据→候选→OOT”的真实流水线执行动作。
+
+---
+
+## 2026-05-22 (五) · model/dataset · 截面动量候选正式合流到主流水线（day pool）
+
+### 任务
+
+把 `cross_sectional_momentum_rotation` 从 phase-1 边界接入 `cta.model.model_pipeline`
+正式训练链路，并保持 TDD 先行；目标是支持 day 级 group-pool OOT 正式评估。
+
+### 主要修改文件
+
+- `cta/model/dataset/pipeline_dataset_prep.py`
+  - 新增 day 级 pool 候选合流逻辑：
+    - `_build_pool_cross_sectional_candidate_table`
+    - `_convert_pool_cross_sectional_candidates_to_training_rows`
+  - 在 `_build_pooled_feature_df` 中把 `cross_sectional_momentum` 候选并入
+    pooled candidate + pooled feature（仅 `interval=day` 生效，非 day 默认跳过）。
+- `cta/model/tests/test_pool_training.py`
+  - 新增 TDD 用例：
+    - `test_day_pool_appends_cross_sectional_candidates`
+    - `test_non_day_pool_does_not_append_cross_sectional_candidates`
+  - 原有 concat/skip 测试改为 `60min`，避免被 day 合流行为影响基线断言。
+- `cta/run.md`
+  - 更新截面轮动状态为“已正式合流”；
+  - 新增 top-77 全量 day grouped OOT 命令示例。
+
+### 验证命令
+
+```bash
+python3 -m pytest -q cta/model/tests/test_pool_training.py -k "cross_sectional or non_day_pool"
+python3 -m pytest -q \
+  cta/config/tests/test_cross_sectional_rotation_config.py \
+  cta/feature/tests/test_cross_sectional_rank.py \
+  cta/strategy/tests/test_cross_sectional_momentum_rotation.py \
+  cta/portfolio_logic/tests/test_cross_sectional_rotation_executor.py \
+  cta/model/tests/test_bull_mode_trade_filter_gate.py \
+  cta/model/tests/test_pool_training.py \
+  cta/model/tests/test_group_pool_mode.py
+python3 -m pytest -q cta/run/tests/test_docs_sync.py
+```
+
+### 风险与后续
+
+- 当前合流范围限定在 day pool（有意设计，避免分钟级截面噪音）；后续若要扩展到
+  60min/30min，建议先加独立阈值与换手/滑点约束回测。
+
+---
+
+## 2026-05-22 (五) · strategy/portfolio · 截面动量轮动 phase-1
+
+### 任务
+
+按 `cta/docs/cross_sectional_momentum_rotation_design.md` 启动截面动量轮动实现，
+先落地 P0/P1 核心与 P2 最小接入边界。
+
+### 主要修改文件
+
+- `cta/config/cross_sectional_rotation_config.py`、`cta/feature/cross_sectional_rank.py`
+  - 增加默认 off 的 rotation 配置、cluster/interval 灰度、截面动量分数、
+    cluster/global 排名与 vol-target 权重 helper。
+- `cta/strategy/cross_sectional_momentum_rotation.py`
+  - 增加 day 级 rebalance candidate 生成，支持 long/short、cluster-neutral、
+    disabled/rollover 过滤、stop 与 planned exit 字段。
+- `cta/portfolio_logic/config.py`、`cta/portfolio_logic/cross_sectional_rotation_executor.py`
+  - `PortfolioLogicConfig` 挂 rotation 子配置；
+  - 新增 executor，把候选转换为 `RotationOrderIntent`，以 `PortfolioState.equity`
+    计算 target notional。
+- `cta/config/model_oot_eval_config.py`、`cta/model/oot/oot_trade_filter_gate.py`
+  - `trade_filter_bypass_signal_types` 默认包含 `cross_sectional_momentum`，
+    避免横截面排名候选再被单品种 trade-filter 阈值误杀。
+- 测试与文档同步：
+  - `cta/config/tests/test_cross_sectional_rotation_config.py`
+  - `cta/feature/tests/test_cross_sectional_rank.py`
+  - `cta/strategy/tests/test_cross_sectional_momentum_rotation.py`
+  - `cta/portfolio_logic/tests/test_cross_sectional_rotation_executor.py`
+  - `cta/run.md`、`cta/config/README.md`、`cta/strategy/readme.md`、
+    `cta/portfolio_logic/README.md`
+
+### 验证命令
+
+```bash
+python3 -m pytest -q \
+  cta/config/tests/test_cross_sectional_rotation_config.py \
+  cta/feature/tests/test_cross_sectional_rank.py \
+  cta/strategy/tests/test_cross_sectional_momentum_rotation.py \
+  cta/portfolio_logic/tests/test_config.py \
+  cta/portfolio_logic/tests/test_cross_sectional_rotation_executor.py \
+  cta/model/tests/test_bull_mode_trade_filter_gate.py
+```
+
+### 风险与后续
+
+- 当前 phase-1 已有 rank/candidate/intent 边界，但 rotation candidate 还没有合流到
+  `cta.model.model_pipeline` 的训练样本与正式 OOT prediction 表。
+- 下一阶段应先冻结横截面 rebalance candidate 与现有 candidate parquet 的 schema，
+  再接 `run.sh` 与 grouped OOT；否则容易把横截面调仓语义混成单品种 setup。
+
 ## 2026-05-22 (五) · rollback · 移除均值回归 setup / 震荡 taper / VOI 特征实验链路
 
 ### 任务
@@ -892,6 +1167,103 @@ python3 -m pytest -q cta/feature/tests/test_feature_modules_smoke.py cta/feature
 ```
 
 结果：通过。
+
+---
+
+## 2026-05-23 · current · 跨品种/跨期价差套利（P0+P1 首批实现，TDD）
+
+### 本轮实现范围
+
+1. P0 基础模块（先测后码）
+   - 新增 `cta/feature/spread_features.py`
+   - 新增 `cta/config/spread_pair_registry.py`
+   - 新增 `cta/config/spread_arbitrage_config.py`
+2. P1 模块 A（跨品种）核心
+   - 新增 `cta/strategy/spread_state.py`
+   - 新增 `cta/strategy/spread_arbitrage_strategy.py`
+   - 新增 `cta/portfolio_logic/spread_executor.py`
+3. OOT gate 兼容性补测
+   - `cta/model/tests/test_bull_mode_trade_filter_gate.py` 新增
+     `spread_arbitrage` bypass 场景用例
+4. 文档索引同步
+   - 更新 `cta/strategy/readme.md`
+   - 更新 `cta/portfolio_logic/README.md`
+
+### 新增测试
+
+- `cta/feature/tests/test_spread_features.py`
+- `cta/config/tests/test_spread_pair_registry.py`
+- `cta/config/tests/test_spread_arbitrage_config.py`
+- `cta/strategy/tests/test_spread_state.py`
+- `cta/strategy/tests/test_spread_arbitrage_strategy.py`
+- `cta/portfolio_logic/tests/test_spread_executor.py`
+
+### 验证命令
+
+```bash
+python3 -m pytest -q \
+  cta/feature/tests/test_spread_features.py \
+  cta/config/tests/test_spread_pair_registry.py \
+  cta/config/tests/test_spread_arbitrage_config.py \
+  cta/strategy/tests/test_spread_state.py \
+  cta/strategy/tests/test_spread_arbitrage_strategy.py \
+  cta/portfolio_logic/tests/test_spread_executor.py \
+  cta/model/tests/test_bull_mode_trade_filter_gate.py
+```
+
+结果：`33 passed`。
+
+---
+
+## 2026-05-23 · current · 跨品种/跨期价差套利 P2（calendar 数据基建 + rollover）
+
+### 本轮实现范围（TDD）
+
+1. data_code 基建
+   - 新增 `cta/data_code/main_secondary_resolver.py`
+     - `parse_contract_code`
+     - `add_months_to_contract`
+     - `resolve_main_secondary_by_mapping`
+   - 扩展 `cta/data_code/futures_downloader.py`
+     - `fetch_contract_minute_range`
+     - `download_explicit_contract`
+     - 输出路径：`cta/data/origin/contract/{SYMBOL}/{interval}/{CONTRACT}.parquet`
+2. strategy calendar rollover
+   - 新增 `cta/strategy/calendar_spread_state.py`
+     - `CalendarSpreadState`
+     - `CalendarRolloverDecision`
+   - 扩展 `cta/strategy/spread_arbitrage_strategy.py`
+     - calendar leg 动态解析
+     - open position 绑定实际 leg 合约
+     - `calendar_rollover_forced` 退出路径
+3. 测试
+   - 新增 `cta/data_code/tests/test_contract_downloader.py`
+   - 新增 `cta/strategy/tests/test_calendar_spread_state.py`
+   - 增强 `cta/strategy/tests/test_spread_arbitrage_strategy.py`
+     - `test_calendar_rollover_forced_exit`
+4. 文档同步
+   - 更新 `cta/data_code/README.md`
+   - 更新 `cta/data_code/tests/README.md`
+   - 更新 `cta/strategy/readme.md`
+
+### 验证命令
+
+```bash
+python3 -m pytest -q \
+  cta/data_code/tests/test_contract_downloader.py \
+  cta/data_code/tests/test_financial_futures_downloader.py \
+  cta/data_code/tests/test_download_all_split_contract.py \
+  cta/data_code/tests/test_futures_downloader_split_contract.py \
+  cta/strategy/tests/test_calendar_spread_state.py \
+  cta/strategy/tests/test_spread_arbitrage_strategy.py \
+  cta/feature/tests/test_spread_features.py \
+  cta/config/tests/test_spread_pair_registry.py \
+  cta/config/tests/test_spread_arbitrage_config.py \
+  cta/portfolio_logic/tests/test_spread_executor.py \
+  cta/run/tests/test_docs_sync.py
+```
+
+结果：`43 passed`（保留 1 条 docs warning，非本次新增逻辑引入）。
 
 ---
 

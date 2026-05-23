@@ -2,7 +2,7 @@
 
 ## 主要做什么
 
-**报告渲染层**：把 [cta/report/backtest/<run_tag>/](../backtest/) 下的 csv / json 数据渲染成 markdown / HTML / 图表的离线工具集。被 [cta/model/reporting/pipeline_html_report.py](../../model/reporting/pipeline_html_report.py) / [cta/skills/live_ops/daily_review.py](../../skills/live_ops/daily_review.py) 等调用。
+**报告渲染层**：把 [cta/backtest/<run_tag>/](../backtest/) 下的 csv / json 数据渲染成 markdown / HTML / 图表的离线工具集。被 [cta/model/reporting/pipeline_html_report.py](../../model/reporting/pipeline_html_report.py) / [cta/skills/live_ops/daily_review.py](../../skills/live_ops/daily_review.py) 等调用。
 
 ## 关键文件
 
@@ -18,7 +18,7 @@
 ## 详细过程
 
 ```
-[输入] cta/report/backtest/<run_tag>/*_oot_*.csv + predictions.csv + summary.csv
+[输入] cta/backtest/<run_tag>/*_oot_*.csv + predictions.csv + summary.csv
     │
     ▼
 metrics.aggregate(...)            → 标量指标
@@ -29,13 +29,13 @@ monte_carlo.simulate(...)          → 置信区间
 capacity.estimate(...)             → 资金容量
     │
     ▼
-html_report.render(template, data) → cta/report/backtest/<run_tag>/<run_tag>_model_report.md / .html
+html_report.render(template, data) → cta/backtest/<run_tag>/<run_tag>_model_report.md / .html
 ```
 
 ## 注意事项
 
 - **离线工具**：本目录代码不上 OOT / sim / live 主路径，只渲染结果。
-- **不修改输入**：渲染只读，禁止改写 `cta/report/backtest/<run_tag>/*.csv`。
+- **不修改输入**：渲染只读，禁止改写 `cta/backtest/<run_tag>/*.csv`。
 - **plot 依赖**：matplotlib / plotly 不在最小依赖里；CI 跑前需 `pip install matplotlib plotly`。
 - **大数据 sample**：渲染 30+ 万笔交易的 png 会卡，超过 10k 行先 sample。
 - **测试**：跑 `pytest cta/report/render/tests/ -v`。

@@ -23,6 +23,7 @@ import pandas as pd
 
 import cta.model.model_pipeline as mp
 import cta.model.orchestration.pipeline_orchestrator as _impl
+from cta.config.cross_sectional_rotation_config import CrossSectionalRotationConfig
 
 
 def _fake_candidate_df(symbol: str, n: int = 80) -> pd.DataFrame:
@@ -70,7 +71,7 @@ class TestBuildPooledFeatureDf(unittest.TestCase):
              mock.patch.object(_impl, "_build_training_feature_table_with_auto_fallback", side_effect=fake_features):
             pooled_cand, pooled_feat = mp._build_pooled_feature_df(
                 pool_symbols=symbols,
-                interval="day",
+                interval="day",  # C1 修复：rotation 默认 off，day pool 不再强制注入 cross_sectional
                 start_date="2018-01-01",
                 end_date="2019-12-31",
                 trade_side_mode="both",
@@ -100,11 +101,141 @@ class TestBuildPooledFeatureDf(unittest.TestCase):
              mock.patch.object(_impl, "_build_training_feature_table_with_auto_fallback", side_effect=fake_features):
             _pooled_cand, pooled_feat = mp._build_pooled_feature_df(
                 pool_symbols=[("RB0", "SHFE"), ("BAD", "SHFE"), ("HC0", "SHFE")],
-                interval="day", start_date="2018-01-01", end_date="2019-12-31",
+                interval="day",  # C1 修复：rotation 默认 off，day pool 行为可控
+                start_date="2018-01-01", end_date="2019-12-31",
                 trade_side_mode="both", synthetic_periods=0,
                 feature_root=Path("/tmp/no"), generic_columns=None,
             )
         self.assertSetEqual(set(pooled_feat["symbol"].unique()), {"RB0", "HC0"})
+
+    def test_day_pool_appends_cross_sectional_candidates(self) -> None:
+        """day 池化时应把 cross_sectional_momentum 候选并入主流水线。"""
+        base = _fake_candidate_df("RB0", n=12)
+        base["signal_type"] = "donchian_breakout"
+        base["symbol"] = "RB0"
+        base["exchange"] = "SHFE"
+        pooled_cand = base.copy()
+        pooled_feat = base.copy()
+
+        xsec = pd.DataFrame(
+            {
+                "datetime": [pd.Timestamp("2018-01-20"), pd.Timestamp("2018-01-20")],
+                "signal_datetime": [pd.Timestamp("2018-01-19"), pd.Timestamp("2018-01-19")],
+                "symbol": ["RB0", "HC0"],
+                "exchange": ["SHFE", "SHFE"],
+                "interval": ["day", "day"],
+                "signal_type": ["cross_sectional_momentum", "cross_sectional_momentum"],
+                "side": ["long", "short"],
+                "entry_price": [101.0, 102.0],
+                "future_mfe_atr": [1.2, 1.1],
+                "future_mae_atr": [0.4, 0.5],
+                "label_class": [1, 0],
+                "regime_label": ["trend_up", "trend_down"],
+                "candidate_status": ["filled", "filled"],
+                "is_executed": [1, 1],
+                "is_filtered": [0, 0],
+                "is_triggered": [1, 1],
+                "atr_warmed": [1, 1],
+                "feature_close": [101.0, 102.0],
+            }
+        )
+
+        def fake_features(candidate_df: pd.DataFrame, symbol: str, interval: str, feature_root: Any, generic_columns: Any = None):
+            out = candidate_df.copy()
+            out["feature_extra"] = 1.0
+            return out
+
+        with mock.patch.object(_impl, "_build_pooled_feature_df_impl", return_value=(pooled_cand, pooled_feat)), \
+             mock.patch.object(_impl, "_build_pool_cross_sectional_candidate_table", return_value=xsec, create=True), \
+             mock.patch.object(_impl, "_build_training_feature_table_with_auto_fallback", side_effect=fake_features):
+            out_cand, out_feat = mp._build_pooled_feature_df(
+                pool_symbols=[("RB0", "SHFE"), ("HC0", "SHFE")],
+                interval="day",
+                start_date="2018-01-01",
+                end_date="2019-12-31",
+                trade_side_mode="both",
+                synthetic_periods=0,
+                feature_root=Path("/tmp/no"),
+                generic_columns=None,
+                # C1 修复后必须显式启用 rotation；不传则默认 off，候选不入池。
+                rotation_cfg=CrossSectionalRotationConfig(
+                    use_cross_sectional_momentum_rotation=True,
+                    enabled_by_cluster_interval={"*|day": True},
+                ),
+            )
+
+        self.assertGreaterEqual(len(out_cand), len(pooled_cand) + len(xsec))
+        self.assertIn("cross_sectional_momentum", set(out_cand["signal_type"].astype(str)))
+        self.assertIn("cross_sectional_momentum", set(out_feat["signal_type"].astype(str)))
+
+    def test_non_day_pool_does_not_append_cross_sectional_candidates(self) -> None:
+        """非 day 周期默认不并入截面轮动候选，避免分钟级噪音。"""
+        base = _fake_candidate_df("RB0", n=12)
+        pooled_cand = base.copy()
+        pooled_feat = base.copy()
+
+        with mock.patch.object(_impl, "_build_pooled_feature_df_impl", return_value=(pooled_cand, pooled_feat)), \
+             mock.patch.object(_impl, "_build_pool_cross_sectional_candidate_table", return_value=pooled_cand.iloc[:1], create=True) as xsec_mock:
+            out_cand, out_feat = mp._build_pooled_feature_df(
+                pool_symbols=[("RB0", "SHFE"), ("HC0", "SHFE")],
+                interval="60min",
+                start_date="2018-01-01",
+                end_date="2019-12-31",
+                trade_side_mode="both",
+                synthetic_periods=0,
+                feature_root=Path("/tmp/no"),
+                generic_columns=None,
+            )
+        xsec_mock.assert_not_called()
+        self.assertEqual(len(out_cand), len(pooled_cand))
+        self.assertEqual(len(out_feat), len(pooled_feat))
+
+    def test_day_pool_does_not_append_cross_sectional_when_rotation_cfg_none(self) -> None:
+        """C1 回归：day pool 默认不传 rotation_cfg → 不调用 cross_sectional builder。"""
+        base = _fake_candidate_df("RB0", n=12)
+        pooled_cand = base.copy()
+        pooled_feat = base.copy()
+
+        with mock.patch.object(_impl, "_build_pooled_feature_df_impl", return_value=(pooled_cand, pooled_feat)), \
+             mock.patch.object(_impl, "_build_pool_cross_sectional_candidate_table", return_value=pooled_cand.iloc[:1], create=True) as xsec_mock:
+            out_cand, out_feat = mp._build_pooled_feature_df(
+                pool_symbols=[("RB0", "SHFE"), ("HC0", "SHFE")],
+                interval="day",
+                start_date="2018-01-01",
+                end_date="2019-12-31",
+                trade_side_mode="both",
+                synthetic_periods=0,
+                feature_root=Path("/tmp/no"),
+                generic_columns=None,
+                # 关键：不传 rotation_cfg / 传 None → 默认 off
+            )
+        xsec_mock.assert_not_called()
+        self.assertEqual(len(out_cand), len(pooled_cand))
+        self.assertEqual(len(out_feat), len(pooled_feat))
+
+    def test_day_pool_does_not_append_cross_sectional_when_rotation_disabled(self) -> None:
+        """C1 回归：显式传 use_*=False 的 rotation_cfg → 也不调用 builder。"""
+        base = _fake_candidate_df("RB0", n=12)
+        pooled_cand = base.copy()
+        pooled_feat = base.copy()
+
+        with mock.patch.object(_impl, "_build_pooled_feature_df_impl", return_value=(pooled_cand, pooled_feat)), \
+             mock.patch.object(_impl, "_build_pool_cross_sectional_candidate_table", return_value=pooled_cand.iloc[:1], create=True) as xsec_mock:
+            out_cand, _out_feat = mp._build_pooled_feature_df(
+                pool_symbols=[("RB0", "SHFE"), ("HC0", "SHFE")],
+                interval="day",
+                start_date="2018-01-01",
+                end_date="2019-12-31",
+                trade_side_mode="both",
+                synthetic_periods=0,
+                feature_root=Path("/tmp/no"),
+                generic_columns=None,
+                rotation_cfg=CrossSectionalRotationConfig(
+                    use_cross_sectional_momentum_rotation=False,
+                ),
+            )
+        xsec_mock.assert_not_called()
+        self.assertEqual(len(out_cand), len(pooled_cand))
 
 
 class TestRunModelPipelinePoolMode(unittest.TestCase):
@@ -112,7 +243,7 @@ class TestRunModelPipelinePoolMode(unittest.TestCase):
         """run_model_pipeline 收到 pool_symbols 时输出目录用 POOL 而非具体 symbol。"""
 
         def fake_pooled(pool_symbols, *, interval, start_date, end_date, trade_side_mode,
-                       synthetic_periods, feature_root, generic_columns):
+                       synthetic_periods, feature_root, generic_columns, rotation_cfg=None):
             parts = [_fake_candidate_df(sym, n=120) for sym, _ in pool_symbols]
             for p, (sym, _) in zip(parts, pool_symbols):
                 p["symbol"] = sym

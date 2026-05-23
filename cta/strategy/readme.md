@@ -21,6 +21,8 @@
 | 文件 | 主题 | 文档 |
 |---|---|---|
 | [skill_tight_range_breakout.py](skill_tight_range_breakout.py) | 窄幅整理 + 突破 | — |
+| [cross_sectional_momentum_rotation.py](cross_sectional_momentum_rotation.py) | day 级截面动量轮动候选生成，输出 long/short rebalance candidate | [cross_sectional_momentum_rotation_design.md](../docs/cross_sectional_momentum_rotation_design.md) |
+| [spread_arbitrage_strategy.py](spread_arbitrage_strategy.py) + [spread_state.py](spread_state.py) + [calendar_spread_state.py](calendar_spread_state.py) | 跨品种/跨期价差套利核心（z-score 进出场，双腿 order intent，calendar rollover 状态机） | [cross_instrument_calendar_spread_arbitrage_design.md](../docs/cross_instrument_calendar_spread_arbitrage_design.md) |
 | [skill_tight_range_backtest.py](skill_tight_range_backtest.py) | 上面策略的回测 entrypoint | — |
 | [price_action_breakout_engine.py](price_action_breakout_engine.py) + `_rules.py` / `_indicators.py` / `_report.py` | Brooks 价格行为突破四件套 | [breakout.md](breakout.md) |
 | [backtest_price_action_breakout.py](backtest_price_action_breakout.py) | 上面策略的回测 entrypoint | — |

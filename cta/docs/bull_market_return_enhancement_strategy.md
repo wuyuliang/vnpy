@@ -531,7 +531,7 @@ python3 -m cta.model.model_pipeline \
 
 1. `cta/model/reporting/oot_report_writer.py`
 2. `cta/model/reporting/pipeline_diagnostics.py`
-3. `cta/report/backtest/.../bull_market_kpi.csv`
+3. `cta/backtest/.../bull_market_kpi.csv`
 
 ---
 

@@ -47,7 +47,7 @@
 - `dryrun` — 研究试跑
 - `param_sweep_{N}` — 参数扫描的第 N 次
 
-例：`cta/report/backtest/oot_20260517_073500_prod/`
+例：`cta/backtest/oot_20260517_073500_prod/`
 
 ---
 

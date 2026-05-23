@@ -13,6 +13,8 @@
 | [config.py](config.py) | `PortfolioLogicConfig` + 各子模块 sub-config（`IntervalGateConfig` / `OpportunityRankerConfig` / `TrailingConfig` / `PyramidConfig` / `RiskThrottleConfig` / `CapsConfig` / `ScoreCalibrationConfig`）；全部 `frozen=True` |
 | [interval_gate.py](interval_gate.py) | `HtfGate`：跨周期共识，emit `htf_missing` / `htf_conflict` / `htf_opposite` / `htf_unknown` 四种 block_reason |
 | [opportunity_ranker.py](opportunity_ranker.py) | `OpportunityRanker`：把候选按 (trade_filter_prob, pred_mfe_atr, htf_alignment, cluster) 等特征加权打分，过 `score_pctl_threshold` |
+| [cross_sectional_rotation_executor.py](cross_sectional_rotation_executor.py) | `CrossSectionalRotationExecutor`：把截面动量 rebalance candidate 转成组合层 target intent |
+| [spread_executor.py](spread_executor.py) | `SpreadArbitrageExecutor`：读取双腿行情快照，输出价差套利双腿 order intent（signal_type=`spread_arbitrage`） |
 | [trailing_exit.py](trailing_exit.py) | `simulate_trailing_exit()`：基于 ATR 的逐 bar 移动止损模拟 |
 | [pyramid_manager.py](pyramid_manager.py) | `PyramidManager.decide_add_layer()`：加仓三条件（layer 数 / cooldown / 最小浮盈 ATR） |
 | [risk_throttle.py](risk_throttle.py) | `RiskThrottle` + `EquityTracker`：基于日/周/月回撤的 throttle level (normal / soft / hard / halt) |
@@ -57,4 +59,5 @@
 - **`enable_pyramid=True` 强依赖 `enable_trailing=True`**：[config.py:302](config.py) 已经在 `__post_init__` 校验。改 enable_* 默认值要重跑 config 测试。
 - **`htf_unknown` 是 bug 兜底**：正常情况下 `_state_from_regimes` 只会返回 `{both, none, long_only, short_only}` 四种；走到 `htf_unknown` 说明 regime label 有 garbage，warning 必须保留。
 - **OOT 与实盘共用**：本目录所有代码都不直接发单，OOT 与 live 必须用同一份决策代码。任何"实盘特别处理"应放到 [cta/live/](../live/)，不在这里搞分支。
+- **截面 rotation 仍是分阶段接入**：当前 executor 接收 universe bars 与 `PortfolioState`，输出 `RotationOrderIntent`；它不绕开 `PortfolioState`、caps 或下游下单适配器。rotation 候选并入 model/OOT 主 prediction 表前，先以 [cross_sectional_momentum_rotation_design.md](../docs/cross_sectional_momentum_rotation_design.md) 的数据契约为准。
 - **测试**：跑 `pytest cta/portfolio_logic/tests/ -v`；`test_oot_sim_parity.py` 校验 OOT 与 sim 结果一致，**不能挂**。

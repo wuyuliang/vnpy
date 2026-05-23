@@ -1,6 +1,6 @@
 """Scan recent OOT trade-detail reports and flag persistently-loss symbols.
 
-M2 自动化：扫 ``cta/report/backtest/*_POOL_*_model_pipeline`` 目录里的
+M2 自动化：扫 ``cta/backtest/*_POOL_*_model_pipeline`` 目录里的
 ``*_oot_trade_details.csv``，对每个 symbol 在最近 N 份报告里聚合 net_pnl，连续
 负 PnL 超过阈值的 symbol 输出到候选 disable manifest，让团队 review 后并入
 ``cta/feature/symbol_disable_manifest.csv``。
@@ -15,7 +15,7 @@ M2 自动化：扫 ``cta/report/backtest/*_POOL_*_model_pipeline`` 目录里的
 ----
 
     python -m cta.model.tools.auto_flag_persistent_loss_symbols \
-        --report-root cta/report/backtest \
+        --report-root cta/backtest \
         --pattern '*_POOL_minute60_*_model_pipeline' \
         --min-reports 3 \
         --loss-threshold -1000 \
@@ -35,7 +35,7 @@ from cta.config.skill_tight_range_breakout_config import CTA_ROOT
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_REPORT_ROOT: Path = CTA_ROOT / "report" / "backtest"
+DEFAULT_REPORT_ROOT: Path = CTA_ROOT / "backtest"
 
 
 def _find_trade_detail_files(report_root: Path, pattern: str) -> list[Path]:

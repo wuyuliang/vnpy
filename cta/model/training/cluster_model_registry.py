@@ -29,7 +29,7 @@
     from cta.model.training.cluster_model_registry import ClusterModelRegistry
 
     reg = ClusterModelRegistry.from_registry_json(
-        "cta/report/backtest/20260515_cluster_registry_cluster_both.json"
+        "cta/backtest/20260515_cluster_registry_cluster_both.json"
     )
     # df 含 columns: symbol, signal_type, feature_*, generic_*
     out = reg.predict_proba(df, model_kind="trade_filter")
@@ -47,7 +47,7 @@ registry schema（cluster_registry.json）
       "interval": "60min",
       "group_name": "cluster_black",
       "pool_name": "GRP_CLUSTER_BLACK",
-      "model_dir": "cta/report/backtest/20260516_GRP_CLUSTER_BLACK_minute60_both_model_pipeline",
+      "model_dir": "cta/backtest/20260516_GRP_CLUSTER_BLACK_minute60_both_model_pipeline",
       "members": [{"symbol": "RB0", "exchange": "SHFE"}]
     }
   ]

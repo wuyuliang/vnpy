@@ -14,7 +14,7 @@
 --------
     from cta.live.model_filter import make_trade_filter
     adapter.order_filter = make_trade_filter(
-        "cta/report/backtest/20260509_RB0_60min_model_pipeline/models/trade_filter_xyz.joblib",
+        "cta/backtest/20260509_RB0_60min_model_pipeline/models/trade_filter_xyz.joblib",
         threshold=0.55,
     )
 

@@ -31,14 +31,69 @@ from cta.model.dataset.pipeline_symbol_ranking import (
 )
 
 
+def _parse_enabled_cells(raw_cells: object) -> list[str]:
+    """Parse ``cluster|interval`` cells from CLI list/comma mixed input."""
+    if raw_cells is None:
+        return []
+    cells: list[str] = []
+    for token in raw_cells:
+        for piece in str(token).split(","):
+            cell = piece.strip().lower()
+            if cell:
+                cells.append(cell)
+    # dedupe with stable order
+    return list(dict.fromkeys(cells))
+
+
 def _build_effective_oot_config(
     *,
     use_portfolio_logic_runtime: bool,
+    args: argparse.Namespace | None = None,
 ) -> OotEvaluationConfig:
     """Build CLI OOT config without mutating repo defaults."""
-    if not bool(use_portfolio_logic_runtime):
-        return DEFAULT_OOT_EVAL_CONFIG
-    return dc_replace(DEFAULT_OOT_EVAL_CONFIG, use_portfolio_logic_runtime=True)
+    cfg = (
+        dc_replace(DEFAULT_OOT_EVAL_CONFIG, use_portfolio_logic_runtime=True)
+        if bool(use_portfolio_logic_runtime)
+        else DEFAULT_OOT_EVAL_CONFIG
+    )
+    if args is None:
+        return cfg
+
+    from cta.config.profit_aware_horizon_config import ProfitAwareHorizonConfig
+    from cta.config.trailing_take_profit_config import TrailingTakeProfitConfig
+
+    if bool(getattr(args, "enable_trend_aware_trade_filter", False)):
+        trend_cells = _parse_enabled_cells(
+            getattr(args, "trend_aware_trade_filter_enabled_cells", None)
+        )
+        cfg = dc_replace(
+            cfg,
+            use_trend_aware_trade_filter=True,
+            trend_aware_trade_filter_enabled_by_cluster_interval={c: True for c in trend_cells},
+        )
+
+    if bool(getattr(args, "enable_trailing_take_profit", False)):
+        tp_cells = _parse_enabled_cells(getattr(args, "trailing_tp_enabled_cells", None))
+        cfg = dc_replace(
+            cfg,
+            trailing_take_profit=TrailingTakeProfitConfig(
+                use_trailing_take_profit=True,
+                enabled_by_cluster_interval={c: True for c in tp_cells},
+            ),
+        )
+
+    if bool(getattr(args, "enable_profit_aware_horizon", False)):
+        horizon_cells = _parse_enabled_cells(
+            getattr(args, "profit_aware_horizon_enabled_cells", None)
+        )
+        cfg = dc_replace(
+            cfg,
+            profit_aware_horizon=ProfitAwareHorizonConfig(
+                use_profit_aware_horizon=True,
+                enabled_by_cluster_interval={c: True for c in horizon_cells},
+            ),
+        )
+    return cfg
 
 
 def _parse_args(argv: Sequence[str] | None=None) -> argparse.Namespace:
@@ -81,7 +136,90 @@ def _parse_args(argv: Sequence[str] | None=None) -> argparse.Namespace:
     parser.add_argument('--use-portfolio-logic-runtime', action='store_true', default=False, help='OOT 评估按线上 portfolio_logic 真实逻辑走（HTF gate + ranker + trailing + pyramid + score_calibration + risk_throttle）。默认 False = 用旧 FCFS 路径。等价于 OotEvaluationConfig(use_portfolio_logic_runtime=True)。依赖 cluster_registry.json 与 *_calibration.joblib 已生成。')
     parser.add_argument('--include-disabled-symbols', action='store_true', help='不应用 symbol_disable_manifest 过滤。默认会过滤掉被标记禁用的品种；若要覆盖 70+ 全量品种可打开该开关。')
     parser.add_argument('--min-used-symbols', type=int, default=2, help='POOL 模式最少实际参与训练的品种数（默认 2）。若低于该阈值则报错，避免把单品种误当池化模型。')
+    # ---- profit-aware trend-adaptive modules (A/B/C) ----
+    parser.add_argument(
+        "--enable-trailing-take-profit",
+        action="store_true",
+        default=False,
+        help="启用盈利仓位 trailing take-profit（默认 off）。",
+    )
+    parser.add_argument(
+        "--trailing-tp-enabled-cells",
+        nargs="+",
+        default=None,
+        help="trailing TP 启用 cells：cluster|interval（支持空格/逗号混合）。",
+    )
+    parser.add_argument(
+        "--enable-profit-aware-horizon",
+        action="store_true",
+        default=False,
+        help="启用 profit-aware horizon（默认 off）。",
+    )
+    parser.add_argument(
+        "--profit-aware-horizon-enabled-cells",
+        nargs="+",
+        default=None,
+        help="profit-aware horizon 启用 cells：cluster|interval（支持空格/逗号混合）。",
+    )
+    parser.add_argument(
+        "--enable-trend-aware-trade-filter",
+        action="store_true",
+        default=False,
+        help="启用 trend-aware trade-filter 阈值放宽（默认 off）。",
+    )
+    parser.add_argument(
+        "--trend-aware-trade-filter-enabled-cells",
+        nargs="+",
+        default=None,
+        help="trend-aware trade-filter 启用 cells：cluster|interval（支持空格/逗号混合）。",
+    )
+    # ---- Cross-sectional momentum rotation (P2 wire) ----
+    parser.add_argument('--enable-cross-sectional-rotation', action='store_true', default=False,
+                        help='启用截面动量轮动：在 day pool 训练样本中追加 cross_sectional_momentum 候选。'
+                             '默认 off，与设计文档 §13 不变量一致。')
+    parser.add_argument('--cross-sectional-enabled-cells', nargs='+', default=None,
+                        help='截面轮动启用的 cluster|interval 组合（支持 * 通配 cluster）。'
+                             '示例：--cross-sectional-enabled-cells "*|day" "index|60min"。'
+                             '未指定时默认全 cluster 在 day 上启用（"*|day"）。')
+    parser.add_argument('--cross-sectional-long-only', action='store_true', default=False,
+                        help='截面轮动仅做 long 侧（不开空），用于不允许做空的账户。')
+    # codex P1-D 修复：CLI 全失败时退出码不再为 0，避免 CI 误判为成功
+    parser.add_argument('--strict-fail-fast', action='store_true', default=True,
+                        help='所有 group/interval 失败时 raise RuntimeError 而非静默退出 0（默认 True）。')
+    parser.add_argument('--no-strict-fail-fast', dest='strict_fail_fast', action='store_false',
+                        help='关闭 strict-fail-fast；批量任务 0 个成功也返回退出码 0（仅 dev 调试用）。')
     return parser.parse_args(argv)
+
+
+def _build_rotation_cfg_from_args(args: argparse.Namespace) -> 'CrossSectionalRotationConfig | None':
+    """从 CLI args 构造 rotation_cfg；未启用时返回 None。
+
+    设计文档 §13 不变量：cfg 必须显式 opt-in，否则不影响主流水线行为。
+    """
+    if not bool(getattr(args, 'enable_cross_sectional_rotation', False)):
+        return None
+    from cta.config.cross_sectional_rotation_config import CrossSectionalRotationConfig
+    raw_cells = getattr(args, 'cross_sectional_enabled_cells', None)
+    if raw_cells:
+        # 支持 "*|day index|60min" 或 "*|day,index|60min" 或多次 --cross-sectional-enabled-cells
+        cells: list[str] = []
+        for token in raw_cells:
+            for piece in str(token).split(','):
+                piece = piece.strip()
+                if piece:
+                    cells.append(piece)
+    else:
+        cells = ['*|day']
+    long_only = bool(getattr(args, 'cross_sectional_long_only', False))
+    trade_side_mode = str(getattr(args, 'trade_side_mode', 'both')).strip().lower()
+    if trade_side_mode == 'long':
+        long_only = True
+    enabled = {c: True for c in cells}
+    return CrossSectionalRotationConfig(
+        use_cross_sectional_momentum_rotation=True,
+        long_only_mode=long_only,
+        enabled_by_cluster_interval=enabled,
+    )
 
 def main(argv: Sequence[str] | None=None) -> None:
     logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
@@ -97,7 +235,12 @@ def main(argv: Sequence[str] | None=None) -> None:
     respect_disabled_manifest = not bool(getattr(args, 'include_disabled_symbols', False))
     effective_oot_cfg = _build_effective_oot_config(
         use_portfolio_logic_runtime=bool(getattr(args, 'use_portfolio_logic_runtime', False)),
+        args=args,
     )
+    rotation_cfg = _build_rotation_cfg_from_args(args)
+    if rotation_cfg is not None:
+        logger.info('cross-sectional rotation enabled: cells=%s long_only=%s',
+                    dict(rotation_cfg.enabled_by_cluster_interval), bool(rotation_cfg.long_only_mode))
     if bool(effective_oot_cfg.use_portfolio_logic_runtime):
         logger.info('OOT eval will use portfolio_logic runtime (htf=%s ranker=%s trail=%s pyramid=%s calib=%s throttle=%s)', effective_oot_cfg.portfolio_logic.enable_htf_gate, effective_oot_cfg.portfolio_logic.enable_ranker, effective_oot_cfg.portfolio_logic.enable_trailing, effective_oot_cfg.portfolio_logic.enable_pyramid, effective_oot_cfg.portfolio_logic.enable_score_calibration, effective_oot_cfg.portfolio_logic.enable_risk_throttle)
     if bool(getattr(args, 'group_pool', False)):
@@ -119,7 +262,7 @@ def main(argv: Sequence[str] | None=None) -> None:
             for group_name, members in group_specs:
                 pool_name = f'GRP_{str(group_name).strip().upper()}'
                 try:
-                    res = run_model_pipeline(symbol=pool_name, exchange=None, interval=interval, start_date=args.start, end_date=args.end, trade_side_mode=args.trade_side_mode, train_end=args.train_end, valid_end=args.valid_end, output_root=output_root, synthetic_periods=args.synthetic_periods, by_signal_type=bool(args.by_signal_type), max_walk_forward_windows=int(args.max_walk_forward_windows), window_mode=str(args.window_mode), rolling_train_years=int(args.rolling_train_years), rolling_valid_years=int(args.rolling_valid_years), rolling_test_years=int(args.rolling_test_years), rolling_step_years=int(args.rolling_step_years), max_auc_gap=float(args.max_auc_gap), max_valid_test_gap=float(args.max_valid_test_gap), top_feature_importance_alert_pct=float(args.top_feature_alert_pct), min_train_samples=int(args.min_train_samples), min_valid_samples=int(args.min_valid_samples), min_test_samples=int(args.min_test_samples), max_unaudited_features=int(args.max_unaudited_features), generic_mode=str(args.generic_mode), pool_symbols=members, pool_name=pool_name, min_used_symbols=int(args.min_used_symbols), seed=int(args.seed), oot_eval_config=effective_oot_cfg)
+                    res = run_model_pipeline(symbol=pool_name, exchange=None, interval=interval, start_date=args.start, end_date=args.end, trade_side_mode=args.trade_side_mode, train_end=args.train_end, valid_end=args.valid_end, output_root=output_root, synthetic_periods=args.synthetic_periods, by_signal_type=bool(args.by_signal_type), max_walk_forward_windows=int(args.max_walk_forward_windows), window_mode=str(args.window_mode), rolling_train_years=int(args.rolling_train_years), rolling_valid_years=int(args.rolling_valid_years), rolling_test_years=int(args.rolling_test_years), rolling_step_years=int(args.rolling_step_years), max_auc_gap=float(args.max_auc_gap), max_valid_test_gap=float(args.max_valid_test_gap), top_feature_importance_alert_pct=float(args.top_feature_alert_pct), min_train_samples=int(args.min_train_samples), min_valid_samples=int(args.min_valid_samples), min_test_samples=int(args.min_test_samples), max_unaudited_features=int(args.max_unaudited_features), generic_mode=str(args.generic_mode), pool_symbols=members, pool_name=pool_name, min_used_symbols=int(args.min_used_symbols), seed=int(args.seed), oot_eval_config=effective_oot_cfg, rotation_cfg=rotation_cfg)
                 except Exception:
                     logger.exception('GROUP-POOL pipeline failed for group=%s interval=%s', group_name, interval)
                     continue
@@ -157,6 +300,12 @@ def main(argv: Sequence[str] | None=None) -> None:
             bundle_dir = _write_group_pool_runtime_bundle(root=output_root or DEFAULT_REPORT_ROOT, run_date_tag=run_date_tag, group_by=str(args.group_by), trade_side_mode=str(args.trade_side_mode), run_records=runtime_bundle_records)
             if bundle_dir is not None:
                 logger.info('group runtime bundle written: %s', bundle_dir)
+        # codex P1-D：strict-fail-fast 下 0 个 group 成功必 raise，避免 CI 退出码 0 假阳
+        if bool(getattr(args, 'strict_fail_fast', True)) and not registry_records:
+            raise RuntimeError(
+                'GROUP-POOL: 0 successful (group, interval) runs; all training failed '
+                '(set --no-strict-fail-fast to suppress; intended for dev only)'
+            )
         return
     if top_n > 0:
         symbols_to_run = _load_top_n_symbols_from_ranking(Path(args.symbols_ranking_path), top_n=top_n, respect_disabled_manifest=respect_disabled_manifest)
@@ -168,7 +317,7 @@ def main(argv: Sequence[str] | None=None) -> None:
         pool_results: list[ModelPipelineResult] = []
         for interval in intervals:
             try:
-                res = run_model_pipeline(symbol='POOL', exchange=None, interval=interval, start_date=args.start, end_date=args.end, trade_side_mode=args.trade_side_mode, train_end=args.train_end, valid_end=args.valid_end, output_root=output_root, synthetic_periods=args.synthetic_periods, by_signal_type=bool(args.by_signal_type), max_walk_forward_windows=int(args.max_walk_forward_windows), window_mode=str(args.window_mode), rolling_train_years=int(args.rolling_train_years), rolling_valid_years=int(args.rolling_valid_years), rolling_test_years=int(args.rolling_test_years), rolling_step_years=int(args.rolling_step_years), max_auc_gap=float(args.max_auc_gap), max_valid_test_gap=float(args.max_valid_test_gap), top_feature_importance_alert_pct=float(args.top_feature_alert_pct), min_train_samples=int(args.min_train_samples), min_valid_samples=int(args.min_valid_samples), min_test_samples=int(args.min_test_samples), max_unaudited_features=int(args.max_unaudited_features), generic_mode=str(args.generic_mode), pool_symbols=symbols_to_run, min_used_symbols=int(args.min_used_symbols), seed=int(args.seed), oot_eval_config=effective_oot_cfg)
+                res = run_model_pipeline(symbol='POOL', exchange=None, interval=interval, start_date=args.start, end_date=args.end, trade_side_mode=args.trade_side_mode, train_end=args.train_end, valid_end=args.valid_end, output_root=output_root, synthetic_periods=args.synthetic_periods, by_signal_type=bool(args.by_signal_type), max_walk_forward_windows=int(args.max_walk_forward_windows), window_mode=str(args.window_mode), rolling_train_years=int(args.rolling_train_years), rolling_valid_years=int(args.rolling_valid_years), rolling_test_years=int(args.rolling_test_years), rolling_step_years=int(args.rolling_step_years), max_auc_gap=float(args.max_auc_gap), max_valid_test_gap=float(args.max_valid_test_gap), top_feature_importance_alert_pct=float(args.top_feature_alert_pct), min_train_samples=int(args.min_train_samples), min_valid_samples=int(args.min_valid_samples), min_test_samples=int(args.min_test_samples), max_unaudited_features=int(args.max_unaudited_features), generic_mode=str(args.generic_mode), pool_symbols=symbols_to_run, min_used_symbols=int(args.min_used_symbols), seed=int(args.seed), oot_eval_config=effective_oot_cfg, rotation_cfg=rotation_cfg)
             except Exception:
                 logger.exception('POOL pipeline failed for interval=%s', interval)
                 continue
@@ -178,11 +327,17 @@ def main(argv: Sequence[str] | None=None) -> None:
             logger.info('[POOL][%s] top10 feature importance: %s', interval, res.top_feature_importance_path)
             pool_results.append(res)
         _recompute_oot_with_shared_htf_reference(pool_results, effective_oot_cfg)
+        # codex P1-D：POOL 模式 0 成功也必须报错
+        if bool(getattr(args, 'strict_fail_fast', True)) and not pool_results:
+            raise RuntimeError(
+                'POOL: 0 successful interval runs; all training failed '
+                '(set --no-strict-fail-fast to suppress)'
+            )
         return
     for sidx, (symbol, exchange_from_rank) in enumerate(symbols_to_run, start=1):
         run_exchange = _resolve_run_exchange(exchange_from_rank, args.exchange)
         logger.info('[%d/%d] run symbol=%s exchange=%s intervals=%s', sidx, len(symbols_to_run), symbol, run_exchange, list(intervals))
-        results = run_model_pipeline_multi(symbol=symbol, exchange=run_exchange, intervals=intervals, start_date=args.start, end_date=args.end, trade_side_mode=args.trade_side_mode, train_end=args.train_end, valid_end=args.valid_end, output_root=output_root, synthetic_periods=args.synthetic_periods, by_signal_type=bool(args.by_signal_type), max_walk_forward_windows=int(args.max_walk_forward_windows), window_mode=str(args.window_mode), rolling_train_years=int(args.rolling_train_years), rolling_valid_years=int(args.rolling_valid_years), rolling_test_years=int(args.rolling_test_years), rolling_step_years=int(args.rolling_step_years), max_auc_gap=float(args.max_auc_gap), max_valid_test_gap=float(args.max_valid_test_gap), top_feature_importance_alert_pct=float(args.top_feature_alert_pct), min_train_samples=int(args.min_train_samples), min_valid_samples=int(args.min_valid_samples), min_test_samples=int(args.min_test_samples), max_unaudited_features=int(args.max_unaudited_features), generic_mode=str(args.generic_mode), min_used_symbols=int(args.min_used_symbols), seed=int(args.seed), oot_eval_config=effective_oot_cfg)
+        results = run_model_pipeline_multi(symbol=symbol, exchange=run_exchange, intervals=intervals, start_date=args.start, end_date=args.end, trade_side_mode=args.trade_side_mode, train_end=args.train_end, valid_end=args.valid_end, output_root=output_root, synthetic_periods=args.synthetic_periods, by_signal_type=bool(args.by_signal_type), max_walk_forward_windows=int(args.max_walk_forward_windows), window_mode=str(args.window_mode), rolling_train_years=int(args.rolling_train_years), rolling_valid_years=int(args.rolling_valid_years), rolling_test_years=int(args.rolling_test_years), rolling_step_years=int(args.rolling_step_years), max_auc_gap=float(args.max_auc_gap), max_valid_test_gap=float(args.max_valid_test_gap), top_feature_importance_alert_pct=float(args.top_feature_alert_pct), min_train_samples=int(args.min_train_samples), min_valid_samples=int(args.min_valid_samples), min_test_samples=int(args.min_test_samples), max_unaudited_features=int(args.max_unaudited_features), generic_mode=str(args.generic_mode), min_used_symbols=int(args.min_used_symbols), seed=int(args.seed), oot_eval_config=effective_oot_cfg, rotation_cfg=rotation_cfg)
         for interval, result in zip(intervals, results):
             logger.info('[%s][%s] report: %s', symbol, interval, result.report_path)
             logger.info('[%s][%s] predictions: %s', symbol, interval, result.prediction_path)

@@ -55,6 +55,13 @@ class TestPortfolioLogicConfig(unittest.TestCase):
         with self.assertRaises(ValueError):
             PortfolioLogicConfig(enable_risk_throttle=True, enable_score_calibration=False)
 
+    def test_portfolio_logic_config_carries_disabled_cross_sectional_rotation(self) -> None:
+        cfg = PortfolioLogicConfig()
+        self.assertFalse(
+            bool(cfg.cross_sectional_rotation.use_cross_sectional_momentum_rotation)
+        )
+        self.assertFalse(cfg.cross_sectional_rotation.is_enabled("index", "day"))
+
     def test_frozen_config_dict_fields_are_immutable_views(self) -> None:
         cfg = IntervalGateConfig()
         self.assertIsInstance(cfg.interval_rank, MappingProxyType)

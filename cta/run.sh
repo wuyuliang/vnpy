@@ -6,7 +6,7 @@
 # ----
 #   bash cta/run.sh <step>
 #
-#   step ∈ {data, data_index_bond, validate, feature, candidate, train, pool, group_pool, index_pool, bull_models, summary, all}
+#   step ∈ {data, data_index_bond, validate, feature, candidate, train, pool, group_pool, index_pool, bull_models, spread_arbitrage, summary, all}
 #
 #   bull_models 是 2026-05-21 后引入的专项 step，覆盖 day / 60min / 30min 三个频率，
 #   验证新增 3 个训练模型（bull_regime_strength / trend_persistence /
@@ -367,7 +367,7 @@ from pathlib import Path
 import pandas as pd
 
 itv = sys.argv[1]
-runs = sorted(Path("cta/report/backtest").glob(f"*_GRP_*_{itv}_*model_pipeline"))
+runs = sorted(Path("cta/backtest").glob(f"*_GRP_*_{itv}_*model_pipeline"))
 if not runs:
     print(f"[bull_models verify][{itv}] no run dir matched")
     sys.exit(0)
@@ -395,15 +395,33 @@ PY
     done
 }
 
+step_spread_arbitrage() {
+    # spread 套件专项：先跑策略/配置/执行器单测，再跑 OOT trade_details 字段透传回归
+    # （确保 spread_* 列进入最终 *_oot_trade_details.csv）。
+    ensure_dirs
+    log "spread_arbitrage: running spread strategy + OOT-field regression tests"
+    run_step "06_spread_arbitrage_tests" \
+        ${PYTHON} -m pytest -q \
+            cta/feature/tests/test_spread_features.py \
+            cta/strategy/tests/test_spread_state.py \
+            cta/strategy/tests/test_calendar_spread_state.py \
+            cta/strategy/tests/test_spread_arbitrage_strategy.py \
+            cta/portfolio_logic/tests/test_spread_executor.py \
+            cta/config/tests/test_spread_pair_registry.py \
+            cta/config/tests/test_spread_arbitrage_config.py \
+            cta/model/tests/test_bull_mode_trade_filter_gate.py::test_trade_filter_gate_bypasses_spread_arbitrage_signal \
+            cta/model/tests/test_pipeline_oot_evaluation.py::test_oot_trade_details_keep_spread_arbitrage_columns
+}
+
 step_summary() {
     log "summary: locating latest model_pipeline outputs"
-    if compgen -G "cta/report/backtest/${RUN_TAG}_*model_pipeline" > /dev/null; then
-        ls -d cta/report/backtest/${RUN_TAG}_*model_pipeline 2>/dev/null | sort | tee "${LOG_DIR}/07_summary.txt"
+    if compgen -G "cta/backtest/${RUN_TAG}_*model_pipeline" > /dev/null; then
+        ls -d cta/backtest/${RUN_TAG}_*model_pipeline 2>/dev/null | sort | tee "${LOG_DIR}/07_summary.txt"
     else
         log "no model_pipeline directory matched ${RUN_TAG}_*"
     fi
     log "logs:    ${LOG_DIR}/"
-    log "reports: cta/report/backtest/"
+    log "reports: cta/backtest/"
 }
 
 run_all() {
@@ -432,6 +450,7 @@ case "${ACTION}" in
     group_pool)  step_group_pool ;;
     index_pool)  step_index_pool ;;
     bull_models) step_bull_models ;;
+    spread_arbitrage) step_spread_arbitrage ;;
     summary)     step_summary ;;
     all)         run_all ;;
     -h|--help|help)

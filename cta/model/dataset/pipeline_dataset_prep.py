@@ -19,6 +19,14 @@ from cta.model.orchestration.pipeline_base import (
     prepare_master_feature_frame,
     resolve_exchange,
 )
+from cta.config.baseline_skill_suite_config import TRAINING_FEATURE_COLUMNS
+from cta.config.cross_sectional_rotation_config import CrossSectionalRotationConfig
+from cta.strategy.baseline_candidate_gen import _infer_regime_label, _simulate_candidate_execution_path
+from cta.strategy.cross_sectional_momentum_rotation import (
+    CrossSectionalMomentumRotation,
+    SIGNAL_TYPE as CROSS_SECTIONAL_SIGNAL_TYPE,
+    _is_rebalance_day,
+)
 
 def _build_synthetic_candidate(symbol: str, exchange: str, interval: str, start_date: str, end_date: str, periods: int=400) -> pd.DataFrame:
     rng = np.random.default_rng(20260426)
@@ -300,9 +308,310 @@ def _build_walk_forward_windows(df: pd.DataFrame, train_end: str, valid_end: str
     train_df, valid_df, test_df = _time_split(df, train_end=train_end, valid_end=valid_end)
     return [_WalkForwardWindow(window_id=0, train=train_df, valid=valid_df, test=test_df, train_end=pd.to_datetime(train_df['datetime'], errors='coerce').max(), valid_end=pd.to_datetime(valid_df['datetime'], errors='coerce').max(), test_end=pd.to_datetime(test_df['datetime'], errors='coerce').max())]
 
-def _build_pooled_feature_df(pool_symbols: Sequence[tuple[str, str | None]], *, interval: str, start_date: str, end_date: str, trade_side_mode: str, synthetic_periods: int, feature_root: Path, generic_columns: Any) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Thin wrapper for pooled table builder (moved to pipeline_pooling module)."""
-    return _build_pooled_feature_df_impl(pool_symbols, interval=interval, start_date=start_date, end_date=end_date, trade_side_mode=trade_side_mode, synthetic_periods=synthetic_periods, feature_root=feature_root, generic_columns=generic_columns, build_candidate_table_fn=_build_candidate_table, ensure_training_columns_fn=_ensure_training_columns, build_training_feature_table_with_auto_fallback_fn=_build_training_feature_table_with_auto_fallback)
+
+def _build_pool_cross_sectional_candidate_table(
+    pool_symbols: Sequence[tuple[str, str | None]],
+    *,
+    interval: str,
+    start_date: str,
+    end_date: str,
+    trade_side_mode: str,
+    rotation_cfg: CrossSectionalRotationConfig,
+) -> pd.DataFrame:
+    """Build day-level cross-sectional rotation candidates for pool training.
+
+    Caller must provide an opt-in ``rotation_cfg``. When
+    ``use_cross_sectional_momentum_rotation`` is False (default), the function
+    returns an empty DataFrame and rotation samples are NOT injected into
+    training. 这保证设计文档 §13 "默认 off → 训练样本分布不变" 不变量成立。
+    """
+    if not bool(getattr(rotation_cfg, "use_cross_sectional_momentum_rotation", False)):
+        return pd.DataFrame()
+    interval_norm = normalize_interval(interval)
+    # 快速路径：cfg 未对该 interval 启用任何 cluster 时直接 return（避免无谓 IO）。
+    _PROBE_CLUSTERS = ("black", "metal", "chemical", "agri", "precious", "index", "bond", "other")
+    if not any(rotation_cfg.is_enabled(c, interval_norm) for c in _PROBE_CLUSTERS):
+        return pd.DataFrame()
+    if len(pool_symbols) < 2:
+        return pd.DataFrame()
+
+    mode = str(trade_side_mode).strip().lower()
+    if mode not in {"both", "long", "short"}:
+        mode = "both"
+
+    frame_map: dict[str, pd.DataFrame] = {}
+    exchange_map: dict[str, str] = {}
+    dt_map: dict[str, np.ndarray] = {}
+    bcfg = BacktestConfig(interval=interval_norm)
+    for sym_raw, ex_raw in pool_symbols:
+        sym = str(sym_raw).upper()
+        ex = str(ex_raw).upper() if ex_raw else resolve_exchange(sym, bcfg.symbols_list_path)
+        try:
+            bars = load_bars(sym, bcfg, start_date, end_date, exchange=ex)
+            frame = prepare_master_feature_frame(bars, interval=interval_norm)
+        except Exception:
+            logger.exception("cross-sectional: failed to load frame for symbol=%s, skip", sym)
+            continue
+        if frame.empty or "datetime" not in frame.columns:
+            continue
+        frame = frame.sort_values("datetime").reset_index(drop=True)
+        dt_series = pd.to_datetime(frame["datetime"], errors="coerce")
+        if dt_series.isna().all():
+            continue
+        frame_map[sym] = frame
+        exchange_map[sym] = ex
+        dt_map[sym] = dt_series.to_numpy(dtype="datetime64[ns]")
+    if len(frame_map) < 2:
+        return pd.DataFrame()
+
+    all_dates = sorted(
+        {
+            pd.Timestamp(v).normalize()
+            for dt_values in dt_map.values()
+            for v in dt_values
+            if not pd.isna(v)
+        }
+    )
+    if not all_dates:
+        return pd.DataFrame()
+
+    rotation = CrossSectionalMomentumRotation(rotation_cfg)
+    last_rebalance_dt: pd.Timestamp | None = None
+    rows: list[pd.DataFrame] = []
+    for date in all_dates:
+        if not _is_rebalance_day(
+            date,
+            rebalance_weekday=rotation_cfg.rebalance_weekday,
+            last_rebalance_dt=last_rebalance_dt,
+            max_holding_days=rotation_cfg.max_holding_days,
+        ):
+            continue
+        last_rebalance_dt = pd.Timestamp(date)
+        universe_as_of: dict[str, pd.DataFrame] = {}
+        for sym, frame in frame_map.items():
+            dt_values = dt_map[sym]
+            pos = int(dt_values.searchsorted(np.datetime64(date), side="right"))
+            if pos <= 0:
+                continue
+            universe_as_of[sym] = frame.iloc[:pos]
+        if len(universe_as_of) < 2:
+            continue
+        cand = rotation.generate_rebalance_candidates(
+            pd.Timestamp(date),
+            universe_as_of,
+            interval=interval_norm,
+            last_rebalance_dt=last_rebalance_dt,
+            current_drawdown_pct=0.0,
+        )
+        if cand.empty:
+            continue
+        if mode == "short":
+            cand = cand.loc[cand["side"].astype(str).str.lower() == "short"].copy()
+        elif mode == "long":
+            cand = cand.loc[cand["side"].astype(str).str.lower() == "long"].copy()
+        if cand.empty:
+            continue
+        rows.append(
+            _convert_pool_cross_sectional_candidates_to_training_rows(
+                cand,
+                frame_map=frame_map,
+                exchange_map=exchange_map,
+                interval=interval_norm,
+                stop_loss_pct=float(rotation_cfg.stop_loss_pct),
+            )
+        )
+    if not rows:
+        return pd.DataFrame()
+    out = pd.concat(rows, axis=0, ignore_index=True)
+    if out.empty:
+        return out
+    return out.sort_values(["datetime", "symbol", "side"]).reset_index(drop=True)
+
+
+def _convert_pool_cross_sectional_candidates_to_training_rows(
+    candidates: pd.DataFrame,
+    *,
+    frame_map: dict[str, pd.DataFrame],
+    exchange_map: dict[str, str],
+    interval: str,
+    stop_loss_pct: float,
+) -> pd.DataFrame:
+    """Convert rotation rebalance candidates to canonical candidate rows."""
+    out_rows: list[dict[str, object]] = []
+    for _, c in candidates.iterrows():
+        sym = str(c.get("symbol", "")).upper()
+        side = str(c.get("side", "")).lower()
+        if not sym or side not in {"long", "short"}:
+            continue
+        frame = frame_map.get(sym)
+        ex = exchange_map.get(sym, "")
+        if frame is None or frame.empty:
+            continue
+        dt = pd.to_datetime(frame["datetime"], errors="coerce")
+        if dt.isna().all():
+            continue
+        signal_dt = pd.Timestamp(c.get("signal_datetime"))
+        entry_dt = pd.Timestamp(c.get("entry_datetime"))
+        planned_exit_dt = pd.Timestamp(c.get("planned_exit_datetime"))
+        signal_i = int(dt.searchsorted(signal_dt, side="right") - 1)
+        entry_i = int(dt.searchsorted(entry_dt, side="left"))
+        if signal_i < 0 or entry_i <= signal_i or entry_i >= len(frame):
+            continue
+        horizon_i = int(dt.searchsorted(planned_exit_dt, side="right") - 1)
+        horizon_i = min(max(entry_i + 1, horizon_i), len(frame) - 1)
+        if horizon_i <= entry_i:
+            continue
+
+        signal_bar = frame.iloc[signal_i]
+        entry_bar = frame.iloc[entry_i]
+        atr = pd.to_numeric(pd.Series([entry_bar.get("atr14", np.nan)]), errors="coerce").iloc[0]
+        if not np.isfinite(atr) or atr <= 0:
+            hi = pd.to_numeric(pd.Series([entry_bar.get("high", np.nan)]), errors="coerce").iloc[0]
+            lo = pd.to_numeric(pd.Series([entry_bar.get("low", np.nan)]), errors="coerce").iloc[0]
+            atr = float(hi - lo) if np.isfinite(hi) and np.isfinite(lo) and hi > lo else np.nan
+        atr_warmed = int(np.isfinite(atr) and atr > 0)
+
+        entry_open = pd.to_numeric(pd.Series([entry_bar.get("open", np.nan)]), errors="coerce").iloc[0]
+        entry_close = pd.to_numeric(pd.Series([entry_bar.get("close", np.nan)]), errors="coerce").iloc[0]
+        entry_price = float(entry_open if np.isfinite(entry_open) else entry_close)
+        if not np.isfinite(entry_price):
+            continue
+        sim = _simulate_candidate_execution_path(
+            frame,
+            entry_i=entry_i,
+            horizon_i=horizon_i,
+            side=side,
+            entry_price=entry_price,
+            atr_v=float(atr if np.isfinite(atr) else 1.0),
+            stop_loss_pct=float(stop_loss_pct),
+        )
+        mfe_atr = pd.to_numeric(pd.Series([sim.get("mfe_atr", np.nan)]), errors="coerce").iloc[0]
+        mae_atr = pd.to_numeric(pd.Series([sim.get("mae_atr", np.nan)]), errors="coerce").iloc[0]
+        pnl_atr = pd.to_numeric(pd.Series([sim.get("pnl_atr", np.nan)]), errors="coerce").iloc[0]
+        exit_price = pd.to_numeric(pd.Series([sim.get("exit_price", np.nan)]), errors="coerce").iloc[0]
+        if atr_warmed and np.isfinite(mfe_atr) and np.isfinite(mae_atr):
+            edge = float(mfe_atr) - LABEL_MAE_PENALTY * float(mae_atr)
+            label_class = int(edge > LABEL_THRESHOLD)
+        elif np.isfinite(pnl_atr):
+            label_class = int(float(pnl_atr) > LABEL_THRESHOLD)
+        else:
+            label_class = 0
+
+        stop_price = pd.to_numeric(pd.Series([c.get("stop_price", np.nan)]), errors="coerce").iloc[0]
+        if not np.isfinite(stop_price):
+            if side == "long":
+                stop_price = entry_price * (1.0 - float(stop_loss_pct))
+            else:
+                stop_price = entry_price * (1.0 + float(stop_loss_pct))
+
+        row: dict[str, object] = {
+            "symbol": sym,
+            "exchange": ex,
+            "interval": interval,
+            "datetime": dt.iloc[entry_i],
+            "signal_datetime": dt.iloc[signal_i],
+            "exit_datetime": dt.iloc[horizon_i],
+            "signal_type": CROSS_SECTIONAL_SIGNAL_TYPE,
+            "side": side,
+            "order_type": "market",
+            "signal_i": signal_i,
+            "entry_i": entry_i,
+            "horizon_i": horizon_i,
+            "is_horizon_truncated": 0,
+            "entry_price": float(entry_price),
+            "exit_price_ref": float(exit_price) if np.isfinite(exit_price) else np.nan,
+            "stop_price": float(stop_price) if np.isfinite(stop_price) else np.nan,
+            "target_price": np.nan,
+            "trigger": float(entry_price),
+            "future_mfe_atr": float(mfe_atr) if np.isfinite(mfe_atr) else np.nan,
+            "future_mae_atr": float(mae_atr) if np.isfinite(mae_atr) else np.nan,
+            "future_pnl_atr": float(pnl_atr) if np.isfinite(pnl_atr) else np.nan,
+            "atr_warmed": atr_warmed,
+            "label_class": int(label_class),
+            "regime_label": _infer_regime_label(signal_bar),
+            "candidate_status": "filled",
+            "is_executed": 1,
+            "is_filtered": 0,
+            "is_triggered": 1,
+            "filtered_reason": "",
+            "feature_rotation_momentum_score": pd.to_numeric(pd.Series([c.get("momentum_score", np.nan)]), errors="coerce").iloc[0],
+            "feature_rotation_momentum_rank": pd.to_numeric(pd.Series([c.get("momentum_rank", np.nan)]), errors="coerce").iloc[0],
+            "feature_rotation_percentile_cluster": pd.to_numeric(pd.Series([c.get("percentile_in_cluster", np.nan)]), errors="coerce").iloc[0],
+            "feature_rotation_percentile_universe": pd.to_numeric(pd.Series([c.get("percentile_in_universe", np.nan)]), errors="coerce").iloc[0],
+            "feature_rotation_vol_target_scale": pd.to_numeric(pd.Series([c.get("vol_target_scale", np.nan)]), errors="coerce").iloc[0],
+            "feature_rotation_target_weight": pd.to_numeric(pd.Series([c.get("target_weight", np.nan)]), errors="coerce").iloc[0],
+        }
+        for col in TRAINING_FEATURE_COLUMNS:
+            row[f"feature_{col}"] = signal_bar[col] if col in frame.columns else np.nan
+        out_rows.append(row)
+    return pd.DataFrame(out_rows)
+
+def _build_pooled_feature_df(pool_symbols: Sequence[tuple[str, str | None]], *, interval: str, start_date: str, end_date: str, trade_side_mode: str, synthetic_periods: int, feature_root: Path, generic_columns: Any, rotation_cfg: CrossSectionalRotationConfig | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Thin wrapper for pooled table builder (moved to pipeline_pooling module).
+
+    rotation_cfg: 默认 None → 不向训练样本注入 cross_sectional_momentum 候选，
+    符合设计文档 §13 "默认 off" 不变量。调用方需显式构造启用的 cfg 才会触发。
+    """
+    pooled_cand, pooled_feat = _build_pooled_feature_df_impl(
+        pool_symbols,
+        interval=interval,
+        start_date=start_date,
+        end_date=end_date,
+        trade_side_mode=trade_side_mode,
+        synthetic_periods=synthetic_periods,
+        feature_root=feature_root,
+        generic_columns=generic_columns,
+        build_candidate_table_fn=_build_candidate_table,
+        ensure_training_columns_fn=_ensure_training_columns,
+        build_training_feature_table_with_auto_fallback_fn=_build_training_feature_table_with_auto_fallback,
+    )
+    interval_norm = normalize_interval(interval)
+    if rotation_cfg is None or not bool(rotation_cfg.use_cross_sectional_momentum_rotation):
+        return pooled_cand, pooled_feat
+    # cfg 控制 interval 启用集合；day 之外的 interval 由 cfg.is_enabled / pool_symbols
+    # 数量自然过滤（非 day 通常 pool_symbols < 2 → 直接 return empty）。
+    xsec_cand = _build_pool_cross_sectional_candidate_table(
+        pool_symbols,
+        interval=interval_norm,
+        start_date=start_date,
+        end_date=end_date,
+        trade_side_mode=trade_side_mode,
+        rotation_cfg=rotation_cfg,
+    )
+    if xsec_cand.empty:
+        return pooled_cand, pooled_feat
+    xsec_cand = _ensure_training_columns(xsec_cand)
+    xsec_feat_parts: list[pd.DataFrame] = []
+    for sym, group in xsec_cand.groupby("symbol"):
+        sym_key = str(sym).upper()
+        try:
+            f = _build_training_feature_table_with_auto_fallback(
+                candidate_df=group.copy(),
+                symbol=sym_key,
+                interval=interval_norm,
+                feature_root=feature_root,
+                generic_columns=generic_columns,
+            )
+            f = _ensure_training_columns(f)
+            f["symbol"] = sym_key
+            xsec_feat_parts.append(f)
+        except Exception:
+            logger.exception("cross-sectional: feature merge failed for symbol=%s; skipping xsec rows", sym_key)
+    if not xsec_feat_parts:
+        return pooled_cand, pooled_feat
+    xsec_feat = pd.concat(xsec_feat_parts, axis=0, ignore_index=True)
+    pooled_cand = pd.concat([pooled_cand, xsec_cand], axis=0, ignore_index=True)
+    pooled_feat = pd.concat([pooled_feat, xsec_feat], axis=0, ignore_index=True)
+    if "datetime" in pooled_cand.columns:
+        pooled_cand = pooled_cand.sort_values("datetime").reset_index(drop=True)
+    if "datetime" in pooled_feat.columns:
+        pooled_feat = pooled_feat.sort_values("datetime").reset_index(drop=True)
+    logger.info(
+        "cross-sectional candidates merged into day pool: added_candidates=%d added_features=%d",
+        len(xsec_cand),
+        len(xsec_feat),
+    )
+    return pooled_cand, pooled_feat
 
 def _build_candidate_table(symbol: str, exchange: str | None, interval: str, start_date: str, end_date: str, trade_side_mode: str, synthetic_periods: int, allow_synthetic_fallback: bool=True) -> tuple[pd.DataFrame, str]:
     sym = str(symbol).upper()

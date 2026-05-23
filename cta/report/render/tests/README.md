@@ -12,6 +12,6 @@
 
 ## 注意事项
 
-- **不依赖真实 csv**：测试用 tmp_path + 极小 fixture，不依赖 `cta/report/backtest/` 真实产物。
+- **不依赖真实 csv**：测试用 tmp_path + 极小 fixture，不依赖 `cta/backtest/` 真实产物。
 - **plot 测试 headless**：matplotlib 必须用 `Agg` backend；CI 环境无 X11。
 - **跑测试**：`pytest cta/report/render/tests/ -v`。

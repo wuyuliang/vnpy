@@ -12,7 +12,7 @@ from cta.model.reporting.pipeline_outputs import _build_last_oot_decile_table, _
 from cta.model.training.pipeline_param_grids import _safe_float, _tune_mfe_mae_model, _tune_regime_classifier_model, _tune_trade_filter_model
 
 
-def run_model_pipeline(symbol: str='RB0', exchange: str | None='SHFE', interval: str='60min', start_date: str='2000-01-01', end_date: str='2019-12-31', trade_side_mode: str='both', train_end: str='2018-12-31', valid_end: str='2019-06-30', output_root: Path | None=None, feature_root: Path=FEATURE_ROOT, synthetic_periods: int=400, by_signal_type: bool=True, max_walk_forward_windows: int=3, window_mode: WindowMode='expanding', rolling_train_years: int=3, rolling_valid_years: int=1, rolling_test_years: int=1, rolling_step_years: int=1, max_auc_gap: float=0.03, max_valid_test_gap: float=0.1, top_feature_importance_alert_pct: float=0.5, min_train_samples: int=50, min_valid_samples: int=20, min_test_samples: int=20, max_unaudited_features: int=500, generic_mode: GenericMode='auto', oot_eval_config: OotEvaluationConfig=DEFAULT_OOT_EVAL_CONFIG, pool_symbols: Sequence[tuple[str, str | None]] | None=None, pool_name: str | None=None, min_used_symbols: int=2, seed: int=2026) -> ModelPipelineResult:
+def run_model_pipeline(symbol: str='RB0', exchange: str | None='SHFE', interval: str='60min', start_date: str='2000-01-01', end_date: str='2019-12-31', trade_side_mode: str='both', train_end: str='2018-12-31', valid_end: str='2019-06-30', output_root: Path | None=None, feature_root: Path=FEATURE_ROOT, synthetic_periods: int=400, by_signal_type: bool=True, max_walk_forward_windows: int=3, window_mode: WindowMode='expanding', rolling_train_years: int=3, rolling_valid_years: int=1, rolling_test_years: int=1, rolling_step_years: int=1, max_auc_gap: float=0.03, max_valid_test_gap: float=0.1, top_feature_importance_alert_pct: float=0.5, min_train_samples: int=50, min_valid_samples: int=20, min_test_samples: int=20, max_unaudited_features: int=500, generic_mode: GenericMode='auto', oot_eval_config: OotEvaluationConfig=DEFAULT_OOT_EVAL_CONFIG, pool_symbols: Sequence[tuple[str, str | None]] | None=None, pool_name: str | None=None, min_used_symbols: int=2, seed: int=2026, rotation_cfg: 'object | None'=None) -> ModelPipelineResult:
     """Run full candidate->feature->model pipeline.
 
     G1: ``generic_mode`` 控制 generic 特征拼接策略：
@@ -40,7 +40,7 @@ def run_model_pipeline(symbol: str='RB0', exchange: str | None='SHFE', interval:
     if is_pool:
         from cta.config.symbol_disable import filter_out_disabled_pairs
         pool_symbols_filtered = filter_out_disabled_pairs(list(pool_symbols))
-        candidate_df, feature_df = _build_pooled_feature_df(pool_symbols=pool_symbols_filtered, interval=interval_norm, start_date=start_date, end_date=end_date, trade_side_mode=trade_side_mode, synthetic_periods=synthetic_periods, feature_root=feature_root, generic_columns=_resolve_generic_columns(generic_mode))
+        candidate_df, feature_df = _build_pooled_feature_df(pool_symbols=pool_symbols_filtered, interval=interval_norm, start_date=start_date, end_date=end_date, trade_side_mode=trade_side_mode, synthetic_periods=synthetic_periods, feature_root=feature_root, generic_columns=_resolve_generic_columns(generic_mode), rotation_cfg=rotation_cfg)
         if feature_df.empty:
             raise ValueError('POOL mode produced empty real-data feature table. No pool symbol has usable local bars/features under current interval.')
         ex = ''
@@ -294,6 +294,22 @@ def run_model_pipeline(symbol: str='RB0', exchange: str | None='SHFE', interval:
             n_feat_final = len(final_feature_columns)
             final_full = _final_model_importance_df(final_model, feature_columns=final_feature_columns, top_k=n_feat_final)
             _dump_feature_manifest(joblib_path=final_joblib, feature_columns=final_feature_columns, importance_df=final_full, model_kind=final_dual_model_kind)
+            # codex P0-B 修复：long/short 双 final 模型也需要各自的 *_features.csv manifest，
+            # 否则部署侧加载这两个 joblib 时无法识别 feature schema。
+            if final_model_long is not None and final_long_joblib.exists():
+                try:
+                    long_full = _final_model_importance_df(final_model_long, feature_columns=final_feature_columns, top_k=n_feat_final)
+                except Exception as exc:
+                    logger.warning('final_long importance failed: %s', exc)
+                    long_full = None
+                _dump_feature_manifest(joblib_path=final_long_joblib, feature_columns=final_feature_columns, importance_df=long_full, model_kind=f'{final_dual_model_kind}_long')
+            if final_model_short is not None and final_short_joblib.exists():
+                try:
+                    short_full = _final_model_importance_df(final_model_short, feature_columns=final_feature_columns, top_k=n_feat_final)
+                except Exception as exc:
+                    logger.warning('final_short importance failed: %s', exc)
+                    short_full = None
+                _dump_feature_manifest(joblib_path=final_short_joblib, feature_columns=final_feature_columns, importance_df=short_full, model_kind=f'{final_dual_model_kind}_short')
             if trade_cal_joblib.exists():
                 _dump_feature_manifest(joblib_path=trade_cal_joblib, feature_columns=['trade_filter_prob'], importance_df=None, model_kind='score_calibration')
             if regime_cal_joblib.exists():

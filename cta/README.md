@@ -160,7 +160,7 @@ cta/
 ## 九、结果输出规范
 
 结果建议输出到：
-	•	cta/report/backtest/
+	•	cta/backtest/
 	•	cta/report/scan/
 	•	cta/report/figures/
 	•	cta/report/change_log.md

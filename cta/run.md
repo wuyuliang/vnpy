@@ -16,6 +16,7 @@
 > TOP_N=77 RUN_TAG=$(date +%Y%m%d) GLOBAL_SEED=${RUN_TAG} bash cta/run.sh all  # 一把全跑（覆盖商品+金融）
 > bash cta/run.sh data                                        # 只跑数据下载
 > bash cta/run.sh data_index_bond                             # 只补股指+国债+指数参考数据
+> bash cta/run.sh spread_arbitrage                            # 只跑 spread 套件 + OOT 字段回归
 > bash cta/run.sh -h                                          # 完整参数说明
 > ```
 >
@@ -59,8 +60,16 @@ nohup python3 -m cta.model.model_pipeline \
   --generic-mode auto \
   --use-portfolio-logic-runtime \
   --min-used-symbols 2 \
+  --enable-cross-sectional-rotation \
+  --cross-sectional-enabled-cells "*|day" \
+  --enable-trailing-take-profit \
+  --trailing-tp-enabled-cells "precious|day" \
+  --enable-profit-aware-horizon \
+  --profit-aware-horizon-enabled-cells "precious|day" \
+  --enable-trend-aware-trade-filter \
+  --trend-aware-trade-filter-enabled-cells "precious|day" \
   --seed 2026052208 \
-  > 2026052208.out 2>&1 &
+  > 2026052310.out 2>&1 &
 
 最小运行命令：
 
@@ -219,7 +228,62 @@ python3 -m cta.strategy.baseline_skill_suite \
   --trade-side-mode both
 ```
 
-### 3.2 候选事件 + 训练样本拼接（支持 topN + 多 interval）
+### 3.2 截面动量轮动（已正式合流）
+
+`cross_sectional_momentum_rotation` 目前先提供以下可复用边界：
+- `cta.feature.cross_sectional_rank`：多品种动量分数与 cluster 内排名；
+- `cta.strategy.cross_sectional_momentum_rotation`：rebalance candidate 生成；
+- `cta.portfolio_logic.cross_sectional_rotation_executor`：candidate 转组合层 intent；
+- OOT trade-filter gate 默认对 `signal_type=cross_sectional_momentum` bypass。
+
+先用下面命令验证 phase-1 行为：
+
+```bash
+python3 -m pytest -q \
+  cta/config/tests/test_cross_sectional_rotation_config.py \
+  cta/feature/tests/test_cross_sectional_rank.py \
+  cta/strategy/tests/test_cross_sectional_momentum_rotation.py \
+  cta/portfolio_logic/tests/test_cross_sectional_rotation_executor.py \
+  cta/model/tests/test_bull_mode_trade_filter_gate.py
+```
+
+当前行为（2026-05-22 起）：
+- `group-pool + day` 训练时，`cross_sectional_momentum` 候选会自动并入 pool 候选与特征表；
+- 非 `day` interval 默认不并入，避免分钟级噪音导致候选分布劣化；
+- 仍保留原有 baseline 候选，不会覆盖或替换既有 signal_type。
+
+全量 day grouped OOT（top-77）可直接运行：
+
+```bash
+python3 -m cta.model.model_pipeline \
+  --group-pool \
+  --group-by cluster \
+  --group-min-size 2 \
+  --top-n-symbols 77 \
+  --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
+  --interval day \
+  --start 2010-01-01 --end 2025-12-31 \
+  --train-end 2020-12-31 --valid-end 2023-12-31 \
+  --window-mode expanding --max-walk-forward-windows 3 \
+  --by-signal-type --generic-mode auto \
+  --use-portfolio-logic-runtime \
+  --min-used-symbols 2 \
+  --seed 20260522
+```
+
+### 3.3 跨品种/跨期价差套利专项校验（P3）
+
+`run.sh` 已接入 `step_spread_arbitrage`，用于做 spread 模块的最小全链路回归：
+- spread 特征 / 策略 / executor / 配置单测；
+- OOT 交易明细字段透传回归（`spread_pair_key`、`spread_side`、`spread_leg_id`、`spread_zscore_at_entry`、`spread_zscore_at_exit`、`spread_pnl_pct`）。
+
+命令：
+
+```bash
+bash cta/run.sh spread_arbitrage
+```
+
+### 3.4 候选事件 + 训练样本拼接（支持 topN + 多 interval）
 
 ```bash
 python3 -m cta.model.feature.candidate_training_dataset \
@@ -323,12 +387,15 @@ python3 -m cta.model.model_pipeline \
 - `--max-valid-test-gap`：valid 与 test AUC 差异告警阈值，超阈值写入告警文件。
 - `--no-by-signal-type`：关闭按 `signal_type` 分模型，改为混合训练。
 - `--only-clusters`：`--group-pool` 模式下仅跑指定 cluster（如 `index`、`bond`）。
-- `--output-root`：指定输出根目录（覆盖默认 `cta/report/backtest`）。
+- `--output-root`：指定输出根目录（覆盖默认 `cta/backtest`）。
 - `--rolling-train-years`：`rolling` 模式下 train 窗口长度（年）。
 - `--rolling-valid-years`：`rolling` 模式下 valid 窗口长度（年）。
 - `--rolling-test-years`：`rolling` 模式下 test 窗口长度（年）。
 - `--rolling-step-years`：`rolling` 模式窗口每次向前滚动步长（年）。
 - `--top-feature-alert-pct`：单特征重要度占比告警阈值（写入 suspect feature 报告）。
+- `--enable-trailing-take-profit` + `--trailing-tp-enabled-cells`：开启盈利仓位追踪止盈（A 模块）。
+- `--enable-profit-aware-horizon` + `--profit-aware-horizon-enabled-cells`：开启盈利后持仓期放宽（C 模块）。
+- `--enable-trend-aware-trade-filter` + `--trend-aware-trade-filter-enabled-cells`：开启趋势下 trade_filter 阈值松绑（B 模块）。
 
 示例（rolling + group_pool + cluster 过滤）：
 
@@ -347,8 +414,29 @@ python3 -m cta.model.model_pipeline \
   --max-valid-test-gap 0.10 \
   --top-feature-alert-pct 0.50 \
   --no-by-signal-type \
-  --output-root cta/report/backtest/custom_run \
+  --output-root cta/backtest/custom_run \
   --seed 20260519
+```
+
+示例（只在 `precious|day` 灰度启用 A/B/C）：
+
+```bash
+python3 -m cta.model.model_pipeline \
+  --group-pool \
+  --group-by cluster \
+  --only-clusters precious \
+  --interval day \
+  --start 2018-01-01 --end 2025-12-31 \
+  --train-end 2021-12-31 --valid-end 2023-12-31 \
+  --window-mode expanding --max-walk-forward-windows 3 \
+  --use-portfolio-logic-runtime \
+  --enable-trailing-take-profit \
+  --trailing-tp-enabled-cells precious|day \
+  --enable-profit-aware-horizon \
+  --profit-aware-horizon-enabled-cells precious|day \
+  --enable-trend-aware-trade-filter \
+  --trend-aware-trade-filter-enabled-cells precious|day \
+  --seed 20260523
 ```
 
 ### 4.2.1 多 symbol **池化**训练（一个共享模型）
@@ -370,7 +458,7 @@ python3 -m cta.model.model_pipeline \
   --seed 20260512
 ```
 
-输出目录：``cta/report/backtest/{run_date}_POOL_{interval}_{side}_model_pipeline/``，
+输出目录：``cta/backtest/{run_date}_POOL_{interval}_{side}_model_pipeline/``，
 内含：
 - ``..._pool_members.csv`` — 参与池化的 (symbol, exchange) 列表，含 ``used_in_training`` 标识
 - ``..._feature_table.csv`` — 拼接后的样本（含 ``symbol`` 列保留来源）
@@ -387,7 +475,7 @@ from cta.live.online_feature import OnlineFeatureLoader
 
 # 跨品种共享同一个 POOL 模型
 adapter.order_filter = make_trade_filter(
-    "cta/report/backtest/{POOL_run}/models/trade_filter_xxx.joblib",
+    "cta/backtest/{POOL_run}/models/trade_filter_xxx.joblib",
     threshold=0.55,
     feature_provider=OnlineFeatureLoader(),    # 推理时按 vt_symbol 取该品种特征
 )
@@ -434,7 +522,7 @@ python3 -m cta.model.model_pipeline \
 - 输出目录按组区分：`..._GRP_<GROUP>_<interval>_..._model_pipeline/`。
 - 预测文件同目录下的 `*_predictions.csv`，直接就是该组模型的离线预测结果。
 - 当同时开启 `--use-portfolio-logic-runtime` 时，会额外生成一个**上层聚合目录**：  
-  `cta/report/backtest/{run_tag}_GROUP_POOL_{GROUP_BY}_{side}_portfolio_logic_runtime/`
+  `cta/backtest/{run_tag}_GROUP_POOL_{GROUP_BY}_{side}_portfolio_logic_runtime/`
   - `*_all_symbol_group_oot_trade_details.csv`：所有 symbol group 的逐笔交易明细聚合表
   - `*_symbol_group_run_manifest.csv`：每个 group/interval 对应的模型目录与源文件路径
   - `symbol_group_details/*/group_detail_manifest.json`：每个组的细化文件索引（含模型路径）
@@ -466,34 +554,34 @@ nohup python3 -m cta.model.model_pipeline \
 ### 4.3 离线评估结果快速查看
 
 ```bash
-ls -lah cta/report/backtest/*_model_pipeline/
+ls -lah cta/backtest/*_model_pipeline/
 ```
 
 查看最后 OOT 十分位收益（只统计已成交样本）：
 
 ```bash
-cat cta/report/backtest/*_model_pipeline/*_last_oot_decile_returns.csv
+cat cta/backtest/*_model_pipeline/*_last_oot_decile_returns.csv
 ```
 
 查看 OOT 真实成交月收益与 Sharpe 汇总：
 
 ```bash
-cat cta/report/backtest/*_model_pipeline/*_oot_monthly_returns.csv
-cat cta/report/backtest/*_model_pipeline/*_oot_summary.csv
-cat cta/report/backtest/*_model_pipeline/*_oot_trade_details.csv
-cat cta/report/backtest/*_model_pipeline/*_throttle_log.csv
-cat cta/report/backtest/*_model_pipeline/*_oot_position_lifetime.csv
-ls -lah cta/report/backtest/*_model_pipeline/report_*.html
+cat cta/backtest/*_model_pipeline/*_oot_monthly_returns.csv
+cat cta/backtest/*_model_pipeline/*_oot_summary.csv
+cat cta/backtest/*_model_pipeline/*_oot_trade_details.csv
+cat cta/backtest/*_model_pipeline/*_throttle_log.csv
+cat cta/backtest/*_model_pipeline/*_oot_position_lifetime.csv
+ls -lah cta/backtest/*_model_pipeline/report_*.html
 
 # group-pool + portfolio_logic runtime 的上层聚合目录
-ls -lah cta/report/backtest/*_GROUP_POOL_*_portfolio_logic_runtime/
-cat cta/report/backtest/*_GROUP_POOL_*_portfolio_logic_runtime/*_all_symbol_group_oot_trade_details.csv
-cat cta/report/backtest/*_GROUP_POOL_*_portfolio_logic_runtime/*_symbol_group_run_manifest.csv
+ls -lah cta/backtest/*_GROUP_POOL_*_portfolio_logic_runtime/
+cat cta/backtest/*_GROUP_POOL_*_portfolio_logic_runtime/*_all_symbol_group_oot_trade_details.csv
+cat cta/backtest/*_GROUP_POOL_*_portfolio_logic_runtime/*_symbol_group_run_manifest.csv
 
 # 新版结构化 OOT 报告目录
-ls -lah cta/report/backtest/oot_*_*/
-cat cta/report/backtest/oot_*_*/00_overview/headline_metrics.csv
-cat cta/report/backtest/oot_*_*/06_drilldown/gate_funnel.csv
+ls -lah cta/backtest/oot_*_*/
+cat cta/backtest/oot_*_*/00_overview/headline_metrics.csv
+cat cta/backtest/oot_*_*/06_drilldown/gate_funnel.csv
 ```
 
 OOT 绩效参数配置文件：
@@ -609,12 +697,12 @@ PY
 #### 4.4.4 快速核对增强链路是否生效
 
 ```bash
-LATEST_RUN=$(ls -td cta/report/backtest/*_model_pipeline | head -n 1)
+LATEST_RUN=$(ls -td cta/backtest/*_model_pipeline | head -n 1)
 echo "$LATEST_RUN"
 python3 - <<'PY'
 from pathlib import Path
 import pandas as pd
-run_dir = Path(sorted(Path("cta/report/backtest").glob("*_model_pipeline"))[-1])
+run_dir = Path(sorted(Path("cta/backtest").glob("*_model_pipeline"))[-1])
 pred = pd.read_csv(next(run_dir.glob("*_predictions.csv")))
 trd = pd.read_csv(next(run_dir.glob("*_oot_trade_details.csv")))
 print("pred cols:", [c for c in ["bull_strength_score","bull_mode","hold_extend_score","pyramid_add_score"] if c in pred.columns])
@@ -743,14 +831,14 @@ LATEST_MODEL=$(ls -t cta/strategy/brooks/models/xgb_*.ubj 2>/dev/null | head -n 
 echo "model: $LATEST_MODEL"
 
 # baseline 三件套训练出的模型
-ls -lah cta/report/backtest/*_model_pipeline/models/
+ls -lah cta/backtest/*_model_pipeline/models/
 ```
 
 #### 4.5.2 校验离线指标 vs 上线门槛
 
 ```bash
 # 找出最新一轮离线评估
-LATEST_RUN=$(ls -td cta/report/backtest/*_model_pipeline | head -n 1)
+LATEST_RUN=$(ls -td cta/backtest/*_model_pipeline | head -n 1)
 echo "latest run: $LATEST_RUN"
 column -t -s, "$LATEST_RUN/$(ls $LATEST_RUN | grep _metrics.csv | head -n 1)"
 ```
@@ -774,7 +862,7 @@ from cta.live.online_feature import OnlineFeatureLoader
 
 loader = OnlineFeatureLoader(feature_root="cta/data/feature")
 adapter.order_filter = make_trade_filter(
-    "cta/report/backtest/20260509_RB0_60min_model_pipeline/models/trade_filter_xyz.joblib",
+    "cta/backtest/20260509_RB0_60min_model_pipeline/models/trade_filter_xyz.joblib",
     threshold=0.55,
     feature_provider=loader,           # ← 关键：从 cta/data/feature 加载完整特征
 )
@@ -793,8 +881,8 @@ from cta.live.online_feature import OnlineFeatureLoader
 loader = OnlineFeatureLoader(feature_root="cta/data/feature")
 adapter.order_filter = make_group_trade_filter(
     group_model_paths={
-        "tier_a": "cta/report/backtest/<run_a>/models/trade_filter_xxx.joblib",
-        "tier_b": "cta/report/backtest/<run_b>/models/trade_filter_xxx.joblib",
+        "tier_a": "cta/backtest/<run_a>/models/trade_filter_xxx.joblib",
+        "tier_b": "cta/backtest/<run_b>/models/trade_filter_xxx.joblib",
     },
     symbol_to_group={
         "RB0": "tier_a",
@@ -862,7 +950,7 @@ python3 -m cta.strategy.skill_tight_range_backtest \
 python3 -m cta.cli backtest \
   --strategy cta.strategy.demos:make_double_ma \
   --bars cta/data/origin/day/RB0.csv \
-  --out-dir cta/report/backtest/$(date +%Y%m%d)_double_ma_rb0 \
+  --out-dir cta/backtest/$(date +%Y%m%d)_double_ma_rb0 \
   --title "DoubleMA / RB0 / day" \
   --limit-move-pct 0.07 \
   --liquidity-ratio 0.1
@@ -887,7 +975,7 @@ res = run_via_event_driven(
     setting={"lookback": 10, "alpha": 1.5, "min_count": 5,
              "trade_side_mode": "both", "multiplier": 10.0, "tick_size": 1.0},
     bars=bars,
-    out_dir=f"cta/report/backtest/$(date +%Y%m%d)_tight_range_rb0_cta",
+    out_dir=f"cta/backtest/$(date +%Y%m%d)_tight_range_rb0_cta",
     title="TightRange / RB0 / day (CtaTemplate)",
 )
 print(res.report_path, res.stats.get("sharpe"), res.stats.get("calmar"))
@@ -964,7 +1052,7 @@ spec = MultiRunSpec(
     ],
     get_bars=get_bars,
     get_setting=get_setting,
-    out_dir=f"cta/report/backtest/$(date +%Y%m%d)_tight_range_multi",
+    out_dir=f"cta/backtest/$(date +%Y%m%d)_tight_range_multi",
     monte_carlo_iter=200,
 )
 res = run_multi(spec)
@@ -978,7 +1066,7 @@ print({k: res.portfolio_metrics.get(k) for k in ("sharpe","sortino","calmar","md
 PY
 ```
 
-> 月度收益看板：``open cta/report/backtest/<run_dir>/monthly_pnl_pivot.csv``，
+> 月度收益看板：``open cta/backtest/<run_dir>/monthly_pnl_pivot.csv``，
 > Excel/Numbers 打开后可直接做条件格式（绿正红负）。
 > ``portfolio_equity`` 是各组合等权聚合的净值曲线；如需按风险平价 / Kelly 分配权重，
 > 在 ``aggregate_portfolio`` 之外自行加一层加权。
@@ -1287,8 +1375,8 @@ PY
 - 原始行情：`cta/data/origin/`
 - 通用特征：`cta/data/feature/`
 - 候选训练样本（parquet-only）：`cta/data/model_feature/`
-- 模型与离线评估：`cta/report/backtest/*_model_pipeline/`
-- 策略回测报告：`cta/report/backtest/`
+- 模型与离线评估：`cta/backtest/*_model_pipeline/`
+- 策略回测报告：`cta/backtest/`
 - Brooks v3 报告：`cta/strategy/brooks/report/`
 - 仿真 / 实盘日志与日报：`cta/report/live/`
 

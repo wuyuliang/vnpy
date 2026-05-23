@@ -100,8 +100,10 @@ def _auto_enrich_candidate_features_for_models(
         edge_penalty = 0.4 * tr_range_atr.fillna(0.0).abs()
         out["generic_model_mfe_edge"] = edge_base - edge_penalty
         out["generic_model_mfe_side_interaction"] = out["generic_model_mfe_edge"] * side
-    out["generic_model_cluster_breadth_up"] = cluster_breadth_up.fillna(0.0)
-    out["generic_model_cluster_momentum_rank"] = cluster_momentum_rank.fillna(0.5)
+        # codex P0-A 修复：cluster_breadth_up / cluster_momentum_rank 只在 fallback/auto 模式
+        # 下追加，避免在 whitelist 模式下超出 18 列硬约束。
+        out["generic_model_cluster_breadth_up"] = cluster_breadth_up.fillna(0.0)
+        out["generic_model_cluster_momentum_rank"] = cluster_momentum_rank.fillna(0.5)
     return out
 
 

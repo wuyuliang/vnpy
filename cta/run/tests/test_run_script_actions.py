@@ -42,6 +42,28 @@ class TestRunScriptActions(unittest.TestCase):
         self.assertIn("IF0", defaults)
         self.assertIn("T0", defaults)
 
+    def test_has_spread_arbitrage_step_function(self) -> None:
+        text = RUN_SH.read_text(encoding="utf-8")
+        self.assertIn("step_spread_arbitrage()", text)
+
+    def test_case_includes_spread_arbitrage_action(self) -> None:
+        text = RUN_SH.read_text(encoding="utf-8")
+        self.assertRegex(text, r"\n\s*spread_arbitrage\)\s+step_spread_arbitrage\s*;;")
+
+    def test_spread_arbitrage_step_runs_spread_test_suite(self) -> None:
+        text = RUN_SH.read_text(encoding="utf-8")
+        m = re.search(
+            r"step_spread_arbitrage\(\)\s*\{(?P<body>.*?)\n\}",
+            text,
+            flags=re.DOTALL,
+        )
+        self.assertIsNotNone(m, "step_spread_arbitrage body not found")
+        body = m.group("body")
+        self.assertIn("pytest", body)
+        self.assertIn("cta/feature/tests/test_spread_features.py", body)
+        self.assertIn("cta/strategy/tests/test_spread_arbitrage_strategy.py", body)
+        self.assertIn("cta/portfolio_logic/tests/test_spread_executor.py", body)
+
 
 if __name__ == "__main__":
     unittest.main()

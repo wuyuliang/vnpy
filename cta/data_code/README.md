@@ -9,6 +9,7 @@
 | 文件 | 作用 |
 |---|---|
 | [futures_downloader.py](futures_downloader.py) | 商品期货主连/连续合约日线+分钟线下载（Tushare 主数据源） |
+| [main_secondary_resolver.py](main_secondary_resolver.py) | 主力/次主力合约解析（calendar spread 用） |
 | [financial_futures_downloader.py](financial_futures_downloader.py) | 金融期货（IF/IH/IC/IM/TF/T/TS/TL）下载 |
 | [index_downloader.py](index_downloader.py) | 商品/股指指数行情下载 |
 | [expand_minute.py](expand_minute.py) | 1min → 5/15/30/60min 重采样 |
@@ -41,6 +42,7 @@
 - **不允许硬编码 token**：所有 API key 走环境变量 `TUSHARE_TOKEN`；代码里出现明文 token 会被 review 卡掉。
 - **断点续跑**：所有任务必须可被中断后重跑（`finished.csv` / `empty.csv`），不要写"全跑成功才落盘"的死路径。
 - **空数据兼容**：上游返回空集 → 写 `empty.csv`，**不要**抛错。下游消费方应当容忍 parquet 文件缺失。
+- **跨期合约目录约定**：显式合约下载（`download_explicit_contract`）落到 `cta/data/origin/contract/{SYMBOL}/{interval}/{CONTRACT}.parquet`，不覆盖主连目录。
 - **跨交易所符号扩展**：CZCE 同时存在 `CZC` / `CZCE` 写法；下载/落盘必须按 `cta/config/futures_meta.py` 里的规范名落，不要在 downloader 里就地 `.replace("CZC", "CZCE")`。
 - **校验失败处理**：`validate.py` 报错的样本应当落到 `empty.csv` 或专门的 error log，不要静默吞掉。
 - **不在本目录算特征**：哪怕是简单的 `pct_change`，也属于 [cta/feature/](../feature/)。本目录只负责"把卖方原始数据搬到磁盘"。

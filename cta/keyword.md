@@ -277,6 +277,9 @@
 | `--rolling-test-years` | `rolling` 模式 test 窗口长度（年）。 |
 | `--rolling-step-years` | `rolling` 模式窗口前滚步长（年）。 |
 | `--top-feature-alert-pct` | 单特征重要度占比告警阈值，超阈值进入可疑特征报告。 |
+| `--enable-cross-sectional-rotation` | 启用截面动量轮动候选并入（默认关闭）。 |
+| `--cross-sectional-enabled-cells` | 指定允许并入的 `cluster|interval` 单元（可多值）。 |
+| `--cross-sectional-long-only` | 截面轮动候选仅保留多头方向（默认 long+short）。 |
 
 ---
 

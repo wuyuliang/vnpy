@@ -5,6 +5,8 @@ import inspect
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
+from cta.config.profit_aware_horizon_config import ProfitAwareHorizonConfig
+from cta.config.trailing_take_profit_config import TrailingTakeProfitConfig
 from cta.config.baseline_skill_suite_config import LABEL_MAE_PENALTY
 from cta.config.symbol_cluster_config import SYMBOL_CLUSTER_BY_PREFIX
 from cta.feature.regime import REGIME_LABELS
@@ -77,6 +79,19 @@ class OotEvaluationConfig:
     trade_filter_percentile_threshold_attack_short_delta: float = 10.0
     trade_filter_raw_threshold_attack_long_delta: float = -0.03
     trade_filter_raw_threshold_attack_short_delta: float = 0.08
+    # Rotation 候选若希望绕过 trade-filter，由调用方显式 opt-in（H4 修复：默认空，
+    # 保证 rotation off 时无任何 bypass 副作用；rotation on 时调用方传
+    # ("cross_sectional_momentum",) 显式启用）。
+    trade_filter_bypass_signal_types: tuple[str, ...] = ()
+    # Trend-aware threshold relaxation（默认 off）
+    use_trend_aware_trade_filter: bool = False
+    require_ma_alignment_magnitude: int = 2
+    require_regime_labels: tuple[str, ...] = ("trend_up", "trend_down", "expansion")
+    require_vol_rank_above: float = 0.50
+    trend_threshold_delta_pctl: float = -10.0
+    trend_threshold_delta_raw: float = -0.05
+    max_consecutive_relaxed_bars: int = 60
+    trend_aware_trade_filter_enabled_by_cluster_interval: dict[str, bool] = field(default_factory=dict)
     # bull_mode 识别配置（score 优先用 bull_strength_score 列，不存在时回退到 trade_filter_prob_pctl）
     bull_strength_score_column: str = "bull_strength_score"
     bull_attack_percentile_threshold: float = 70.0
@@ -210,6 +225,8 @@ class OotEvaluationConfig:
     # 仅当某 interval 数据**应当存在但偶发缺失**时才考虑切到 "both"。
     # 详见 cta/docs/block_reason.md §4-§6。
     portfolio_logic: PortfolioLogicConfig = field(default_factory=PortfolioLogicConfig)
+    trailing_take_profit: TrailingTakeProfitConfig = field(default_factory=TrailingTakeProfitConfig)
+    profit_aware_horizon: ProfitAwareHorizonConfig = field(default_factory=ProfitAwareHorizonConfig)
     stop_loss_consistency_tolerance: float = 0.005
     # 默认强制训练 label 与 OOT 执行止损口径一致，避免漂移。
     # 研究/单测若需要临时放开，可显式传 enforce_stop_loss_consistency=False。
@@ -226,6 +243,13 @@ class OotEvaluationConfig:
             raise ValueError(f"unsupported trade_filter_gate_mode={self.trade_filter_gate_mode}")
         _check("trade_filter_threshold", self.trade_filter_threshold, 0.0, 1.0)
         _check("trade_filter_percentile_threshold", self.trade_filter_percentile_threshold, 0.0, 100.0)
+        _check("require_vol_rank_above", self.require_vol_rank_above, 0.0, 1.0)
+        if int(self.require_ma_alignment_magnitude) < 0:
+            raise ValueError("require_ma_alignment_magnitude must be >= 0")
+        if int(self.max_consecutive_relaxed_bars) <= 0:
+            raise ValueError("max_consecutive_relaxed_bars must be > 0")
+        if not self.require_regime_labels:
+            raise ValueError("require_regime_labels must be non-empty")
         for key, value in self.trade_filter_raw_threshold_by_cluster_interval.items():
             _check(f"trade_filter_raw_threshold_by_cluster_interval[{key}]", float(value), 0.0, 1.0)
         for key, value in self.trade_filter_percentile_threshold_by_cluster_interval.items():
@@ -263,7 +287,12 @@ class OotEvaluationConfig:
         # MA-cross + regime-short-filter override 校验（key 形如 "cluster|interval"，value 为 bool）。
         norm_ma_cross_enabled: dict[str, bool] = {}
         norm_regime_short_enabled: dict[str, bool] = {}
+        norm_trend_aware_enabled: dict[str, bool] = {}
         for field_name, mapping in (
+            (
+                "trend_aware_trade_filter_enabled_by_cluster_interval",
+                self.trend_aware_trade_filter_enabled_by_cluster_interval,
+            ),
             ("ma_cross_enabled_by_cluster_interval", self.ma_cross_enabled_by_cluster_interval),
             (
                 "regime_short_filter_enabled_by_cluster_interval",
@@ -276,7 +305,9 @@ class OotEvaluationConfig:
                     raise ValueError(
                         f"{field_name}[{key}] must be bool, got {type(value).__name__}"
                     )
-                if field_name == "ma_cross_enabled_by_cluster_interval":
+                if field_name == "trend_aware_trade_filter_enabled_by_cluster_interval":
+                    norm_trend_aware_enabled[norm_key] = bool(value)
+                elif field_name == "ma_cross_enabled_by_cluster_interval":
                     norm_ma_cross_enabled[norm_key] = bool(value)
                 else:
                     norm_regime_short_enabled[norm_key] = bool(value)
@@ -325,6 +356,22 @@ class OotEvaluationConfig:
             self,
             "trade_filter_percentile_threshold_by_cluster_interval_side_bull_mode",
             MappingProxyType(dict(self.trade_filter_percentile_threshold_by_cluster_interval_side_bull_mode)),
+        )
+        object.__setattr__(
+            self,
+            "trade_filter_bypass_signal_types",
+            tuple(
+                dict.fromkeys(
+                    str(signal_type).strip().lower()
+                    for signal_type in self.trade_filter_bypass_signal_types
+                    if str(signal_type).strip()
+                )
+            ),
+        )
+        object.__setattr__(
+            self,
+            "trend_aware_trade_filter_enabled_by_cluster_interval",
+            MappingProxyType(norm_trend_aware_enabled),
         )
         object.__setattr__(
             self,

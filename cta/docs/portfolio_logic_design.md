@@ -1175,7 +1175,7 @@ class CalibrationStats:
 #### 10.2.3 落盘格式
 
 ```
-cta/report/backtest/{run_tag}_GRP_BLACK_60min_both/
+cta/backtest/{run_tag}_GRP_BLACK_60min_both/
 ├── trade_filter.joblib                          # 已有
 ├── trade_filter_features.csv                    # 已有
 ├── trade_filter_calibration.joblib              # v4 新增（命名统一）
@@ -1702,7 +1702,7 @@ class ClusterModelRegistry:
 
 ### 15.2 集成测试 / 离线对照
 
-用 `cta/report/backtest/20260514_POOL_minute60_both` 数据集重跑 OOT，落盘对比 `cta/report/portfolio_logic_comparison/{date}_baseline_vs_new.csv`：
+用 `cta/backtest/20260514_POOL_minute60_both` 数据集重跑 OOT，落盘对比 `cta/report/portfolio_logic_comparison/{date}_baseline_vs_new.csv`：
 
 | 指标 | baseline | new | 期望 |
 |------|----------|-----|------|

@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from cta.config.baseline_skill_suite_config import BASELINE_SIGNAL_TYPES, LABEL_MAE_PENALTY, LABEL_THRESHOLD, TRAINING_FEATURE_COLUMNS
+from cta.config.winning_position_setup_diversity_config import WinningPositionSetupDiversityConfig
 from cta.config.skill_tight_range_breakout_config import VALID_SIDE_MODES
 from cta.strategy.baseline_helpers import _safe_float
 from cta.strategy.baseline_setup_detection import (
@@ -20,6 +21,83 @@ from cta.strategy.baseline_strategies import create_baseline_strategy
 from cta.strategy.skill_tight_range_backtest import build_contract_spec
 
 logger = logging.getLogger(__name__)
+
+
+_SIGNAL_PRIORITY: dict[str, int] = {name: idx for idx, name in enumerate(BASELINE_SIGNAL_TYPES)}
+
+
+def _apply_default_priority_dedup(candidates: pd.DataFrame) -> pd.DataFrame:
+    """Default one-candidate dedup by signal priority.
+
+    Dedup key: ``(symbol, side, datetime)``.
+    """
+    if candidates.empty:
+        return candidates.copy()
+    out = candidates.copy()
+    sig = out.get("signal_type", pd.Series([""] * len(out), index=out.index)).astype(str).str.lower()
+    out["_priority"] = sig.map(lambda x: int(_SIGNAL_PRIORITY.get(x, 10_000)))
+    if "rank_score" in out.columns:
+        rank = pd.to_numeric(out["rank_score"], errors="coerce")
+        out["_rank_score"] = rank.fillna(float("-inf"))
+    else:
+        out["_rank_score"] = float("-inf")
+    for col, default in (("symbol", ""), ("side", ""), ("datetime", pd.NaT)):
+        if col not in out.columns:
+            out[col] = default
+    out["datetime"] = pd.to_datetime(out["datetime"], errors="coerce")
+    out = out.sort_values(["symbol", "side", "datetime", "_priority", "_rank_score"], ascending=[True, True, True, True, False])
+    out = out.drop_duplicates(subset=["symbol", "side", "datetime"], keep="first")
+    return out.drop(columns=["_priority", "_rank_score"], errors="ignore").reset_index(drop=True)
+
+
+def _expand_compatible_signal_types(
+    candidates: pd.DataFrame,
+    cfg: WinningPositionSetupDiversityConfig,
+) -> pd.DataFrame:
+    """Keep compatible signal families and cap concurrency."""
+    if candidates.empty:
+        return candidates.copy()
+    out = candidates.copy()
+    sig = out.get("signal_type", pd.Series([""] * len(out), index=out.index)).astype(str).str.lower()
+    allowed: set[str] = set()
+    for group in cfg.compatible_groups:
+        allowed.update(group)
+    out = out.loc[sig.isin(allowed)].copy()
+    if out.empty:
+        return out
+    if "rank_score" in out.columns:
+        out["_rank"] = pd.to_numeric(out["rank_score"], errors="coerce").fillna(float("-inf"))
+    else:
+        out["_rank"] = 0.0
+    out = out.sort_values("_rank", ascending=False).head(int(cfg.max_concurrent_signal_types_per_symbol))
+    return out.drop(columns=["_rank"], errors="ignore").reset_index(drop=True)
+
+
+def filter_candidates_with_diversity(
+    candidates: pd.DataFrame,
+    *,
+    current_position: Any | None,
+    state: Any | None,
+    cfg: WinningPositionSetupDiversityConfig,
+    cluster: str | None = None,
+    interval: str = "",
+) -> pd.DataFrame:
+    """Apply winning-position setup diversity policy."""
+    if candidates.empty:
+        return candidates.copy()
+    if not bool(cfg.use_winning_position_setup_diversity):
+        return _apply_default_priority_dedup(candidates)
+    if not cfg.is_enabled(cluster, interval):
+        return _apply_default_priority_dedup(candidates)
+    if current_position is None or state is None:
+        return _apply_default_priority_dedup(candidates)
+    pnl_pct = float(getattr(state, "current_pnl_pct", np.nan))
+    if not np.isfinite(pnl_pct) or pnl_pct < float(cfg.activation_pnl_pct):
+        return _apply_default_priority_dedup(candidates)
+    trend_score = float(getattr(state, "trend_score", np.nan))
+    if bool(cfg.require_trend_confirmed) and (not np.isfinite(trend_score) or trend_score <= 0.0):
+        return _apply_default_priority_dedup(candidates)
+    return _expand_compatible_signal_types(candidates, cfg)
 
 
 def build_training_samples_from_trade_log(
@@ -168,6 +246,8 @@ def generate_candidate_opportunities(
         "is_filtered",
         "is_triggered",
         "filtered_reason",
+        "adaptive_window_used",
+        "diversity_signal_types_count",
     ] + [f"feature_{c}" for c in feature_columns]
     if frame.empty:
         return pd.DataFrame(columns=cols)
@@ -355,6 +435,8 @@ def generate_candidate_opportunities(
                 "is_filtered": int(candidate_status == "filtered"),
                 "is_triggered": int(triggered),
                 "filtered_reason": str(filtered_reason) if filtered_reason is not None else "",
+                "adaptive_window_used": _safe_float(bar.get("adaptive_window_used", np.nan)),
+                "diversity_signal_types_count": 1,
             }
             for c in feature_columns:
                 row[f"feature_{c}"] = bar[c] if c in frame.columns else np.nan
@@ -369,9 +451,12 @@ def generate_candidate_opportunities(
 
 __all__ = [
     "build_training_samples_from_trade_log",
+    "filter_candidates_with_diversity",
     "_infer_regime_label",
     "_resolve_candidate_entry",
     "_simulate_candidate_execution_path",
     "_build_raw_setup_candidates",
+    "_apply_default_priority_dedup",
+    "_expand_compatible_signal_types",
     "generate_candidate_opportunities",
 ]
