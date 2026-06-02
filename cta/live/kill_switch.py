@@ -23,6 +23,8 @@ class KillSwitch:
     signal_file: Path | None = None
     _active: bool = field(default=False, init=False)
     _reason: str = field(default="", init=False)
+    _cached_file_key: tuple[float, int] | None = field(default=None, init=False, repr=False)
+    _cached_file_reason: str = field(default="", init=False, repr=False)
 
     def activate(self, reason: str = "manual") -> None:
         self._active = True
@@ -35,12 +37,26 @@ class KillSwitch:
     def is_active(self) -> tuple[bool, str]:
         if self._active:
             return True, self._reason
-        if self.signal_file and Path(self.signal_file).exists():
+        if self.signal_file:
+            p = Path(self.signal_file)
             try:
-                content = Path(self.signal_file).read_text(encoding="utf-8").strip()
+                st = p.stat()
+            except FileNotFoundError:
+                self._cached_file_key = None
+                self._cached_file_reason = ""
+                return False, ""
+            except Exception:  # noqa: BLE001
+                return False, ""
+            cache_key = (float(st.st_mtime), int(st.st_size))
+            if cache_key == self._cached_file_key:
+                return True, self._cached_file_reason or "signal_file"
+            try:
+                content = p.read_text(encoding="utf-8").strip()
             except Exception:  # noqa: BLE001
                 content = ""
-            return True, content or "signal_file"
+            self._cached_file_key = cache_key
+            self._cached_file_reason = content or "signal_file"
+            return True, self._cached_file_reason
         return False, ""
 
 

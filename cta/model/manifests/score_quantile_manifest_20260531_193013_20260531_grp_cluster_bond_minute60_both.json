@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-31T19:30:13",
+  "run_tag": "20260531",
+  "symbol": "GRP_CLUSTER_BOND",
+  "interval": "minute60",
+  "trade_side_mode": "both",
+  "source_predictions_paths": [
+    "/Users/wuyuliang/code/vnpy/cta/model/manifests/score_quantile_source_20260531_193013_20260531_grp_cluster_bond_minute60_both.csv"
+  ],
+  "exclude_splits": [
+    "test",
+    "oot"
+  ],
+  "entries": [
+    {
+      "cluster": "bond",
+      "symbol": "T0",
+      "interval": "60min",
+      "p50": 0.4869723319534037,
+      "p60": 0.7735172618492043,
+      "p70": 1.0,
+      "p80": 1.0,
+      "p90": 1.0,
+      "p95": 1.0,
+      "sample_count": 2339
+    },
+    {
+      "cluster": "bond",
+      "symbol": "TF0",
+      "interval": "60min",
+      "p50": 0.4898914893749464,
+      "p60": 0.7103392780138725,
+      "p70": 1.0,
+      "p80": 1.0,
+      "p90": 1.0,
+      "p95": 1.0,
+      "sample_count": 2306
+    },
+    {
+      "cluster": "bond",
+      "symbol": "TS0",
+      "interval": "60min",
+      "p50": 0.4956647471655475,
+      "p60": 0.5776816611497662,
+      "p70": 1.0,
+      "p80": 1.0,
+      "p90": 1.0,
+      "p95": 1.0,
+      "sample_count": 1307
+    },
+    {
+      "cluster": "bond",
+      "symbol": "*",
+      "interval": "60min",
+      "p50": 0.4908004644974173,
+      "p60": 0.7060492530324447,
+      "p70": 1.0,
+      "p80": 1.0,
+      "p90": 1.0,
+      "p95": 1.0,
+      "sample_count": 5952
+    }
+  ]
+}

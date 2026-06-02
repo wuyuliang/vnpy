@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from cta.data_code.download_all import (
+    _covered_pairs_by_target,
     _is_financial_symbol,
     _normalize_interval_tokens,
     _resolve_macro_build_symbols,
@@ -41,6 +42,23 @@ class TestDownloadAllDispatch(unittest.TestCase):
                 references=[("000001.SH", "上证指数"), ("000300.SH", "沪深300")],
             )
             self.assertEqual(out, ["000001.SH"])
+
+    def test_covered_pairs_by_target_uses_date_end_for_incremental_judgement(self) -> None:
+        import pandas as pd
+
+        finished = pd.DataFrame(
+            [
+                {"symbol": "RB0", "interval": "day", "status": "success", "date_end": "2026-06-01"},
+                {"symbol": "RB0", "interval": "minute60", "status": "success", "date_end": "2026-05-30"},
+                {"symbol": "IF0", "interval": "minute30", "status": "skip", "date_end": "2026-06-01"},
+                {"symbol": "CU0", "interval": "minute30", "status": "empty", "date_end": "2026-06-01"},
+            ]
+        )
+        covered = _covered_pairs_by_target(finished, target_end="2026-06-01")
+        self.assertIn(("RB0", "day"), covered)
+        self.assertIn(("IF0", "minute30"), covered)
+        self.assertNotIn(("RB0", "minute60"), covered)
+        self.assertNotIn(("CU0", "minute30"), covered)
 
 
 if __name__ == "__main__":

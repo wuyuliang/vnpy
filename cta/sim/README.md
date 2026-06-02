@@ -11,6 +11,7 @@
 | [sim_runner.py](sim_runner.py) | 仿真主循环，类似 [cta/live/live_runner.py](../live/live_runner.py) 但 gateway 是仿真 |
 | [parity_check.py](parity_check.py) | 仿真单笔 vs OOT 单笔逐笔对账：fill_price / fill_time / cost / pnl 偏差 |
 | [daily_parity_report.py](daily_parity_report.py) | 每日仿真收盘后生成 parity_report.md，含 diff 明细与告警 |
+| [cfg_consistency_check.py](cfg_consistency_check.py) | 对比 OOT/sim/live 的 `cfg_fingerprint.json` 关键字段，防配置漂移 |
 | [tests/](tests/) | parity 与 runner 测试 |
 
 ## 详细过程
@@ -137,4 +138,3 @@ python3 -m cta.sim.feature_parity_sim_soak --symbol RB0 --interval day
 | `认证失败` | broker_id / app_id / auth_code 必须用 SimNow 默认值 `9999 / simnow_client_test / 0000000000000000` |
 | 收到行情但下单 reject | 检查交易时段（7x24 仿真可下；实盘交易日仿真有时段限制） |
 | Docker 部署 | 暂无官方 base image，可参考 [VeighNa Studio](https://www.vnpy.com) 自建 |
-

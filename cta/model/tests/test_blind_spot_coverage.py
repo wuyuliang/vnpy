@@ -29,6 +29,8 @@ def _base_cfg(**overrides) -> OotEvaluationConfig:
         max_single_loss_pct=0.001,
         commission_pct_per_trade=0.0,
         slippage_pct_per_trade=0.0,
+        commission_pct_by_cluster_interval={},
+        slippage_pct_by_cluster_interval={},
         use_position_sizing=False,
         max_position_scale=1.0,
         max_symbol_notional_pct=1.0,
@@ -47,6 +49,12 @@ def _base_cfg(**overrides) -> OotEvaluationConfig:
         annualization_factor=12.0,
         use_intrabar_stop_tracking=False,
         use_roll_cost=False,
+        # 解耦 signal_type 差异化杠杆：本套测试验证通用 cap/sizing 机制，不应受 per-signal_type 默认值影响。
+        signal_type_size_multiplier={},
+        signal_type_max_concurrent_positions={},
+        signal_type_max_notional_pct={},
+        trade_filter_percentile_threshold_delta_by_signal_type={},
+        trade_filter_raw_threshold_delta_by_signal_type={},
     )
     base.update(overrides)
     return OotEvaluationConfig(**base)

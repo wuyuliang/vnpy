@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any, Callable, Mapping
 
 import pandas as pd
@@ -76,4 +77,44 @@ class RotationStepper:
         return self._executor.last_rebalance_dt
 
 
-__all__ = ["RotationStepper", "RotationOrderIntent"]
+def intent_to_legacy_order(
+    intent: RotationOrderIntent,
+    *,
+    price: float,
+    contract_size: float,
+    lot_size: int = 1,
+    max_lots: int | None = None,
+    order_type: str = "market",
+) -> dict[str, Any]:
+    """Convert rotation intent to LegacyCtaAdapter order dict.
+
+    The returned payload matches ``LegacyCtaAdapter._dispatch_order`` contract:
+    ``{"side", "lots", "price", "order_type"}``.
+    """
+    px = float(price)
+    cs = max(float(contract_size), 1e-12)
+    ls = max(int(lot_size), 1)
+    notional_per_lot = abs(px * cs * ls)
+    raw_lots = int(abs(float(intent.target_notional)) / notional_per_lot)
+    if abs(float(intent.target_notional)) > 0.0 and raw_lots <= 0:
+        raw_lots = 1
+    if max_lots is not None:
+        raw_lots = min(raw_lots, max(int(max_lots), 1))
+    lots = max(raw_lots, 1)
+    if not math.isfinite(px):
+        raise ValueError(f"price must be finite, got {price!r}")
+    return {
+        "side": str(intent.side).strip().lower(),
+        "lots": int(lots),
+        "price": px,
+        "order_type": str(order_type).strip().lower(),
+        "signal_type": str(intent.signal_type),
+        "signal_datetime": pd.Timestamp(intent.signal_datetime),
+        "entry_datetime": pd.Timestamp(intent.entry_datetime),
+        "planned_exit_datetime": pd.Timestamp(intent.planned_exit_datetime),
+        "stop_price": float(intent.stop_price),
+        "rotation_symbol": str(intent.symbol),
+    }
+
+
+__all__ = ["RotationStepper", "RotationOrderIntent", "intent_to_legacy_order"]

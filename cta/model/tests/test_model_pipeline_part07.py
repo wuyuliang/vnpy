@@ -70,8 +70,15 @@ class TestModelPipelinePart07(unittest.TestCase):
             max_single_loss_pct=0.002,
             commission_pct_per_trade=0.0,
             slippage_pct_per_trade=0.0,
+            commission_pct_by_cluster_interval={},
+            slippage_pct_by_cluster_interval={},
             use_position_sizing=False,
             max_position_scale=1.0,
+            signal_type_size_multiplier={},  # 解耦 signal_type sizing，专测 cluster 名义 cap
+            signal_type_max_concurrent_positions={},
+            signal_type_max_notional_pct={},
+            trade_filter_percentile_threshold_delta_by_signal_type={},
+            trade_filter_raw_threshold_delta_by_signal_type={},
             max_symbol_notional_pct=0.50,  # 与 cluster cap 一致，第二笔由 cluster 维度触顶
             max_concurrent_positions_per_symbol=10,
             max_concurrent_positions_total=20,
@@ -102,6 +109,76 @@ class TestModelPipelinePart07(unittest.TestCase):
         _monthly, _summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
         reasons = trades["block_reason"].astype(str).tolist()
         self.assertIn("blocked_cluster_cap", reasons)
+
+    def test_evaluate_oot_real_execution_total_notional_cap_emits_blocked_total_notional(self) -> None:
+        """total notional cap 触发时应输出独立 reason，避免与 leverage 混淆。"""
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-06 10:00:00"]),
+                "exit_datetime": pd.to_datetime(["2020-01-10 15:00:00", "2020-01-10 16:00:00"]),
+                "symbol": ["RB0", "CU0"],  # 不同 cluster，排除 cluster cap 干扰
+                "exchange": ["SHFE", "SHFE"],
+                "interval": ["60min", "60min"],
+                "signal_type": ["donchian_breakout", "donchian_breakout"],
+                "side": ["long", "long"],
+                "pred_split": ["test", "test"],
+                "window_id": [0, 0],
+                "is_executed": [1, 1],
+                "entry_price": [100.0, 100.0],
+                "future_mfe_atr": [1.0, 1.0],
+                "future_mae_atr": [0.0, 0.0],
+            }
+        )
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            mae_penalty=1.0,
+            initial_capital=1000.0,
+            risk_per_trade_pct=0.01,
+            max_single_loss_pct=0.002,
+            commission_pct_per_trade=0.0,
+            slippage_pct_per_trade=0.0,
+            commission_pct_by_cluster_interval={},
+            slippage_pct_by_cluster_interval={},
+            use_position_sizing=False,
+            max_position_scale=0.20,  # 单笔 20%，第一笔后 total_notional 刚好触顶
+            signal_type_size_multiplier={},
+            signal_type_max_concurrent_positions={},
+            signal_type_max_notional_pct={},
+            trade_filter_percentile_threshold_delta_by_signal_type={},
+            trade_filter_raw_threshold_delta_by_signal_type={},
+            max_symbol_notional_pct=1.0,
+            max_concurrent_positions_per_symbol=10,
+            max_concurrent_positions_total=20,
+            use_portfolio_constraints=True,
+            margin_rate=0.10,
+            max_total_leverage=10.0,
+            max_daily_new_notional_pct=10.0,
+            weekly_max_drawdown_pct=1.0,
+            enforce_weekly_dd_budget_on_entry=False,
+            block_new_entries_on_weekly_dd_breach=False,
+            benchmark_annual_return=0.0,
+            risk_free_annual_return=0.0,
+            annualization_factor=12.0,
+            use_intrabar_stop_tracking=False,
+            use_portfolio_logic_runtime=True,
+            portfolio_logic=PortfolioLogicConfig(
+                enable_htf_gate=False,
+                enable_ranker=False,
+                enable_risk_throttle=False,
+                enable_pyramid=False,
+                caps=CapsConfig(
+                    max_symbol_notional_pct=0.20,
+                    max_cluster_notional_pct=0.20,
+                    max_total_notional_pct=0.20,
+                ),
+            ),
+        )
+        _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+        self.assertEqual(int(summary.iloc[0]["blocked_total_notional_rows"]), 1)
+        reasons = trades["block_reason"].astype(str).tolist()
+        self.assertIn("blocked_total_notional", reasons)
 
     def test_run_model_pipeline_writes_provenance_json(self) -> None:
         """P2.3: pipeline 输出目录必须有 provenance.json，便于实验追溯。"""

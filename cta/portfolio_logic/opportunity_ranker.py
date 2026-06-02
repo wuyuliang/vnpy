@@ -83,8 +83,8 @@ class OpportunityRanker:
             else:
                 prob_norm = 0.0
 
-            mfe = float(pd.to_numeric(pd.Series([row.get("pred_mfe_atr", row.get("future_mfe_atr", np.nan))]), errors="coerce").iloc[0])
-            mae = float(pd.to_numeric(pd.Series([row.get("pred_mae_atr", row.get("future_mae_atr", np.nan))]), errors="coerce").iloc[0])
+            mfe = float(pd.to_numeric(pd.Series([row.get("pred_mfe_atr", np.nan)]), errors="coerce").iloc[0])
+            mae = float(pd.to_numeric(pd.Series([row.get("pred_mae_atr", np.nan)]), errors="coerce").iloc[0])
             raw_edge = 0.0
             if np.isfinite(mfe) and np.isfinite(mae):
                 raw_edge = float(mfe - 0.7 * mae)
@@ -171,7 +171,21 @@ class OpportunityRanker:
             return pd.DataFrame(columns=cols)
         state.begin_allocation()
 
-        ordered = df_scored.sort_values("score", ascending=False).reset_index(drop=True)
+        signal_type_rank_bonus = dict(getattr(self.cfg, "signal_type_rank_bonus", {}) or {})
+        if signal_type_rank_bonus and "signal_type" in df_scored.columns:
+            base_score = pd.to_numeric(df_scored.get("score"), errors="coerce").fillna(float("-inf"))
+            bonus = (
+                df_scored["signal_type"].astype(str).str.strip().str.lower()
+                .map(signal_type_rank_bonus).fillna(0.0).astype(float)
+            )
+            ordered = (
+                df_scored.assign(_rank_key=base_score + bonus)
+                .sort_values("_rank_key", ascending=False)
+                .drop(columns="_rank_key")
+                .reset_index(drop=True)
+            )
+        else:
+            ordered = df_scored.sort_values("score", ascending=False).reset_index(drop=True)
         picks: list[dict[str, Any]] = []
         for _, row in ordered.iterrows():
             score = float(pd.to_numeric(pd.Series([row.get("score", np.nan)]), errors="coerce").iloc[0])

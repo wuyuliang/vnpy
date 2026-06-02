@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-31T13:15:13",
+  "run_tag": "20260531",
+  "symbol": "PROV0",
+  "interval": "minute60",
+  "trade_side_mode": "both",
+  "source_predictions_paths": [
+    "/Users/wuyuliang/code/vnpy/cta/model/manifests/score_quantile_source_20260531_131513_20260531_prov0_minute60_both.csv"
+  ],
+  "exclude_splits": [
+    "test",
+    "oot"
+  ],
+  "entries": [
+    {
+      "cluster": "agri",
+      "symbol": "PROV0",
+      "interval": "60min",
+      "p50": 0.2612155640893853,
+      "p60": 0.33041951506301653,
+      "p70": 0.49802022339686036,
+      "p80": 0.7157053914138826,
+      "p90": 0.7835572642816598,
+      "p95": 0.8411831881291525,
+      "sample_count": 134
+    },
+    {
+      "cluster": "agri",
+      "symbol": "*",
+      "interval": "60min",
+      "p50": 0.2612155640893853,
+      "p60": 0.33041951506301653,
+      "p70": 0.49802022339686036,
+      "p80": 0.7157053914138826,
+      "p90": 0.7835572642816598,
+      "p95": 0.8411831881291525,
+      "sample_count": 134
+    }
+  ]
+}

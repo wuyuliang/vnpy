@@ -29,20 +29,7 @@ from cta.model.dataset.pipeline_symbol_ranking import (
     _load_top_n_symbols_from_ranking,
     _resolve_run_exchange,
 )
-
-
-def _parse_enabled_cells(raw_cells: object) -> list[str]:
-    """Parse ``cluster|interval`` cells from CLI list/comma mixed input."""
-    if raw_cells is None:
-        return []
-    cells: list[str] = []
-    for token in raw_cells:
-        for piece in str(token).split(","):
-            cell = piece.strip().lower()
-            if cell:
-                cells.append(cell)
-    # dedupe with stable order
-    return list(dict.fromkeys(cells))
+from cta.risk.config import RiskSystemConfig
 
 
 def _build_effective_oot_config(
@@ -59,40 +46,36 @@ def _build_effective_oot_config(
     if args is None:
         return cfg
 
-    from cta.config.profit_aware_horizon_config import ProfitAwareHorizonConfig
-    from cta.config.trailing_take_profit_config import TrailingTakeProfitConfig
-
-    if bool(getattr(args, "enable_trend_aware_trade_filter", False)):
-        trend_cells = _parse_enabled_cells(
-            getattr(args, "trend_aware_trade_filter_enabled_cells", None)
-        )
+    if bool(getattr(args, "enable_risk_system", False)):
         cfg = dc_replace(
             cfg,
-            use_trend_aware_trade_filter=True,
-            trend_aware_trade_filter_enabled_by_cluster_interval={c: True for c in trend_cells},
-        )
-
-    if bool(getattr(args, "enable_trailing_take_profit", False)):
-        tp_cells = _parse_enabled_cells(getattr(args, "trailing_tp_enabled_cells", None))
-        cfg = dc_replace(
-            cfg,
-            trailing_take_profit=TrailingTakeProfitConfig(
-                use_trailing_take_profit=True,
-                enabled_by_cluster_interval={c: True for c in tp_cells},
+            risk_system=RiskSystemConfig(
+                enable_quantile_threshold=not bool(
+                    getattr(args, "risk_disable_quantile_threshold", False)
+                ),
+                enable_bucket_scaling=bool(
+                    getattr(args, "risk_enable_bucket_scaling", False)
+                ),
+                enable_linear_dd_scaler=not bool(
+                    getattr(args, "risk_disable_linear_dd_scaler", False)
+                ),
+                enable_dynamic_bump=not bool(
+                    getattr(args, "risk_disable_dynamic_bump", False)
+                ),
+                quantile_field=str(getattr(args, "risk_quantile_field", "p70")),
+                quantile_manifest_path=(
+                    str(getattr(args, "risk_manifest_path", "")).strip() or None
+                ),
             ),
         )
-
-    if bool(getattr(args, "enable_profit_aware_horizon", False)):
-        horizon_cells = _parse_enabled_cells(
-            getattr(args, "profit_aware_horizon_enabled_cells", None)
-        )
+    if bool(getattr(args, "enable_impact_cost", False)):
         cfg = dc_replace(
             cfg,
-            profit_aware_horizon=ProfitAwareHorizonConfig(
-                use_profit_aware_horizon=True,
-                enabled_by_cluster_interval={c: True for c in horizon_cells},
-            ),
+            use_impact_cost=True,
+            impact_cost_k=float(getattr(args, "impact_cost_k", 0.10)),
         )
+    if bool(getattr(args, "disable_liquidity_floor", False)):
+        cfg = dc_replace(cfg, use_liquidity_floor_guard=False)
     return cfg
 
 
@@ -136,43 +119,6 @@ def _parse_args(argv: Sequence[str] | None=None) -> argparse.Namespace:
     parser.add_argument('--use-portfolio-logic-runtime', action='store_true', default=False, help='OOT 评估按线上 portfolio_logic 真实逻辑走（HTF gate + ranker + trailing + pyramid + score_calibration + risk_throttle）。默认 False = 用旧 FCFS 路径。等价于 OotEvaluationConfig(use_portfolio_logic_runtime=True)。依赖 cluster_registry.json 与 *_calibration.joblib 已生成。')
     parser.add_argument('--include-disabled-symbols', action='store_true', help='不应用 symbol_disable_manifest 过滤。默认会过滤掉被标记禁用的品种；若要覆盖 70+ 全量品种可打开该开关。')
     parser.add_argument('--min-used-symbols', type=int, default=2, help='POOL 模式最少实际参与训练的品种数（默认 2）。若低于该阈值则报错，避免把单品种误当池化模型。')
-    # ---- profit-aware trend-adaptive modules (A/B/C) ----
-    parser.add_argument(
-        "--enable-trailing-take-profit",
-        action="store_true",
-        default=False,
-        help="启用盈利仓位 trailing take-profit（默认 off）。",
-    )
-    parser.add_argument(
-        "--trailing-tp-enabled-cells",
-        nargs="+",
-        default=None,
-        help="trailing TP 启用 cells：cluster|interval（支持空格/逗号混合）。",
-    )
-    parser.add_argument(
-        "--enable-profit-aware-horizon",
-        action="store_true",
-        default=False,
-        help="启用 profit-aware horizon（默认 off）。",
-    )
-    parser.add_argument(
-        "--profit-aware-horizon-enabled-cells",
-        nargs="+",
-        default=None,
-        help="profit-aware horizon 启用 cells：cluster|interval（支持空格/逗号混合）。",
-    )
-    parser.add_argument(
-        "--enable-trend-aware-trade-filter",
-        action="store_true",
-        default=False,
-        help="启用 trend-aware trade-filter 阈值放宽（默认 off）。",
-    )
-    parser.add_argument(
-        "--trend-aware-trade-filter-enabled-cells",
-        nargs="+",
-        default=None,
-        help="trend-aware trade-filter 启用 cells：cluster|interval（支持空格/逗号混合）。",
-    )
     # ---- Cross-sectional momentum rotation (P2 wire) ----
     parser.add_argument('--enable-cross-sectional-rotation', action='store_true', default=False,
                         help='启用截面动量轮动：在 day pool 训练样本中追加 cross_sectional_momentum 候选。'
@@ -188,6 +134,27 @@ def _parse_args(argv: Sequence[str] | None=None) -> argparse.Namespace:
                         help='所有 group/interval 失败时 raise RuntimeError 而非静默退出 0（默认 True）。')
     parser.add_argument('--no-strict-fail-fast', dest='strict_fail_fast', action='store_false',
                         help='关闭 strict-fail-fast；批量任务 0 个成功也返回退出码 0（仅 dev 调试用）。')
+    # ---- risk_system orchestrator flags ----
+    parser.add_argument('--enable-risk-system', action='store_true', default=False,
+                        help='启用 risk orchestrator（quantile threshold + sizing 链路）。默认关闭。')
+    parser.add_argument('--risk-quantile-field', choices=('p50', 'p60', 'p70', 'p80', 'p90', 'p95'),
+                        default='p70', help='risk quantile threshold 档位（默认 p70）。')
+    parser.add_argument('--risk-manifest-path', default='',
+                        help='可选：显式指定 score_quantile_manifest.json 路径；空=自动按 cfg/path fallback。')
+    parser.add_argument('--risk-enable-bucket-scaling', action='store_true', default=False,
+                        help='启用 bucket scaling（默认关闭，需先有 state 预热）。')
+    parser.add_argument('--risk-disable-linear-dd-scaler', action='store_true', default=False,
+                        help='关闭 linear DD scaler（默认开启）。')
+    parser.add_argument('--risk-disable-dynamic-bump', action='store_true', default=False,
+                        help='关闭 dynamic bump threshold（默认开启）。')
+    parser.add_argument('--risk-disable-quantile-threshold', action='store_true', default=False,
+                        help='关闭 quantile threshold adjuster（默认开启）。')
+    parser.add_argument('--enable-impact-cost', action='store_true', default=False,
+                        help='启用 ADV 参与率冲击成本：impact_cost_k * sqrt(order_lots / adv_lots)。默认关闭。')
+    parser.add_argument('--impact-cost-k', type=float, default=0.10,
+                        help='冲击成本系数 k（默认 0.10），仅 --enable-impact-cost 时生效。')
+    parser.add_argument('--disable-liquidity-floor', action='store_true', default=False,
+                        help='关闭 OOT 流动性下限 guard。默认开启且缺指标 fail-open。')
     return parser.parse_args(argv)
 
 

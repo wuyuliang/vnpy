@@ -19,8 +19,11 @@ SimNow 公开仿真服务器（2026-05 数据，可能变化）：
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Callable
+
+from cta.portfolio_logic.portfolio_state import PortfolioState
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +84,10 @@ class SimRunConfig:
     commission_resolver: Callable[[str, float, float], float] | None = None
     # —— 成交流水落盘 ——
     trade_recorder_dir: str | None = None
+    # —— 下单拆单（可选）——
+    order_slicer: Callable[[int, dict[str, Any], Any], list[int]] | None = None
+    order_slicer_adv_lots_provider: Callable[[dict[str, Any], Any], float | None] | None = None
+    order_slice_cfg: dict[str, Any] | None = None
     # —— 关闭 PnL tracker（风控需要时即便用户没显式指定，run_sim 也会挂）——
     enable_pnl_tracker: bool = True
     # —— portfolio_logic 运行时开关（透传给策略 setting，便于仿真与离线评估口径一致）——
@@ -92,6 +99,15 @@ class SimRunConfig:
     # —— 启动前持仓校对（live wrapper 会使用；sim 默认关闭）——
     enable_broker_reconciliation: bool = False
     broker_positions_provider: Callable[[], list[dict[str, Any]]] | None = None
+    # —— 连续合约 -> 主力合约解析（P0-5）——
+    enable_contract_resolver: bool = False
+    contract_resolver: Any = None
+    contract_calendar_path: str | None = None
+    # —— 截面轮动主循环下单（P1-7）——
+    enable_rotation_main_loop: bool = False
+    rotation_stepper: Any = None
+    rotation_portfolio_state: PortfolioState | None = None
+    rotation_wire_kwargs: dict[str, Any] | None = None
 
 
 def _default_main_engine_factory():  # pragma: no cover - 实际运行才走到
@@ -192,36 +208,98 @@ def run_sim(
     strategy = None
     if isinstance(strategies_attr, dict):
         strategy = strategies_attr.get(cfg.strategy_name)
+    resolver = _resolve_contract_resolver(cfg, me)
+    if strategy is not None and resolver is not None:
+        setattr(strategy, "contract_resolver", resolver)
     if strategy is not None:
         _attach_observers(strategy, cfg)
+        _attach_rotation_main_loop(strategy, cfg)
 
     cta_engine.init_strategy(cfg.strategy_name)
     if strategy is not None and cfg.warmup_days > 0:
         _warmup_strategy(strategy, cfg)
     cta_engine.start_strategy(cfg.strategy_name)
+    _maybe_dump_cfg_fingerprint(cfg)
     logger.info("strategy %s started on %s", cfg.strategy_name, cfg.vt_symbol)
     return me
+
+
+def _maybe_dump_cfg_fingerprint(cfg: SimRunConfig) -> None:
+    """Best-effort dump of OOT cfg fingerprint for sim reproducibility."""
+    try:
+        from cta.config.model_oot_eval_config import OotEvaluationConfig
+        from cta.model.eval_only_run import _dump_cfg_fingerprint
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("skip cfg fingerprint dump (imports unavailable): %s", exc)
+        return
+    oot_cfg = dict(cfg.setting or {}).get("oot_cfg")
+    if not isinstance(oot_cfg, OotEvaluationConfig):
+        return
+    out_root = Path(cfg.trade_recorder_dir or ".")
+    meta_dir = out_root / "meta"
+    try:
+        fp = _dump_cfg_fingerprint(meta_dir, oot_cfg, argv=["sim_runner"])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("failed to dump sim cfg fingerprint: %s", exc)
+        return
+    logger.info("sim cfg fingerprint dumped: %s", fp)
+
+
+def _resolve_contract_resolver(cfg: SimRunConfig, main_engine: Any) -> Any:
+    """Build or return injected contract resolver for sim/live strategy."""
+    if cfg.contract_resolver is not None:
+        return cfg.contract_resolver
+    if not bool(cfg.enable_contract_resolver):
+        return None
+    try:
+        from cta.portfolio_logic.contract_resolver import (
+            build_vnpy_contract_query_fn,
+            load_default_resolver,
+        )
+        query_fn = build_vnpy_contract_query_fn(main_engine)
+        resolver = load_default_resolver(
+            calendar_path=cfg.contract_calendar_path,
+            vnpy_query_fn=query_fn,
+        )
+        return resolver
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("contract_resolver bootstrap failed: %s", exc)
+        return None
 
 
 def _attach_observers(strategy: Any, cfg: SimRunConfig) -> None:
     """把 trade_recorder / pnl_tracker / order_filter 挂到 strategy。
     对 LegacyCtaAdapter 子类按字段写入；对其他 CtaTemplate 子类做属性注入。"""
     from cta.live.kill_switch import KillSwitchRule
+    from cta.live.order_slicer import OrderSliceConfig, slice_order
     from cta.live.pnl_tracker import DailyPnlTracker
     from cta.live.risk import RiskGuard, make_risk_filter
+    from cta.live.trade_logger import OotStyleTradeLogger
     from cta.live.trade_recorder import TradeRecorder
+
+    commission_resolver = cfg.commission_resolver or _build_manifest_commission_resolver(cfg)
+    runtime_setting = dict(cfg.setting or {})
+
+    oot_logger = runtime_setting.get("oot_trade_logger")
+    if oot_logger is not None:
+        strategy.oot_trade_logger = oot_logger
+    elif cfg.trade_recorder_dir and bool(runtime_setting.get("enable_oot_trade_logger", True)):
+        out_dir = str(runtime_setting.get("oot_trade_log_dir", cfg.trade_recorder_dir))
+        run_tag = str(runtime_setting.get("run_tag", cfg.strategy_name))
+        strategy.oot_trade_logger = OotStyleTradeLogger(out_dir=out_dir, run_tag=run_tag)
 
     if cfg.trade_recorder_dir:
         strategy.trade_recorder = TradeRecorder(
             out_dir=cfg.trade_recorder_dir,
             vt_symbol=cfg.vt_symbol,
+            commission_resolver=commission_resolver,
         )
 
     needs_pnl = cfg.enable_pnl_tracker or (cfg.risk_guard is not None and cfg.kill_switch is None)
     if needs_pnl or cfg.risk_guard is not None:
         strategy.pnl_tracker = DailyPnlTracker(
             contract_size_resolver=cfg.contract_size_resolver,
-            commission_resolver=cfg.commission_resolver,
+            commission_resolver=commission_resolver,
         )
 
     if cfg.risk_guard is not None or cfg.kill_switch is not None:
@@ -235,6 +313,84 @@ def _attach_observers(strategy: Any, cfg: SimRunConfig) -> None:
             capital=cfg.capital,
             daily_pnl_provider=provider,
         )
+    if cfg.order_slicer is not None:
+        strategy.order_slicer = cfg.order_slicer
+    elif cfg.order_slice_cfg:
+        osc = OrderSliceConfig(**dict(cfg.order_slice_cfg))
+        adv_provider = cfg.order_slicer_adv_lots_provider
+
+        def _slicer(parent_lots: int, order: dict[str, Any], adapter: Any) -> list[int]:
+            adv_lots = None
+            if callable(adv_provider):
+                try:
+                    adv_lots = adv_provider(order, adapter)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("order_slicer adv provider failed: %s", exc)
+                    adv_lots = None
+            return slice_order(total_lots=int(parent_lots), adv_lots=adv_lots, cfg=osc)
+
+        strategy.order_slicer = _slicer
+
+    if "entry_gate_chain" in runtime_setting:
+        strategy.entry_gate_chain = runtime_setting.get("entry_gate_chain")
+    if "position_evaluator" in runtime_setting:
+        strategy.position_evaluator = runtime_setting.get("position_evaluator")
+    if "state_provider" in runtime_setting:
+        strategy.state_provider = runtime_setting.get("state_provider")
+    if "signal_generator_context" in runtime_setting:
+        strategy.signal_generator_context = runtime_setting.get("signal_generator_context")
+
+
+def _build_manifest_commission_resolver(
+    cfg: SimRunConfig,
+) -> Callable[[str, float, float], float] | None:
+    """Build default commission resolver from OOT cfg cost manifest (best-effort)."""
+    try:
+        from cta.config.model_oot_eval_config import OotEvaluationConfig
+        from cta.sim.costs import resolve_trade_cost_pct
+    except Exception:  # noqa: BLE001
+        return None
+    oot_cfg = dict(cfg.setting or {}).get("oot_cfg")
+    if not isinstance(oot_cfg, OotEvaluationConfig):
+        return None
+    raw_interval = dict(cfg.setting or {}).get("interval", "day")
+    interval = str(raw_interval or "day")
+    size_of = cfg.contract_size_resolver or (lambda vt_symbol: 1.0)
+
+    def _resolver(vt_symbol: str, price: float, volume: float) -> float:
+        symbol = str(vt_symbol or "").split(".", 1)[0].strip().upper()
+        pct = resolve_trade_cost_pct(symbol=symbol, interval=interval, cfg=oot_cfg)
+        size = max(float(size_of(vt_symbol)), 0.0)
+        notional = abs(float(price)) * abs(float(volume)) * size
+        return float(pct) * float(notional)
+
+    return _resolver
+
+
+def _attach_rotation_main_loop(strategy: Any, cfg: SimRunConfig) -> None:
+    """Attach P1-7 rotation stepper into strategy on_bar loop when enabled."""
+    if not bool(getattr(cfg, "enable_rotation_main_loop", False)):
+        return
+    stepper = getattr(cfg, "rotation_stepper", None)
+    if stepper is None:
+        logger.warning("rotation main loop enabled but rotation_stepper is None; skip wiring")
+        return
+    try:
+        from cta.sim.adapters.rotation_order_wire import (
+            RotationOrderWireConfig,
+            wire_rotation_main_loop,
+        )
+        wire_cfg = RotationOrderWireConfig.from_mapping(getattr(cfg, "rotation_wire_kwargs", None))
+        state = cfg.rotation_portfolio_state or PortfolioState(equity=float(cfg.capital))
+        wire_rotation_main_loop(
+            strategy,
+            stepper=stepper,
+            portfolio_state=state,
+            cfg=wire_cfg,
+        )
+        logger.info("rotation main loop wired on strategy=%s", getattr(strategy, "strategy_name", ""))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("failed to wire rotation main loop: %s", exc)
 
 
 def _warmup_strategy(strategy: Any, cfg: SimRunConfig) -> None:

@@ -13,9 +13,11 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
+
+from cta.sim.timezone_helpers import ensure_naive_shanghai
 
 
 def _safe_attr(obj: Any, name: str, default: Any = "") -> Any:
@@ -28,16 +30,33 @@ def _safe_attr(obj: Any, name: str, default: Any = "") -> Any:
 class TradeRecorder:
     """append-only 成交记录，可 flush 到 parquet。"""
 
-    def __init__(self, out_dir: str, vt_symbol: str, *, file_prefix: str = "trades") -> None:
+    def __init__(
+        self,
+        out_dir: str,
+        vt_symbol: str,
+        *,
+        file_prefix: str = "trades",
+        commission_resolver: Callable[[str, float, float], float] | None = None,
+    ) -> None:
         self.out_dir = Path(out_dir)
         self.vt_symbol = str(vt_symbol)
         self.file_prefix = str(file_prefix)
+        self._commission_of = commission_resolver
         self._rows: list[dict] = []
 
     def record(self, trade: Any) -> None:
+        px = float(getattr(trade, "price", 0.0) or 0.0)
+        vol = float(getattr(trade, "volume", 0.0) or 0.0)
+        ts = ensure_naive_shanghai(getattr(trade, "datetime", None) or pd.Timestamp.now())
+        comm = float(getattr(trade, "commission", 0.0) or 0.0)
+        if comm <= 0.0 and self._commission_of is not None and vol > 0.0:
+            try:
+                comm = float(self._commission_of(self.vt_symbol, px, vol))
+            except Exception:  # noqa: BLE001
+                comm = 0.0
         self._rows.append(
             {
-                "datetime": getattr(trade, "datetime", None) or datetime.utcnow(),
+                "datetime": ts,
                 "vt_symbol": self.vt_symbol,
                 "gateway_name": _safe_attr(trade, "gateway_name", ""),
                 "symbol": _safe_attr(trade, "symbol", ""),
@@ -46,15 +65,25 @@ class TradeRecorder:
                 "tradeid": _safe_attr(trade, "tradeid", ""),
                 "direction": _safe_attr(trade, "direction", ""),
                 "offset": _safe_attr(trade, "offset", ""),
-                "price": float(getattr(trade, "price", 0.0) or 0.0),
-                "volume": float(getattr(trade, "volume", 0.0) or 0.0),
+                "price": px,
+                "volume": vol,
+                "commission": comm,
             }
         )
 
     def to_dataframe(self) -> pd.DataFrame:
         if not self._rows:
             return pd.DataFrame(
-                columns=["datetime", "vt_symbol", "direction", "offset", "price", "volume", "tradeid"]
+                columns=[
+                    "datetime",
+                    "vt_symbol",
+                    "direction",
+                    "offset",
+                    "price",
+                    "volume",
+                    "commission",
+                    "tradeid",
+                ]
             )
         return pd.DataFrame(self._rows)
 
@@ -87,22 +116,36 @@ class TradeRecorder:
             direc = str(row["direction"]).lower()
             px = float(row["price"])
             vol = float(row["volume"])
+            row_comm = float(row.get("commission", 0.0) or 0.0)
             if "open" in offs:
                 # long open / short open
                 side = "long" if "long" in direc else "short"
-                open_pos[side].append({"i": i, "price": px, "vol": vol})
+                open_pos[side].append(
+                    {
+                        "i": i,
+                        "price": px,
+                        "vol": vol,
+                        "comm_per_vol": row_comm / max(vol, 1e-12),
+                    }
+                )
                 continue
             # close: 对手方向匹配
             counter_side = "long" if "short" in direc else "short"
             queue = open_pos[counter_side]
             remaining = vol
+            close_comm_per_vol = row_comm / max(vol, 1e-12)
             while remaining > 1e-9 and queue:
                 head = queue[0]
                 used = min(head["vol"], remaining)
                 gross = (px - head["price"]) * used * float(multiplier)
                 if counter_side == "short":
                     gross = -gross
-                cost = float(commission) * 2.0 * used
+                entry_cost = float(head.get("comm_per_vol", 0.0)) * used
+                exit_cost = close_comm_per_vol * used
+                if entry_cost > 0.0 or exit_cost > 0.0:
+                    cost = entry_cost + exit_cost
+                else:
+                    cost = float(commission) * 2.0 * used
                 out_rows.append(
                     {
                         "entry_i": int(head["i"]),

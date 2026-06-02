@@ -77,6 +77,12 @@ def _filter_model_leakage_features(feature_columns: Sequence[str], *, model_name
     out: list[str] = []
     m = str(model_name).strip().lower()
     regime_exact_block = {'feature_trend_score', 'feature_trend_dir', 'generic_auto_trend', 'generic_model_regime_state'}
+    regime_proxy_block = {
+        'generic_auto_side_code',
+        'generic_model_mfe_side_interaction',
+        'generic_model_mfe_edge',
+        'generic_model_trade_breakout_trend',
+    }
     for c in feature_columns:
         name = str(c).strip()
         if not name or name in seen:
@@ -92,6 +98,8 @@ def _filter_model_leakage_features(feature_columns: Sequence[str], *, model_name
             continue
         if m == 'regime_classifier':
             if lower in regime_exact_block:
+                continue
+            if lower in regime_proxy_block:
                 continue
             if lower.startswith('feature_trend_'):
                 continue

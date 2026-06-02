@@ -54,7 +54,7 @@
 ## 注意事项
 
 - **所有 sub-config 都 `frozen=True`**：要在运行时改字段须用 `dataclasses.replace(...)`。直接赋值抛 `FrozenInstanceError`。
-- **HTF 默认严格**：`fallback_when_htf_missing="skip"` + `require_consensus=True` 是默认。单 interval 跑批由 [pipeline_oot_evaluation.py](../model/pipeline_oot_evaluation.py) 的 Fix-A/Fix-E 自动窄化 `htf_intervals`；不要手动改 `fallback="both"` 除非确实是"偶发缺失"。详见 [block_reason.md](../docs/block_reason.md) §6。
+- **HTF 默认严格**：`fallback_when_htf_missing="skip"` + `require_consensus=True` 是默认；但 `fallback_when_htf_missing_by_cluster_interval` 会对部分 intraday cell（当前含 `bond|60min/30min`）做 "both" 放宽。单 interval 跑批由 [pipeline_oot_evaluation.py](../model/pipeline_oot_evaluation.py) 的 Fix-A/Fix-E 自动窄化 `htf_intervals`；不要手动改全局 `fallback="both"` 除非确实是"偶发缺失"。详见 [block_reason.md](../docs/block_reason.md) §6。
 - **trailing 方向不能搞反**：long 用 `max(trail_stop, new_stop)`，short 用 `min(...)`。历史上有过反向 bug，见 [review/202605170735.md](../docs/review/202605170735.md) §C1。
 - **`enable_pyramid=True` 强依赖 `enable_trailing=True`**：[config.py:302](config.py) 已经在 `__post_init__` 校验。改 enable_* 默认值要重跑 config 测试。
 - **`htf_unknown` 是 bug 兜底**：正常情况下 `_state_from_regimes` 只会返回 `{both, none, long_only, short_only}` 四种；走到 `htf_unknown` 说明 regime label 有 garbage，warning 必须保留。

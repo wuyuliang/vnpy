@@ -7,7 +7,7 @@ import pandas as pd
 def simulate_trades(
     df: pd.DataFrame,
     *,
-    initial_capital: float = 1_000_000.0,
+    initial_capital: float = 10_000_000.0,
     return_column: str = "trade_return_pct",
     status_column: str = "execution_status",
 ) -> pd.DataFrame:

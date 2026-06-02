@@ -36,7 +36,14 @@ skills/data_backtest/event_driven_backtest.py
 
 - **止损率一致性**：`intrabar_stop_loss_pct`（OOT 执行）必须与 `baseline_skill_suite.generate_candidate_opportunities` 的 `label_stop_loss_pct` 默认值一致，否则训练 label 与 OOT 口径漂移。`OotEvaluationConfig.__post_init__` 会在 `enforce_stop_loss_consistency=True` 时校验，见 [test_stop_loss_pct_consistency.py](tests/test_stop_loss_pct_consistency.py)。
 - **trade_filter 门槛口径**：生产默认 `DEFAULT_OOT_EVAL_CONFIG.trade_filter_gate_mode="cluster_interval_percentile"`，按 `cluster+interval` 内的 `trade_filter_prob_pctl` 做门槛，避免 INDEX/day 这类 raw probability 分布偏低的组被全局 `trade_filter_threshold=0.62` 系统性误杀。`trade_filter_prob_pctl` 必须由 pipeline 在非 OOT 的 `train+valid` 校准分布上生成；OOT evaluator 不允许用 OOT 自身分布现场 rank。若要单独调 INDEX/day，可配置 `trade_filter_percentile_threshold_by_cluster_interval={"index|day": 65.0}`；若必须沿用 raw probability，则设 `trade_filter_gate_mode="raw"` 并用 `trade_filter_raw_threshold_by_cluster_interval={"index|day": 0.45}` 覆盖。
-- **rotation bypass**：`OotEvaluationConfig.trade_filter_bypass_signal_types` 默认包含 `cross_sectional_momentum`。该信号已经由截面排名筛选，进入 OOT gate 时默认绕过单品种 `trade_filter` 门槛；若研究上要强行叠加 trade-filter，可显式传空 tuple。
+- **真实成本口径**：`commission_pct_by_cluster_interval` / `slippage_pct_by_cluster_interval`
+  是默认分层成本；`commission_pct_by_symbol` / `slippage_pct_by_symbol` 可覆盖单品种。
+  容量测试时可开启 `use_impact_cost=True`，按 `impact_cost_k * sqrt(order_lots / adv_lots)`
+  增加冲击成本。ADV 缺失时 fail-open，只扣基础成本。
+- **流动性下限**：`use_liquidity_floor_guard=True` 默认开启，使用候选行上的
+  `volume_ratio`、`bid_ask_spread_ticks`、`turnover_ratio` 触发 `blocked_liquidity_floor`。
+  三个指标都缺失时 fail-open，避免数据不完整导致 OOT 全部锁单。
+- **rotation bypass**：`OotEvaluationConfig.trade_filter_bypass_signal_types` 生产默认是空 tuple，即截面轮动候选仍会走单品种 `trade_filter` 门槛；如研究阶段需要让 `cross_sectional_momentum` 绕过该门槛，必须在 cfg 中显式加入该 signal type 并在报告 `meta/cfg_fingerprint.json` 留痕。
 - **dataclass 全部 `frozen=True`**：要修改 config 实例须用 `dataclasses.replace(...)`，直接 `cfg.x = ...` 会抛 `FrozenInstanceError`。pipeline/OOT 代码已拆为正常 `.py` 模块，配置改动需要同步检查 `pipeline_orchestrator_cli.py` 与 `pipeline_oot_evaluation.py`。
 - **修改默认值前**：先看是否有 OOT 复盘或 review 文档（[cta/docs/review/](../docs/review/)）依赖原值；新阈值要在 `cta/report/change_log.md` 留痕。
 - **禁止增加硬编码路径**：任何 `Path("/abs/path")` 都应改为相对 `cta/data/` 或通过环境变量注入。

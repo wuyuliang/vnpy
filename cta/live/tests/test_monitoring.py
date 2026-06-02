@@ -1,6 +1,7 @@
 """P3-21: Prometheus + webhook monitoring tests."""
 from __future__ import annotations
 
+import time
 import unittest
 
 from cta.live.monitoring import MetricsRegistry, SEVERITY, WebhookAlerter
@@ -44,6 +45,14 @@ class TestMetricsRegistry(unittest.TestCase):
 
 
 class TestWebhookAlerter(unittest.TestCase):
+    def _wait_until(self, cond, timeout: float = 1.0) -> None:
+        deadline = time.time() + float(timeout)
+        while time.time() < deadline:
+            if cond():
+                return
+            time.sleep(0.01)
+        self.fail("condition not met before timeout")
+
     def test_send_calls_http_when_url_present(self) -> None:
         calls: list[str] = []
 
@@ -57,12 +66,15 @@ class TestWebhookAlerter(unittest.TestCase):
             http_get=fake_http,
         )
         self.assertTrue(ok)
+        self._wait_until(lambda: len(calls) == 1)
         self.assertEqual(calls, ["https://hook.example/x"])
+        alerter.shutdown(flush=True, timeout=1.0)
 
     def test_send_no_url_returns_false(self) -> None:
         alerter = WebhookAlerter()
         ok = alerter.send(severity="warn", title="x", message="y", http_get=lambda *a: None)
         self.assertFalse(ok)
+        alerter.shutdown(flush=True, timeout=1.0)
 
     def test_send_dedup_within_window(self) -> None:
         calls: list[str] = []
@@ -75,14 +87,17 @@ class TestWebhookAlerter(unittest.TestCase):
         )
         alerter.send(severity="warn", title="same", message="m1", http_get=fake_http)
         alerter.send(severity="warn", title="same", message="m2", http_get=fake_http)
+        self._wait_until(lambda: len(calls) == 1)
         self.assertEqual(len(calls), 1)  # 第 2 次被去重
+        alerter.shutdown(flush=True, timeout=1.0)
 
     def test_send_handles_http_exception_gracefully(self) -> None:
         def fake_http(url, headers, timeout):
             raise OSError("network down")
         alerter = WebhookAlerter(webhook_urls={"info": "https://hook"})
         ok = alerter.send(severity="info", title="t", message="m", http_get=fake_http)
-        self.assertFalse(ok)
+        self.assertTrue(ok)
+        alerter.shutdown(flush=True, timeout=1.0)
 
     def test_default_severity_fallback(self) -> None:
         calls: list[str] = []
@@ -91,7 +106,26 @@ class TestWebhookAlerter(unittest.TestCase):
         alerter = WebhookAlerter(webhook_urls={"default": "https://default"})
         ok = alerter.send(severity="unknown_sev", title="t", message="m", http_get=fake_http)
         self.assertTrue(ok)
+        self._wait_until(lambda: len(calls) == 1)
         self.assertEqual(calls, ["https://default"])
+        alerter.shutdown(flush=True, timeout=1.0)
+
+    def test_send_is_non_blocking_when_http_is_slow(self) -> None:
+        calls: list[str] = []
+
+        def fake_http(url, headers, timeout):  # noqa: ANN001
+            time.sleep(0.2)
+            calls.append(url)
+            return 200
+
+        alerter = WebhookAlerter(webhook_urls={"warn": "https://hook"}, timeout_seconds=1.0)
+        t0 = time.time()
+        ok = alerter.send(severity="warn", title="slow", message="x", http_get=fake_http)
+        elapsed = time.time() - t0
+        self.assertTrue(ok)
+        self.assertLess(elapsed, 0.05)
+        self._wait_until(lambda: len(calls) == 1, timeout=1.0)
+        alerter.shutdown(flush=True, timeout=1.0)
 
 
 if __name__ == "__main__":

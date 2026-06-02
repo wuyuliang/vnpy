@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import queue
 import threading
 import time
 import urllib.error
@@ -119,8 +120,61 @@ class WebhookAlerter:
     webhook_urls: dict[str, str] = field(default_factory=dict)
     timeout_seconds: float = 3.0
     suppress_duplicates_window_seconds: float = 60.0
+    queue_maxsize: int = 1024
     _last_sent: dict[str, float] = field(default_factory=dict, init=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+    _queue: "queue.Queue[tuple[str, bytes, Callable[[str, dict, float], int] | None, str, str]]" = field(
+        init=False, repr=False
+    )
+    _stop_event: threading.Event = field(default_factory=threading.Event, init=False, repr=False)
+    _worker: threading.Thread = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._queue = queue.Queue(maxsize=max(int(self.queue_maxsize), 1))
+        self._worker = threading.Thread(
+            target=self._worker_loop,
+            name="webhook-alerter",
+            daemon=True,
+        )
+        self._worker.start()
+
+    def _worker_loop(self) -> None:
+        while True:
+            if self._stop_event.is_set() and self._queue.empty():
+                return
+            try:
+                url, data, http_get, sev, title = self._queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            try:
+                if http_get is not None:
+                    http_get(url, {"Content-Type": "application/json"}, float(self.timeout_seconds))
+                else:
+                    req = urllib.request.Request(
+                        url,
+                        data=data,
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    urllib.request.urlopen(req, timeout=float(self.timeout_seconds)).close()
+            except (urllib.error.URLError, OSError, ValueError) as exc:
+                logger.warning("webhook send failed (severity=%s title=%s): %s", sev, title, exc)
+            finally:
+                self._queue.task_done()
+
+    def shutdown(self, *, flush: bool = True, timeout: float = 3.0) -> None:
+        """Stop worker thread gracefully.
+
+        flush=True 会先等待队列发送完再退出。
+        """
+        if flush:
+            deadline = time.time() + float(timeout)
+            while time.time() < deadline:
+                if self._queue.unfinished_tasks == 0:
+                    break
+                time.sleep(0.01)
+        self._stop_event.set()
+        self._worker.join(timeout=float(timeout))
 
     def send(
         self,
@@ -131,7 +185,7 @@ class WebhookAlerter:
         labels: dict[str, str] | None = None,
         http_get: Callable[[str, dict, float], int] | None = None,
     ) -> bool:
-        """推送 alert；返回是否成功送出（至少一个 endpoint）。
+        """推送 alert（异步入队）；返回是否成功入队。
 
         ``http_get`` 是依赖注入点：默认用 urllib.request.urlopen；测试时注入 fake。
         """
@@ -159,19 +213,13 @@ class WebhookAlerter:
         }
         try:
             data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            if http_get is not None:
-                # 测试时走注入；签名：(url, headers, timeout) -> status_code
-                http_get(url, {"Content-Type": "application/json"}, float(self.timeout_seconds))
-            else:
-                req = urllib.request.Request(
-                    url, data=data,
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                urllib.request.urlopen(req, timeout=float(self.timeout_seconds)).close()
+            self._queue.put_nowait((url, data, http_get, sev, title))
             return True
-        except (urllib.error.URLError, OSError, ValueError) as exc:
-            logger.warning("webhook send failed (severity=%s title=%s): %s", sev, title, exc)
+        except queue.Full:
+            logger.warning("webhook queue full; drop alert severity=%s title=%s", sev, title)
+            return False
+        except ValueError as exc:
+            logger.warning("webhook payload encode failed (severity=%s title=%s): %s", sev, title, exc)
             return False
 
 

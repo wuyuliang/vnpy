@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
+import pandas as pd
+
 from cta.data_code.download_all_dispatch import (
     MINUTE_INTERVALS,
     RANKING_CSV,
@@ -26,7 +28,6 @@ from cta.data_code.download_all_progress import (
     MAX_EMPTY_DATE,
     TRACKING_DATE,
     append_finished,
-    finished_pairs,
     flush_empty_aggregated,
     load_finished,
     migrate_legacy_tracking_files,
@@ -100,13 +101,66 @@ def _build_ranking(args: argparse.Namespace):
     return ranking
 
 
+def _normalize_target_end_date(raw: str) -> pd.Timestamp:
+    ts = pd.to_datetime(str(raw), errors="coerce")
+    if pd.isna(ts):
+        raise ValueError(f"invalid --end date: {raw!r}")
+    return pd.Timestamp(ts).normalize()
+
+
+def _covered_pairs_by_target(
+    finished_df: pd.DataFrame,
+    *,
+    target_end: str,
+) -> set[tuple[str, str]]:
+    """Return pairs whose latest snapshot already covers target_end.
+
+    覆盖定义：status in {success, skip} 且 date_end >= target_end。
+    """
+    if finished_df.empty:
+        return set()
+    target_ts = _normalize_target_end_date(target_end)
+    work = finished_df.copy()
+    work["symbol"] = (
+        work["symbol"]
+        if "symbol" in work.columns
+        else pd.Series([""] * len(work), index=work.index, dtype=object)
+    ).astype(str).str.strip().str.upper()
+    work["interval"] = (
+        work["interval"]
+        if "interval" in work.columns
+        else pd.Series([""] * len(work), index=work.index, dtype=object)
+    ).astype(str).str.strip()
+    work["status"] = (
+        work["status"]
+        if "status" in work.columns
+        else pd.Series([""] * len(work), index=work.index, dtype=object)
+    ).astype(str).str.strip().str.lower()
+    work["date_end_ts"] = pd.to_datetime(
+        work["date_end"]
+        if "date_end" in work.columns
+        else pd.Series([pd.NaT] * len(work), index=work.index),
+        errors="coerce",
+    )
+    mask = (
+        work["status"].isin({"success", "skip"})
+        & work["date_end_ts"].notna()
+        & (work["date_end_ts"].dt.normalize() >= target_ts)
+    )
+    rows = work.loc[mask, ["symbol", "interval"]].drop_duplicates()
+    return {
+        (str(sym), str(itv))
+        for sym, itv in zip(rows["symbol"].tolist(), rows["interval"].tolist())
+    }
+
+
 def _handle_financial_day(
     *,
     symbol: str,
     exchange: str,
     prefix: str,
     want_day: bool,
-    done_pairs: set[tuple[str, str]],
+    covered_pairs: set[tuple[str, str]],
     fdl: FinancialFuturesDownloader | None,
     args: argparse.Namespace,
     intervals: List[str],
@@ -114,7 +168,7 @@ def _handle_financial_day(
     if fdl is None:
         logger.error("  no tushare token; financial symbol skipped: %s", symbol)
         for itv in intervals:
-            if (symbol, itv) in done_pairs:
+            if (symbol, itv) in covered_pairs:
                 continue
             append_finished(
                 DownloadResult(
@@ -125,10 +179,10 @@ def _handle_financial_day(
                     detail="no tushare token for financial downloader",
                 )
             )
-            done_pairs.add((symbol, itv))
+            covered_pairs.add((symbol, itv))
         return
 
-    if want_day and (symbol, "day") not in done_pairs:
+    if want_day and (symbol, "day") not in covered_pairs:
         t0 = time.time()
         try:
             day_df = fdl.fetch_continuous_day(prefix, args.start, args.end)
@@ -147,7 +201,7 @@ def _handle_financial_day(
         except Exception as e:  # noqa: BLE001
             r = DownloadResult(symbol=symbol, exchange=exchange, interval="day", status="error", detail=f"financial day unexpected: {e}")
         append_finished(r)
-        done_pairs.add((symbol, "day"))
+        covered_pairs.add((symbol, "day"))
         logger.info("  [day] %s rows=%s range=[%s~%s] %.1fs", r.status, r.rows, r.date_start, r.date_end, time.time() - t0)
     elif want_day:
         logger.info("  [day] 已完成，跳过")
@@ -159,13 +213,13 @@ def _handle_financial_minutes(
     exchange: str,
     prefix: str,
     minute_intervals: List[str],
-    done_pairs: set[tuple[str, str]],
+    covered_pairs: set[tuple[str, str]],
     fdl: FinancialFuturesDownloader | None,
     args: argparse.Namespace,
 ) -> None:
     if fdl is None:
         return
-    need_minute_fin = [i for i in minute_intervals if (symbol, i) not in done_pairs]
+    need_minute_fin = [i for i in minute_intervals if (symbol, i) not in covered_pairs]
     for itv in need_minute_fin:
         t0 = time.time()
         try:
@@ -188,7 +242,7 @@ def _handle_financial_minutes(
         except Exception as e:  # noqa: BLE001
             r = DownloadResult(symbol=symbol, exchange=exchange, interval=itv, status="error", detail=f"financial minute unexpected: {e}")
         append_finished(r)
-        done_pairs.add((symbol, itv))
+        covered_pairs.add((symbol, itv))
         logger.info("  [%s] %s rows=%s range=[%s~%s] %.1fs detail=%s", itv, r.status, r.rows, r.date_start, r.date_end, time.time() - t0, r.detail)
 
 
@@ -198,23 +252,23 @@ def _handle_commodity(
     exchange: str,
     want_day: bool,
     minute_intervals: List[str],
-    done_pairs: set[tuple[str, str]],
+    covered_pairs: set[tuple[str, str]],
     dl: FuturesDownloader,
     args: argparse.Namespace,
 ) -> None:
-    if want_day and (symbol, "day") not in done_pairs:
+    if want_day and (symbol, "day") not in covered_pairs:
         t0 = time.time()
         try:
-            r = process_day(dl, symbol, exchange)
+            r = process_day(dl, symbol, exchange, overwrite=True)
         except Exception as e:  # noqa: BLE001
             r = DownloadResult(symbol=symbol, exchange=exchange, interval="day", status="error", detail=f"unexpected: {e}")
         append_finished(r)
-        done_pairs.add((symbol, "day"))
+        covered_pairs.add((symbol, "day"))
         logger.info("  [day] %s rows=%s range=[%s~%s] %.1fs", r.status, r.rows, r.date_start, r.date_end, time.time() - t0)
     elif want_day:
         logger.info("  [day] 已完成，跳过")
 
-    need_minute = [i for i in minute_intervals if (symbol, i) not in done_pairs]
+    need_minute = [i for i in minute_intervals if (symbol, i) not in covered_pairs]
     if not need_minute:
         if minute_intervals:
             logger.info("  [minute*] 全部已完成，跳过")
@@ -224,7 +278,7 @@ def _handle_commodity(
         logger.error("  未设置 TUSHARE_TOKEN，跳过分钟级下载")
         for itv in need_minute:
             append_finished(DownloadResult(symbol=symbol, exchange=exchange, interval=itv, status="error", detail="no tushare token"))
-            done_pairs.add((symbol, itv))
+            covered_pairs.add((symbol, itv))
         return
 
     t0 = time.time()
@@ -245,7 +299,7 @@ def _handle_commodity(
     for itv in need_minute:
         r = results.get(itv) or DownloadResult(symbol=symbol, exchange=exchange, interval=itv, status="error", detail="missing result")
         append_finished(r)
-        done_pairs.add((symbol, itv))
+        covered_pairs.add((symbol, itv))
         logger.info("  [%s] %s rows=%s range=[%s~%s] detail=%s", itv, r.status, r.rows, r.date_start, r.date_end, r.detail)
     logger.info("  symbol minutes total: %.1fs", time.time() - t0)
 
@@ -266,8 +320,13 @@ def main() -> None:
         logger.warning("没有品种需要处理")
         return
 
-    done_pairs = finished_pairs(load_finished())
-    logger.info("已完成记录: %s 条 (按 symbol+interval)", len(done_pairs))
+    finished_df = load_finished()
+    covered_pairs = _covered_pairs_by_target(finished_df, target_end=args.end)
+    logger.info(
+        "已覆盖到目标日期(%s)记录: %s 条 (按 symbol+interval)",
+        args.end,
+        len(covered_pairs),
+    )
 
     dl = FuturesDownloader(token=args.token, rate_limit=args.rate_limit, workers=args.workers)
     shared_rl = RateLimiter(args.rate_limit)
@@ -307,7 +366,7 @@ def main() -> None:
                 exchange=exchange,
                 prefix=prefix,
                 want_day=want_day,
-                done_pairs=done_pairs,
+                covered_pairs=covered_pairs,
                 fdl=fdl,
                 args=args,
                 intervals=intervals,
@@ -317,7 +376,7 @@ def main() -> None:
                 exchange=exchange,
                 prefix=prefix,
                 minute_intervals=minute_intervals,
-                done_pairs=done_pairs,
+                covered_pairs=covered_pairs,
                 fdl=fdl,
                 args=args,
             )
@@ -328,7 +387,7 @@ def main() -> None:
             exchange=exchange,
             want_day=want_day,
             minute_intervals=minute_intervals,
-            done_pairs=done_pairs,
+            covered_pairs=covered_pairs,
             dl=dl,
             args=args,
         )
@@ -361,6 +420,7 @@ __all__ = [
     "_normalize_interval_tokens",
     "_is_financial_symbol",
     "_resolve_macro_build_symbols",
+    "_covered_pairs_by_target",
     "main",
 ]
 

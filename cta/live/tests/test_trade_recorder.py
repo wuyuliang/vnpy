@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -77,6 +77,25 @@ class TestTradeRecorder(unittest.TestCase):
             self.assertEqual(row["exit_price"], 105.0)
             # gross_pnl = (105-100) * 1 * 10 = 50
             self.assertAlmostEqual(row["gross_pnl"], 50.0)
+
+    def test_record_converts_aware_datetime_to_naive_shanghai(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            r = TradeRecorder(out_dir=tmp, vt_symbol="rb888.SHFE")
+            aware_utc = datetime(2024, 1, 2, 1, 30, tzinfo=timezone.utc)
+            r.record(_trade(dt=aware_utc))
+            df = r.to_dataframe()
+            ts = pd.Timestamp(df.iloc[0]["datetime"])
+            self.assertIsNone(ts.tzinfo)
+            self.assertEqual(ts, pd.Timestamp("2024-01-02 09:30:00"))
+
+    def test_record_missing_datetime_falls_back_to_naive_timestamp(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            r = TradeRecorder(out_dir=tmp, vt_symbol="rb888.SHFE")
+            tr = _trade()
+            tr.datetime = None
+            r.record(tr)
+            ts = pd.Timestamp(r.to_dataframe().iloc[0]["datetime"])
+            self.assertIsNone(ts.tzinfo)
 
 
 if __name__ == "__main__":

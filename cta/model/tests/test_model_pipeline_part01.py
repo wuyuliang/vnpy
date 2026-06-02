@@ -33,7 +33,7 @@ from cta.model.model_pipeline import (
     run_model_pipeline,
     run_model_pipeline_multi,
 )
-from cta.model.oot.pipeline_oot_evaluation import _build_position_lifetime_table
+from cta.model.oot.pipeline_oot_evaluation import _build_position_lifetime_table, _first_bar_with_capacity
 from cta.config.model_oot_eval_config import OotEvaluationConfig
 from cta.portfolio_logic.config import PortfolioLogicConfig, RiskThrottleConfig, ThrottleLevel
 from cta.model.training.trade_filter_model import TradeFilterModel
@@ -41,6 +41,28 @@ from cta.model.training.trade_filter_model import TradeFilterModel
 
 
 class TestModelPipelinePart01(unittest.TestCase):
+    def test_first_bar_with_capacity_uses_cumulative_bar_volume(self) -> None:
+        bars = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(
+                    [
+                        "2020-01-06 09:00:00",
+                        "2020-01-06 10:00:00",
+                        "2020-01-06 11:00:00",
+                    ]
+                ),
+                "volume": [100.0, 100.0, 100.0],
+            }
+        )
+        dt = _first_bar_with_capacity(
+            bars,
+            start_ts=pd.Timestamp("2020-01-06 09:00:00"),
+            qty=2.5,
+            max_participation_pct=0.01,
+            volume_column="volume",
+        )
+        self.assertEqual(pd.Timestamp(dt), pd.Timestamp("2020-01-06 11:00:00"))
+
     def test_validate_stop_loss_pct_consistency_default_passes(self) -> None:
         _validate_stop_loss_pct_consistency()
 
@@ -271,6 +293,12 @@ class TestModelPipelinePart01(unittest.TestCase):
         )
         cfg = OotEvaluationConfig(
             use_test_split_only=True,
+            signal_type_size_multiplier={},
+            signal_type_max_concurrent_positions={},
+            signal_type_max_notional_pct={},
+            signal_type_blacklist=(),
+            trade_filter_percentile_threshold_delta_by_signal_type={},
+            trade_filter_raw_threshold_delta_by_signal_type={},
             use_last_window_only=False,
             require_executed_only=True,
             use_trade_filter_gate=False,
@@ -282,6 +310,8 @@ class TestModelPipelinePart01(unittest.TestCase):
             max_single_loss_pct=1.0,
             commission_pct_per_trade=0.0,
             slippage_pct_per_trade=0.0,
+            commission_pct_by_cluster_interval={},
+            slippage_pct_by_cluster_interval={},
             benchmark_annual_return=0.0,
             risk_free_annual_return=0.0,
             annualization_factor=12.0,
@@ -340,6 +370,12 @@ class TestModelPipelinePart01(unittest.TestCase):
         )
         cfg = OotEvaluationConfig(
             use_trade_filter_gate=False,
+            signal_type_size_multiplier={},
+            signal_type_max_concurrent_positions={},
+            signal_type_max_notional_pct={},
+            signal_type_blacklist=(),
+            trade_filter_percentile_threshold_delta_by_signal_type={},
+            trade_filter_raw_threshold_delta_by_signal_type={},
             use_regime_gate=False,
             use_mfe_mae_gate=False,
             mae_penalty=1.0,
@@ -348,6 +384,8 @@ class TestModelPipelinePart01(unittest.TestCase):
             max_single_loss_pct=0.002,
             commission_pct_per_trade=0.0,
             slippage_pct_per_trade=0.0,
+            commission_pct_by_cluster_interval={},
+            slippage_pct_by_cluster_interval={},
             benchmark_annual_return=0.0,
             risk_free_annual_return=0.0,
             annualization_factor=12.0,
@@ -427,6 +465,12 @@ class TestModelPipelinePart01(unittest.TestCase):
 
         cfg = OotEvaluationConfig(
             use_trade_filter_gate=False,
+            signal_type_size_multiplier={},
+            signal_type_max_concurrent_positions={},
+            signal_type_max_notional_pct={},
+            signal_type_blacklist=(),
+            trade_filter_percentile_threshold_delta_by_signal_type={},
+            trade_filter_raw_threshold_delta_by_signal_type={},
             use_regime_gate=False,
             use_mfe_mae_gate=False,
             mae_penalty=1.0,
@@ -435,6 +479,8 @@ class TestModelPipelinePart01(unittest.TestCase):
             max_single_loss_pct=0.001,
             commission_pct_per_trade=0.0,
             slippage_pct_per_trade=0.0,
+            commission_pct_by_cluster_interval={},
+            slippage_pct_by_cluster_interval={},
             use_position_sizing=False,
             use_portfolio_constraints=False,
             use_intrabar_stop_tracking=True,
@@ -453,6 +499,91 @@ class TestModelPipelinePart01(unittest.TestCase):
         self.assertEqual(int(trades.iloc[0]["stop_triggered"]), 1)
         self.assertEqual(pd.Timestamp(trades.iloc[0]["final_exit_datetime"]), pd.Timestamp("2020-01-06 10:00:00"))
         self.assertAlmostEqual(float(trades.iloc[0]["trade_return_pct"]), -0.001, places=6)
+
+    def test_evaluate_oot_real_execution_intrabar_volume_cap_defers_fill_timestamps(self) -> None:
+        pred = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2020-01-06 09:00:00"]),
+                "entry_datetime": pd.to_datetime(["2020-01-06 09:00:00"]),
+                "exit_datetime": pd.to_datetime(["2020-01-06 12:00:00"]),
+                "symbol": ["RB0"],
+                "exchange": ["SHFE"],
+                "interval": ["day"],
+                "signal_type": ["bull_pullback_continuation"],
+                "side": ["long"],
+                "pred_split": ["test"],
+                "window_id": [0],
+                "is_executed": [1],
+                "entry_price": [100.0],
+                "future_mfe_atr": [5.0],
+                "future_mae_atr": [0.0],
+            }
+        )
+
+        def provider(
+            symbol: str,
+            exchange: str,
+            start_ts: pd.Timestamp,
+            end_ts: pd.Timestamp,
+            interval: str,
+        ) -> pd.DataFrame:
+            self.assertEqual(symbol, "RB0")
+            self.assertEqual(exchange, "SHFE")
+            self.assertEqual(interval, "60min")
+            return pd.DataFrame(
+                {
+                    "datetime": pd.to_datetime(
+                        [
+                            "2020-01-06 09:00:00",
+                            "2020-01-06 10:00:00",
+                            "2020-01-06 11:00:00",
+                        ]
+                    ),
+                    "open": [100.0, 99.8, 99.7],
+                    "high": [100.0, 99.9, 99.8],
+                    "low": [99.8, 99.7, 99.6],
+                    "close": [99.9, 99.8, 99.7],
+                    "volume": [50.0, 200.0, 200.0],
+                }
+            )
+
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            signal_type_size_multiplier={},
+            signal_type_max_concurrent_positions={},
+            signal_type_max_notional_pct={},
+            signal_type_blacklist=(),
+            trade_filter_percentile_threshold_delta_by_signal_type={},
+            trade_filter_raw_threshold_delta_by_signal_type={},
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            mae_penalty=1.0,
+            initial_capital=1000.0,
+            risk_per_trade_pct=0.002,
+            max_single_loss_pct=0.001,
+            commission_pct_per_trade=0.0,
+            slippage_pct_per_trade=0.0,
+            commission_pct_by_cluster_interval={},
+            slippage_pct_by_cluster_interval={},
+            use_position_sizing=False,
+            use_portfolio_constraints=False,
+            use_intrabar_stop_tracking=True,
+            intrabar_tracking_interval="60min",
+            intrabar_stop_loss_pct=0.001,
+            intrabar_stop_loss_pct_by_cluster_interval={},
+            enforce_intrabar_bar_volume_cap=True,
+            intrabar_max_bar_volume_participation_pct=0.01,
+            intrabar_volume_column="volume",
+            enforce_stop_loss_consistency=False,
+            benchmark_annual_return=0.0,
+            risk_free_annual_return=0.0,
+            annualization_factor=12.0,
+        )
+        _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg, intrabar_bar_provider=provider)
+        self.assertEqual(int(summary.iloc[0]["trade_count"]), 1)
+        row = trades.iloc[0]
+        self.assertEqual(pd.Timestamp(row["entry_fill_datetime"]), pd.Timestamp("2020-01-06 10:00:00"))
+        self.assertEqual(pd.Timestamp(row["final_exit_datetime"]), pd.Timestamp("2020-01-06 10:00:00"))
 
 
 if __name__ == "__main__":

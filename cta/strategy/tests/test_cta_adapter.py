@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -271,9 +272,17 @@ class TestAdapterOrderFilter(unittest.TestCase):
             scripted=[[], [{"side": "long", "lots": 1, "order_type": "market"}]],
             order_filter=lambda order, ad: False,
         )
+        calls: list[tuple[bool, str]] = []
+
+        class _TL:
+            def record_decision(self, payload, *, passed, block_reason="", risk_block_reason="", adjusted_lots=0):
+                calls.append((bool(passed), str(block_reason)))
+
+        adapter.oot_trade_logger = _TL()
         adapter.on_bar(_bar(0))
         adapter.on_bar(_bar(1))
         self.assertEqual(len(eng.orders), 0)
+        self.assertEqual(calls, [(False, "blocked_order_filter")])
 
     def test_filter_exception_blocks_send(self) -> None:
         def bad_filter(order, ad):
@@ -301,6 +310,18 @@ class TestAdapterOrderFilter(unittest.TestCase):
         adapter.on_bar(_bar(0))
         adapter.on_bar(_bar(1))
         self.assertEqual(len(eng.orders), 0)
+
+    def test_order_slicer_splits_parent_order(self) -> None:
+        adapter, eng = self._new(
+            scripted=[[], [{"side": "long", "lots": 3, "order_type": "market"}]],
+            order_filter=lambda order, ad: True,
+        )
+        adapter.order_slicer = lambda lots, order, ad: [2, 1]
+        adapter.on_bar(_bar(0))
+        adapter.on_bar(_bar(1))
+        self.assertEqual(len(eng.orders), 2)
+        vols = [int(o["volume"]) for o in eng.orders]
+        self.assertEqual(vols, [2, 1])
 
 
 class TestAdapterTradeHooks(unittest.TestCase):
@@ -352,6 +373,28 @@ class TestAdapterTradeHooks(unittest.TestCase):
         a.on_trade(_t("long", "open", 100.0))
         a.on_trade(_t("short", "close", 105.0))
         self.assertAlmostEqual(a.pnl_tracker.get_pnl(), 50.0)
+
+    def test_on_trade_forwards_fill_to_oot_trade_logger(self) -> None:
+        from datetime import datetime
+        from types import SimpleNamespace
+        a, _eng = self._new()
+        fills: list[dict] = []
+
+        class _TL:
+            def record_fill(self, payload): fills.append(dict(payload))
+            def flush(self): return (Path("/tmp/x.csv"), Path("/tmp/x.jsonl"))
+
+        a.oot_trade_logger = _TL()
+        trade = SimpleNamespace(
+            symbol="X0", exchange=SimpleNamespace(value="SHFE"),
+            direction=SimpleNamespace(value="long"), offset=SimpleNamespace(value="open"),
+            price=100.0, volume=1, datetime=datetime(2024, 1, 2, 9, 30),
+            tradeid="t1", orderid="o1", gateway_name="TEST",
+        )
+        a.on_trade(trade)
+        self.assertEqual(len(fills), 1)
+        self.assertEqual(str(fills[0].get("symbol")), "X0")
+        self.assertEqual(str(fills[0].get("execution_status")), "filled")
 
     def test_on_trade_recorder_exception_does_not_propagate(self) -> None:
         from datetime import datetime

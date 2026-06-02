@@ -65,7 +65,7 @@ class StrategyConfig:
 class BacktestConfig:
     """Backtest-level parameters and paths."""
 
-    initial_capital: float = 1_000_000.0
+    initial_capital: float = 10_000_000.0
     periods_per_year: int = 252
     output_root: Path = REPORT_BACKTEST_ROOT
     data_root: Path = DATA_ORIGIN_ROOT

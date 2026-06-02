@@ -11,12 +11,20 @@
 | [live_runner.py](live_runner.py) | 实盘主循环：订阅行情、定时拉特征、调模型、发单 |
 | [supervisor.py](supervisor.py) | 守护进程：监控 live_runner 健康、自动重启、连接断线告警 |
 | [online_feature.py](online_feature.py) | 在线增量特征：复用 [cta/feature/online.py](../feature/online.py) 的实时 bar 拼接，落到内存窗口供模型用 |
+| [model_registry.py](model_registry.py) | 在线模型注册表（cluster_registry 热加载包装 + 模型时效信息） |
+| [signal_generator.py](signal_generator.py) | 实时信号入口：候选扩展 + 特征拼接 + 模型打分 + OOT 同款 gate 决策 |
 | [model_filter.py](model_filter.py) | 加载 cluster_registry.json + 三段模型 + score_calibration，对实时候选打分过滤 |
+| [order_slicer.py](order_slicer.py) | 下单拆单（iceberg/twap + ADV 参与率上限） |
+| [preopen_checklist.py](preopen_checklist.py) | 盘前 go/no-go 检查（预测新鲜度、模型时效、kill switch、保证金） |
 | [risk.py](risk.py) | 实盘风控：单笔/日/周/月限额、最大并发持仓、品种黑名单 |
 | [kill_switch.py](kill_switch.py) | 全局熔断：超过日亏损/连接异常/数据延迟阈值时强制停手 |
 | [pnl_tracker.py](pnl_tracker.py) | 每笔成交回填，逐笔 PnL / 累计权益 / 回撤 |
 | [trade_recorder.py](trade_recorder.py) | 成交流水落盘，是 `parity_helper` 的 diff 来源 |
+| [trade_logger.py](trade_logger.py) | OOT 风格逐笔结构化日志（blocked / filled / 概率与分位） |
 | [daily_report.py](daily_report.py) | 收盘后日报：当日成交、PnL、与 OOT 预期偏差 |
+| [reporting/periodic_report.py](reporting/periodic_report.py) | live 周/月/summary 聚合（口径复用 OOT aggregate） |
+| [reporting/review_report.py](reporting/review_report.py) | live vs OOT 复盘归因（signal/execution/risk 三段） |
+| [reporting/build_reports.py](reporting/build_reports.py) | 从 CSV 一键生成 periodic + review 报告 |
 | [parity_helper.py](parity_helper.py) | 实盘 vs 仿真 vs OOT 三方对账：定位 fill / cost / decision 漂移 |
 
 ## 详细过程
@@ -35,15 +43,19 @@
 [每根新 bar]
    1. online_feature.on_new_bar() → 拼出当前可见的特征向量
    2. baseline_strategy 在该 bar 上扫描候选事件
-   3. model_filter.filter_candidates() → trade_filter + regime + mfe_mae + stacking 五段过滤
-   4. risk.check_pre_trade() → 单笔限额 / 资金 / 杠杆 / 持仓数
-   5. kill_switch.allow_new_entry() → 全局熔断检查
-   6. 通过 → send_order() 通过 vnpy gateway
-   7. 成交回报 → pnl_tracker.on_trade() + trade_recorder.append()
+   3. LegacyCtaAdapter `_dispatch_order`：
+      - signal_generator_context 补模型分数
+      - entry_gate_chain（trade_filter/HTF/risk_orchestrator）
+      - order_filter（RiskGuard/kill_switch）
+      - order_slicer（可选）
+      - send_order
+   4. 成交回报 → pnl_tracker.on_trade() + trade_recorder.append() + trade_logger.record_fill()
+   5. 持仓阶段 position_evaluator（hard stop）触发强平（forced_exit）
             │
             ▼
 [收盘]   daily_report.generate()
          parity_helper.compare_with_sim_and_oot()
+         reporting.build_reports（周/月/复盘归因）
 ```
 
 ## 注意事项

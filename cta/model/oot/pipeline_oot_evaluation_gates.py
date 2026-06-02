@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import pandas as pd
 
-from cta.model.oot.oot_gates import apply_ma_cross_gate, apply_regime_short_filter
 from cta.model.oot.oot_trade_filter_gate import apply_trade_filter_gate
 from cta.model.oot.pipeline_oot_evaluation_base import (
     BR_BLOCKED_FINAL_DECISION_GATE,
@@ -31,12 +30,6 @@ def apply_oot_model_gates(df: pd.DataFrame, cfg: object) -> tuple[pd.DataFrame, 
             pass_regime = pass_regime & (regime != "range")
         model_block_reason.loc[~pass_regime & (model_block_reason == "")] = BR_BLOCKED_REGIME_GATE
         gate_by_legacy = gate_by_legacy & pass_regime
-    df, gate_by_legacy, model_block_reason = apply_ma_cross_gate(
-        df, cfg=cfg, gate_by_legacy=gate_by_legacy, model_block_reason=model_block_reason
-    )
-    df, gate_by_legacy, model_block_reason = apply_regime_short_filter(
-        df, cfg=cfg, gate_by_legacy=gate_by_legacy, model_block_reason=model_block_reason
-    )
     if getattr(cfg, "use_mfe_mae_gate", False) and {"pred_mfe_atr", "pred_mae_atr"}.issubset(df.columns):
         pred_mfe = pd.to_numeric(df["pred_mfe_atr"], errors="coerce").fillna(0.0)
         pred_mae = pd.to_numeric(df["pred_mae_atr"], errors="coerce").fillna(0.0)

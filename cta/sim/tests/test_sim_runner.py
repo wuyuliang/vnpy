@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from typing import Any
 
 from cta.sim.sim_runner import SIMNOW_DEFAULT, SimnowSetting, SimRunConfig, run_sim
@@ -67,6 +68,7 @@ class FakeMainEngine:
         self.cta_engine = FakeCtaEngine()
         self._engines = {"CtaStrategy": self.cta_engine}
         self.closed = False
+        self.contracts: list[Any] = []
 
     def add_gateway(self, gw_class) -> None:
         self.gateways.append(gw_class)
@@ -79,6 +81,9 @@ class FakeMainEngine:
 
     def get_engine(self, name: str):
         return self._engines.get(name)
+
+    def get_all_contracts(self):
+        return list(self.contracts)
 
     def close(self) -> None:
         self.closed = True
@@ -187,6 +192,19 @@ class TestRunSim(unittest.TestCase):
         strategy_setting = me.cta_engine.added[0][3]
         self.assertEqual(strategy_setting["portfolio_state_snapshot_path"], "/tmp/portfolio_state.json")
         self.assertEqual(strategy_setting["order_reference_prefix"], "LIVEA")
+
+    def test_order_slicer_attached_when_order_slice_cfg_given(self) -> None:
+        me = FakeMainEngine()
+        cfg = SimRunConfig(
+            strategy_class=_DummyStrategyClass,
+            strategy_name="dummy_rb",
+            vt_symbol="rb888.SHFE",
+            setting={"lookback": 5},
+            order_slice_cfg={"max_order_volume": 2, "method": "iceberg"},
+        )
+        run_sim(cfg, self._new_simnow(), main_engine_factory=lambda: me)
+        s = me.cta_engine.strategies["dummy_rb"]
+        self.assertTrue(callable(getattr(s, "order_slicer", None)))
 
 
 class TestSimnowDefaults(unittest.TestCase):
@@ -332,6 +350,37 @@ class TestSimRunnerIntegration(unittest.TestCase):
         s = me.cta_engine.strategies["rb"]
         self.assertIsNotNone(s.order_filter)
         self.assertTrue(callable(s.order_filter))
+
+    def test_contract_resolver_attached_when_enabled(self) -> None:
+        from cta.sim.sim_runner import SimRunConfig, run_sim
+
+        class _Exchange:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+        class _Contract:
+            def __init__(self, symbol: str, exchange: str) -> None:
+                self.symbol = symbol
+                self.exchange = _Exchange(exchange)
+
+        me = self._new_engine()
+        me.contracts = [
+            _Contract("RB2412", "SHFE"),
+            _Contract("RB2505", "SHFE"),
+        ]
+        cfg = SimRunConfig(
+            strategy_class=_DummyStrategyClass,
+            strategy_name="rb",
+            vt_symbol="rb888.SHFE",
+            setting={},
+            enable_contract_resolver=True,
+        )
+        run_sim(cfg, self._simnow(), main_engine_factory=lambda: me)
+        s = me.cta_engine.strategies["rb"]
+        resolver = getattr(s, "contract_resolver", None)
+        self.assertIsNotNone(resolver)
+        info = resolver.resolve_active_contract("RB0", "2024-12-25")
+        self.assertEqual(info.active_contract, "RB2505.SHFE")
         # PnL tracker 应自动挂上以供风控 daily_pnl_provider 使用
         self.assertIsNotNone(s.pnl_tracker)
 
@@ -371,6 +420,29 @@ class TestSimRunnerIntegration(unittest.TestCase):
             run_sim(cfg, self._simnow(), main_engine_factory=lambda: me)
             s = me.cta_engine.strategies["rb"]
             self.assertIsNotNone(s.trade_recorder)
+
+    def test_cfg_fingerprint_dumped_when_oot_cfg_present(self) -> None:
+        import json
+        import tempfile
+
+        from cta.config.model_oot_eval_config import OotEvaluationConfig
+        from cta.sim.sim_runner import SimRunConfig, run_sim
+
+        me = self._new_engine()
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = SimRunConfig(
+                strategy_class=_DummyStrategyClass,
+                strategy_name="rb",
+                vt_symbol="rb888.SHFE",
+                setting={"oot_cfg": OotEvaluationConfig()},
+                trade_recorder_dir=tmp,
+            )
+            run_sim(cfg, self._simnow(), main_engine_factory=lambda: me)
+            fp = Path(tmp) / "meta" / "cfg_fingerprint.json"
+            self.assertTrue(fp.exists(), f"cfg_fingerprint not found: {fp}")
+            payload = json.loads(fp.read_text(encoding="utf-8"))
+            self.assertIn("trade_filter_gate_mode", payload)
+            self.assertIn("portfolio_logic", payload)
 
 
 if __name__ == "__main__":

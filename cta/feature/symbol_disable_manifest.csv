@@ -1,4 +1,1 @@
 symbol,reason,source,disabled_at,notes
-AL0,persistent_loss,oot_20260514_minute60,2026-05-15,"net=-37775; gross=-29126; 持续负毛利，剔除"
-TA0,persistent_loss,oot_20260514_minute60,2026-05-15,"net=-14979; gross=-12224; 突破策略上 alpha 反向"
-L0,persistent_loss,oot_20260514_minute60,2026-05-15,"net=-10761; roll_cost 占比异常，但即使关掉 roll_cost 仍负"

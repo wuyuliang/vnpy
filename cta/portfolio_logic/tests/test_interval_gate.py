@@ -66,7 +66,12 @@ class TestHtfGate(unittest.TestCase):
         self.assertFalse(gate.is_state_fresh(stale_day, current_time=now, interval="day"))
 
     def test_filter_marks_allowed_and_blocked_rows(self) -> None:
-        gate = HtfGate(IntervalGateConfig(fallback_when_htf_missing="skip"))
+        # 2026-05-24：cfg 默认 dict 已含 minute60 路径 "both"；本测试覆盖原始 strict-skip 语义
+        # （所有 cell 都走全局 skip），所以显式传空 dict。
+        gate = HtfGate(IntervalGateConfig(
+            fallback_when_htf_missing="skip",
+            fallback_when_htf_missing_by_cluster_interval={},
+        ))
         now = pd.Timestamp("2024-01-03 15:00:00")
         htf_state = {
             ("RB0", "SHFE"): {"state": "long_only", "computed_at": now},
@@ -115,6 +120,50 @@ class TestHtfGate(unittest.TestCase):
         self.assertEqual(bool(out.iloc[0]["htf_allowed"]), True)
         self.assertEqual(str(out.iloc[0]["htf_alignment"]), "neutral")
         self.assertEqual(str(out.iloc[0]["htf_block_reason"]), "")
+
+    def test_filter_uses_candidate_interval_rank_semantics(self) -> None:
+        gate = HtfGate(
+            IntervalGateConfig(
+                htf_intervals=("day", "60min", "30min"),
+                fallback_when_htf_missing="skip",
+                fallback_when_htf_missing_by_cluster_interval={},
+                state_ttl_seconds={"day": 86400, "60min": 3600, "30min": 1800},
+            )
+        )
+        now = pd.Timestamp("2024-01-03 15:00:00")
+        htf_state = {
+            ("RB0", "SHFE"): {
+                "state": "long_only",
+                "computed_at": now,
+                "computed_at_by_interval": {
+                    "day": pd.Timestamp("2024-01-03 09:00:00"),
+                    "60min": pd.Timestamp("2024-01-03 12:00:00"),  # stale at now
+                    "30min": pd.Timestamp("2024-01-03 14:45:00"),
+                },
+                "regime_by_interval": {
+                    "day": "trend_up",
+                    "60min": "trend_up",
+                    "30min": "trend_up",
+                },
+            }
+        }
+        opp = pd.DataFrame(
+            {
+                "symbol": ["RB0", "RB0", "RB0"],
+                "exchange": ["SHFE", "SHFE", "SHFE"],
+                "direction": ["long", "long", "long"],
+                "interval": ["day", "60min", "30min"],
+            }
+        )
+        out = gate.filter(opp, htf_state=htf_state, current_time=now)
+        # day -> 只看 day，自身新鲜，放行
+        self.assertTrue(bool(out.iloc[0]["htf_allowed"]))
+        # 60min -> 看 60min+day，60min 过期，拦截
+        self.assertFalse(bool(out.iloc[1]["htf_allowed"]))
+        self.assertEqual(str(out.iloc[1]["htf_block_reason"]), "htf_missing")
+        # 30min -> 看 30min+60min+day，60min 过期，同样拦截
+        self.assertFalse(bool(out.iloc[2]["htf_allowed"]))
+        self.assertEqual(str(out.iloc[2]["htf_block_reason"]), "htf_missing")
 
 
 if __name__ == "__main__":

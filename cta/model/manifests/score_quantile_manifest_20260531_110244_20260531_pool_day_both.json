@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-31T11:02:44",
+  "run_tag": "20260531",
+  "symbol": "POOL",
+  "interval": "day",
+  "trade_side_mode": "both",
+  "source_predictions_paths": [
+    "/Users/wuyuliang/code/vnpy/cta/model/manifests/score_quantile_source_20260531_110244_20260531_pool_day_both.csv"
+  ],
+  "exclude_splits": [
+    "test",
+    "oot"
+  ],
+  "entries": [
+    {
+      "cluster": "black",
+      "symbol": "HC0",
+      "interval": "day",
+      "p50": 0.5084237378345127,
+      "p60": 0.5099350347502936,
+      "p70": 0.5206463425889315,
+      "p80": 0.5393277614507402,
+      "p90": 0.5449152350746538,
+      "p95": 0.5484460272030821,
+      "sample_count": 96
+    },
+    {
+      "cluster": "black",
+      "symbol": "RB0",
+      "interval": "day",
+      "p50": 0.5082992973273963,
+      "p60": 0.5097445200248596,
+      "p70": 0.5183985555862411,
+      "p80": 0.5277195444405637,
+      "p90": 0.5398637215535607,
+      "p95": 0.5426187273207485,
+      "sample_count": 96
+    },
+    {
+      "cluster": "black",
+      "symbol": "*",
+      "interval": "day",
+      "p50": 0.5083833301874308,
+      "p60": 0.5099230305666501,
+      "p70": 0.5190846177176786,
+      "p80": 0.5341512735924757,
+      "p90": 0.5430832718346523,
+      "p95": 0.5471408876878989,
+      "sample_count": 192
+    }
+  ]
+}

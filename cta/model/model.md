@@ -32,6 +32,47 @@
 3. 再按 train/valid 选参并训练三类模型；
 4. 最后仅用 OOT(test) 做评估与收益分档。
 
+### 2.1 风控编排（risk orchestrator）命令
+
+`W2/W4/W5` 已接入：
+- 训练阶段自动写 `score_quantile_manifest_*.json`（`cta/model/manifests/`）；
+- 训练阶段同时写 `score_distribution_train_*.json`（drift 基准，供 sim/live/OOT 使用）；
+- sim `EntryGateChain` Stage5 接入风险阈值与缩仓；
+- sim/live `EntryGateChain` Stage0 可选接入 score distribution drift guard（critical/emergency 阻断开仓）；
+- OOT trade 明细新增：`risk_effective_threshold` / `risk_lots_mult` / `risk_block_reason`。
+
+训练 + OOT 一体运行时启用：
+
+```bash
+python3 -m cta.model.model_pipeline \
+  --symbol RB0 \
+  --exchange SHFE \
+  --interval day \
+  --start 2010-01-01 --end 2025-12-31 \
+  --train-end 2020-12-31 --valid-end 2023-12-31 \
+  --enable-risk-system \
+  --risk-quantile-field p70 \
+  --risk-manifest-path cta/model/manifests/score_quantile_manifest_latest.json
+```
+
+eval-only 可加 `--note "..."`，该说明会写入 `00_overview/executive_summary.md`
+的「复现信息」段以及 `meta/cfg_fingerprint.json`。
+
+eval-only 若要开启 OOT guard 链回放，可追加：
+
+```bash
+--enable-oot-guard-chain \
+--enable-oot-cross-cluster-guard \
+--enable-oot-score-drift-guard \
+--score-drift-train-path cta/model/manifests/score_distribution_train_latest.json
+```
+
+常用开关：
+- `--risk-enable-bucket-scaling`：开启 bucket 缩仓（默认关闭）
+- `--risk-disable-linear-dd-scaler`：关闭线性 DD 缩仓
+- `--risk-disable-dynamic-bump`：关闭 DD 触发阈值抬升
+- `--risk-disable-quantile-threshold`：关闭 quantile 阈值层（保留 static base）
+
 实现拆分（便于局部 review）：
 - `cta/model/model_pipeline.py`：稳定 CLI 入口（继续支持 `python3 -m cta.model.model_pipeline`）
 - `cta/model/dataset/`：候选样本、通用特征拼接、特征筛选、walk-forward split、pool/group-pool 样本组织
@@ -39,6 +80,36 @@
 - `cta/model/orchestration/`：CLI、单次 pipeline 主流程、多 interval / group-pool 调度
 - `cta/model/oot/`：OOT 真实成交评估、gate、intrabar、仓位 sizing、组合约束、block_reason
 - `cta/model/reporting/`：OOT 报告、HTML、aggregate、diagnostics、provenance
+- `cta/model/eval_only_run.py` + `eval_only_cli.py`：**2026-05-25 新增的 eval-only 入口**，
+  复用既有 train 产物按当前 cfg 重跑 OOT（无重训）；用 `python -m cta.model.eval` 触发。
+
+### 2.0 双入口：train vs eval（2026-05-25）
+
+`cta.model.model_pipeline` 把训练 + OOT 评估串成单一流程，每次改 cfg 都得重训。
+2026-05-25 起补 2 个**对称入口**，让 cfg 迭代不必重训：
+
+```bash
+# train（与历史 model_pipeline 同义）：完整 candidate→feature→fit→OOT
+python3 -m cta.model.train --group-pool --group-by cluster --interval day ...
+
+# eval-only：复用 train 产物的 *_predictions.csv，按当前 cfg 重跑 OOT
+python3 -m cta.model.eval \
+  --from-root cta/report/backtest \
+  --pattern "20260523_GRP_CLUSTER_*_day_both_model_pipeline" \
+  --output-root cta/backtest/20260525_eval_strict_bond \
+  --commission-mode manifest \      # Action 1 退路开关
+  --bond-filter strict \            # Action 2
+  --htf-fallback per_cell \         # Action 3
+  --enable-risk-system \            # risk orchestrator
+  --risk-manifest-path cta/model/manifests/score_quantile_manifest_latest.json
+```
+
+输出 bundle `oot_<YYYYMMDD>_<HHMMSS>_<run_tag>/`，含完整 00_overview/01_aggregate/...09_diagnostics
++ reports/{analyst,executive}.html + raw/all_trade_details.csv + **meta/cfg_fingerprint.json**
+（含 argv + Action 1/2/3 各字段，eyeball 一眼就能确认本次跑了什么 cfg）。
+
+详见 [`cta/report/change_log.md`](../report/change_log.md) 2026-05-25 条目 +
+[`cta/model/eval_only_run.py`](./eval_only_run.py) 的 docstring。
 
 ### Step A：生成通用特征（vn.py 特征）
 
@@ -310,6 +381,10 @@ python3 -m cta.model.model_pipeline \
   - `02_by_cluster/`、`03_by_symbol/`、`04_by_interval/`、`05_by_signal_type/`
   - `06_drilldown/`：`gate_funnel.csv`、`block_reason_breakdown.csv`、`outlier_trades.csv`
   - `09_diagnostics/auc_per_window.csv`
+  - `09_diagnostics/concentration_diagnostics.csv`：剔除 top-N 笔后的收益、
+    top1 单笔 / top5 品种收益占比、`pnl_gini`，用于识别肥尾依赖。
+  - `09_diagnostics/walk_forward_summary.csv`：把 OOT 期切成多个时间窗口，
+    输出每窗收益、`win_window_ratio` 与单段过拟合告警。
   - `reports/executive.html`、`reports/analyst.html`、`reports/brief.md`
 - `models/<signal_type>/window_xx/*.joblib`
 - `models/<signal_type>/window_xx/*_calibration.joblib`
@@ -323,10 +398,13 @@ OOT 评估参数集中在：
 - `cta/config/model_oot_eval_config.py`
 - 包含：`max_single_loss_pct`、`trade_filter_gate_mode`、`trade_filter_threshold`、`trade_filter_percentile_threshold`、`use_regime_gate`、`min_pred_edge_atr`、
   `use_roll_cost` / `default_roll_cost_pct_per_year`（展期成本扣减）、
+  `commission_pct_by_symbol` / `slippage_pct_by_symbol`（symbol 级成本覆盖）、
+  `use_impact_cost` / `impact_cost_k`（ADV 参与率冲击成本）、
+  `use_liquidity_floor_guard`（OOT 流动性下限 guard，缺指标 fail-open）、
   `use_stacking_gate` / `stacking_score_threshold`（最终决策 gate）、
   `weekly_dd_position_scale_after_breach`（周回撤后缩仓系数）、
   `monthly_max_drawdown_pct`（月回撤硬熔断）等。
-- 当前默认：`weekly_max_drawdown_pct=0.03`（3%）。
+- 当前默认：`weekly_max_drawdown_pct=0.025`（2.5%）。
 - 当前生产默认：`trade_filter_gate_mode="cluster_interval_percentile"` 且
   `trade_filter_percentile_threshold=70.0`。即 trade filter 不再用一个全局 raw
   probability 阈值筛掉所有 cluster/interval，而是优先用 `trade_filter_prob_pctl`

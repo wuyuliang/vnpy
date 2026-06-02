@@ -44,24 +44,44 @@ def _position_key(symbol: object, exchange: object, direction: object) -> tuple[
     return (str(symbol).upper(), str(exchange).upper(), str(direction).lower())
 
 
+def _extract_position_volume(row: dict[str, Any]) -> float:
+    """Best-effort lots/volume extraction with sensible fallback."""
+    raw = row.get("volume", row.get("lots", row.get("qty", 1.0)))
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return 1.0
+    return abs(v) if v != 0.0 else 0.0
+
+
 def _reconcile_or_raise(
     state: PortfolioState | None,
     broker_positions: list[dict[str, Any]],
 ) -> None:
     if state is None:
         return
-    broker_counts: dict[tuple[str, str, str], int] = {}
+    broker_lots: dict[tuple[str, str, str], float] = {}
     for row in broker_positions:
         key = _position_key(row.get("symbol", ""), row.get("exchange", ""), row.get("direction", row.get("side", "")))
-        broker_counts[key] = broker_counts.get(key, 0) + 1
-    local_counts: dict[tuple[str, str, str], int] = {}
+        broker_lots[key] = broker_lots.get(key, 0.0) + _extract_position_volume(row)
+    local_lots: dict[tuple[str, str, str], float] = {}
     for pos in state.positions.values():
         key = _position_key(pos.get("symbol", ""), pos.get("exchange", ""), pos.get("direction", pos.get("side", "")))
-        local_counts[key] = local_counts.get(key, 0) + 1
-    if broker_counts != local_counts:
+        local_lots[key] = local_lots.get(key, 0.0) + _extract_position_volume(pos)
+    all_keys = sorted(set(broker_lots) | set(local_lots))
+    tol = 1e-9
+    mismatch = {
+        key: {
+            "broker": float(broker_lots.get(key, 0.0)),
+            "local": float(local_lots.get(key, 0.0)),
+        }
+        for key in all_keys
+        if abs(float(broker_lots.get(key, 0.0)) - float(local_lots.get(key, 0.0))) > tol
+    }
+    if mismatch:
         raise RuntimeError(
-            "broker reconciliation failed: broker_positions != state_snapshot positions. "
-            f"broker={broker_counts}, local={local_counts}"
+            "broker reconciliation failed: broker lots != state snapshot lots. "
+            f"diff={mismatch}"
         )
 
 
@@ -109,6 +129,60 @@ class LiveCtpSetting:
 LiveRunConfig = SimRunConfig
 
 
+def prepare_live_risk_wiring(cfg: LiveRunConfig) -> LiveRunConfig:
+    """Inject sim/live gate adapters from the same OOT config when available."""
+    setting = dict(cfg.setting or {})
+    oot_cfg = setting.get("oot_cfg")
+    if oot_cfg is None:
+        cfg.setting = setting
+        return cfg
+    try:
+        from cta.config.model_oot_eval_config import OotEvaluationConfig
+        from cta.sim.adapters.entry_gate_chain import EntryGateChain
+        from cta.sim.adapters.position_evaluator import PositionEvaluator
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("live risk wiring imports failed: %s", exc)
+        cfg.setting = setting
+        return cfg
+    if not isinstance(oot_cfg, OotEvaluationConfig):
+        cfg.setting = setting
+        return cfg
+    setting.setdefault("entry_gate_chain", EntryGateChain(oot_cfg))
+    setting.setdefault("position_evaluator", PositionEvaluator(oot_cfg=oot_cfg))
+    registry_path = str(setting.get("cluster_registry_path", "") or "").strip()
+    if registry_path and "signal_generator_context" not in setting:
+        try:
+            from cta.live.model_registry import LiveModelRegistry
+            from cta.live.online_feature import OnlineFeatureLoader
+            from cta.live.signal_generator import generate_today_candidates
+            from cta.risk.state.score_quantile_manifest import ScoreQuantileManifest
+
+            model_registry = LiveModelRegistry.from_registry_path(Path(registry_path), strict=True)
+            manifest_path = Path(
+                str(
+                    setting.get(
+                        "score_manifest_path",
+                        "cta/model/manifests/score_quantile_manifest_latest.json",
+                    )
+                )
+            )
+            score_manifest = ScoreQuantileManifest.from_json(manifest_path)
+            feature_loader = OnlineFeatureLoader(
+                feature_root=str(setting.get("feature_root", "cta/data/feature"))
+            )
+            setting["signal_generator_context"] = {
+                "cfg": oot_cfg,
+                "model_registry": model_registry,
+                "score_manifest": score_manifest,
+                "feature_loader": feature_loader,
+                "generate_fn": generate_today_candidates,
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("live signal generator wiring skipped: %s", exc)
+    cfg.setting = setting
+    return cfg
+
+
 def run_live(
     cfg: LiveRunConfig,
     ctp: LiveCtpSetting,
@@ -118,6 +192,8 @@ def run_live(
     main_engine_factory: Callable[[], Any] | None = None,
 ):
     """启动单策略 live 实例，返回已连接并已 start 的 ``main_engine``。"""
+    cfg = prepare_live_risk_wiring(cfg)
+    _run_preopen_checklist_or_raise(dict(cfg.setting or {}))
     logger.info(
         "starting live strategy=%s symbol=%s gateway=%s td=%s md=%s",
         cfg.strategy_name,
@@ -141,6 +217,36 @@ def run_live(
         cta_engine_name=cta_engine_name,
         main_engine_factory=main_engine_factory,
     )
+
+
+def _run_preopen_checklist_or_raise(setting: dict[str, Any]) -> None:
+    raw = setting.get("preopen_checklist")
+    if not isinstance(raw, dict):
+        return
+    from cta.live.preopen_checklist import PreopenCheckConfig, run_preopen_checklist
+
+    pred_path = str(raw.get("predictions_path", "")).strip()
+    if not pred_path:
+        raise RuntimeError("preopen_checklist enabled but predictions_path is empty")
+    signal_ctx = setting.get("signal_generator_context")
+    model_registry = signal_ctx.get("model_registry") if isinstance(signal_ctx, dict) else None
+    cfg = PreopenCheckConfig(
+        max_prediction_stale_hours=float(raw.get("max_prediction_stale_hours", 24.0)),
+        max_model_age_days=float(raw.get("max_model_age_days", 14.0)),
+        margin_buffer_pct=float(raw.get("margin_buffer_pct", 0.0)),
+    )
+    report = run_preopen_checklist(
+        predictions_path=Path(pred_path),
+        model_registry=model_registry,
+        kill_switch_active=bool(raw.get("kill_switch_active", False)),
+        available_cash=float(raw.get("available_cash", 0.0)),
+        required_margin=float(raw.get("required_margin", 0.0)),
+        cfg=cfg,
+    )
+    if report.passed:
+        return
+    details = "; ".join(f"{item.name}:{item.detail}" for item in report.items if not item.passed)
+    raise RuntimeError(f"preopen checklist failed: {details}")
 
 
 def serve_live(
@@ -200,6 +306,7 @@ def serve_live(
 __all__ = [
     "LiveCtpSetting",
     "LiveRunConfig",
+    "prepare_live_risk_wiring",
     "run_live",
     "serve_live",
 ]

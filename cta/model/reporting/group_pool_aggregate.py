@@ -11,7 +11,7 @@
   monthly_sharpe / weekly_sharpe / max_dd / total_return_pct / group_count）
 
 公式对齐 ``pipeline_oot_evaluation._evaluate_oot_real_execution`` 的口径：
-- ``initial_capital`` 默认 1_000_000；
+- ``initial_capital`` 默认 10_000_000；
 - 年化 sharpe = 月/周 excess_return 的 mean/std × √period_per_year
   （月 12，周 52），无风险利率默认 2%/年；
 - max_drawdown 用 cumulative net_pnl 上的 running peak 计算。
@@ -50,7 +50,7 @@ EXIT_DT_CANDIDATES: tuple[str, ...] = (
 class AggregateConfig:
     """聚合配置；默认对齐 DEFAULT_OOT_EVAL_CONFIG。"""
 
-    initial_capital: float = 1_000_000.0
+    initial_capital: float = 10_000_000.0
     benchmark_annual_return: float = 0.02
     risk_free_annual_return: float = 0.02
 
@@ -61,7 +61,7 @@ class AggregateConfig:
             return float(getattr(oot_cfg, name, default))
 
         return cls(
-            initial_capital=_get("initial_capital", 1_000_000.0),
+            initial_capital=_get("initial_capital", 10_000_000.0),
             benchmark_annual_return=_get("benchmark_annual_return", 0.02),
             risk_free_annual_return=_get("risk_free_annual_return", 0.02),
         )
@@ -436,7 +436,7 @@ def _detect_run_tag(trade_csv: Path) -> tuple[str, str, str]:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="rebuild group-pool aggregate reports from a bundle")
     parser.add_argument("--bundle-dir", required=True, help="path to *_GROUP_POOL_*_portfolio_logic_runtime/")
-    parser.add_argument("--initial-capital", type=float, default=1_000_000.0)
+    parser.add_argument("--initial-capital", type=float, default=10_000_000.0)
     parser.add_argument("--risk-free", type=float, default=0.02, help="annual risk-free rate, e.g. 0.02")
     parser.add_argument("--benchmark", type=float, default=0.02, help="annual benchmark return")
     args = parser.parse_args(argv)

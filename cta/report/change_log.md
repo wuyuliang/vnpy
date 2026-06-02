@@ -12,6 +12,1652 @@
 
 ---
 
+## 2026-06-01 (一) · eval-only 统一组合评估（对齐 sim/live：跨 cluster 共享 1000 万 + 150%）
+
+### 任务
+按 `cta/docs/20260601_eval_only_same.md` 实施：eval-only 从"每 cluster 各占 1000 万 + 各自 150%、
+cluster 间不竞争"改为"**全 cluster/interval/symbol 共享单一 PortfolioState + 单一 1000 万 + 单一
+150% 总额，机会每根 bar 全局竞争**"，与 sim/live 同引擎同账本。统一模式设为**默认**。
+
+### 改动（代码）
+- `cta/model/eval_only_run.py`：
+  - `rerun_oot_for_train_group` 加 `pool_label` 参数——显式标签时强制走"合并→单次回放"路径
+    （即便组内 1 个 meta），并 loud-warning 缺席/空 predictions 的 pool（S3）。
+  - `run_oot_eval_batch` 加 `unified_portfolio: bool = True`——默认把**全部** metas 合并成一次
+    `_evaluate_oot_real_execution`（`pool_label="unified"`）；`False` 回退旧的逐 pool 独立评估。
+  - `_aggregate_bundle` 加 `unified` 参数——统一模式下按每行 `symbol` 经 `infer_symbol_cluster`
+    重写 `group_name=cluster_<x>`（否则 02_by_cluster 全并到一个 "unified" 桶），并跳过
+    `symbol_group_details/` 拷贝（02_by_cluster 完全由 oot_report_views 按 group_name 列重切）。
+- `cta/model/eval_only_cli.py`：加 `--per-cluster-portfolio`（默认不传=统一组合）。
+
+### 引擎无需改
+`_evaluate_oot_real_execution` 本就是全局逻辑（每 bar 跨所有 symbol/cluster 汇入同一
+`ranker.allocate(state, caps)`），只要喂统一 pred_df 即得全局竞争 + 单一 150% 总额。瓶颈只在编排层。
+
+### 测试
+- 新增 `TestUnifiedPortfolioEval`（test_eval_only.py）3 例：① 跨 cluster 同 bar 撞 total cap=1.0
+  → 高分 IF0 成交、低分 RB0 被全局总额挡；② per-cluster 对照模式两簇各自成交（证明差异来自统一池）；
+  ③ CLI 默认统一组合。
+- 回归：`pytest cta/model/tests/test_eval_only.py test_walk_forward_eval.py
+  test_pipeline_oot_evaluation.py cta/portfolio_logic/tests` → **132 passed**。
+
+### 运行命令（用 cfg_sigtype_target_v10.json）
+```bash
+python3 -m cta.model.eval --from-root cta/backtest \
+  --pattern '20260529_GRP_CLUSTER_*_both_model_pipeline' \
+  --output-root cta/backtest --run-tag unified_v10 \
+  --cfg-json cta/backtest/cfg_sigtype_target_v10.json
+```
+
+### 风险与后续
+- **历史不可比**：8 簇共享同一个 150% → 成交量/年化大幅低于旧 per-cluster 报告（如 277%），须重建基准。
+- by_cluster/by_interval/by_signal_type 现全部从统一 trade_details 按列 group（不再依赖 per-pool 子目录）。
+- 与 sim 回放对拍为最终验收（见设计文档 §6）。
+
+### 后续修复（2026-06-01 同日）：多 interval 混合回放 day 被丢弃
+- **现象**：首次统一跑（oot_20260601_005214_unified_v10）by_interval 只有 minute30/minute60，day 整段消失。
+- **根因**：`_evaluate_oot_real_execution` 主路径用裸 `pd.to_datetime(errors='coerce')` 解析 datetime 列。
+  统一合并后该列混了 day 的"日期-only"（`2024-01-03`）和 minute 的"带时分秒"（`2024-01-03 09:30:00`），
+  pandas 推断单一格式把不匹配那种整段 coerce 成 NaT → L111 `dropna` 丢掉 → 输出塌成单一 interval
+  （谁被丢取决于 concat 顺序）。day-only 单跑正常（246 笔），混合即归零，是引擎的多-interval 缺陷。
+- **修复**：`cta/model/oot/pipeline_oot_evaluation.py` 新增模块级 `_to_dt_mixed`（`format='mixed'` + 老 pandas 回退），
+  替换主路径 datetime/signal_datetime/entry_datetime/exit_datetime 的解析（L90-98）。
+- **测试**：新增 `test_mixed_interval_replay_keeps_day_and_minute`（day 日期-only + minute 混合 → 两 interval 都存活）；
+  回归 `pytest cta/model/tests/{test_pipeline_oot_evaluation,test_eval_only,test_walk_forward_eval} cta/portfolio_logic/tests` → **135 passed**。
+- **验证**：修复后 INDEX 混合回放三 interval 全部存活（minute30/day/minute60）。day 现出现在 by_interval，
+  其中多数被 HTF gate 拦（最高 interval 无更高 TF 确认）——这是 sim/live 同引擎的一致性保留行为，
+  若要 day 多成交属 HTF 配置问题（独立）。
+
+---
+
+## 2026-05-31 (日) · 诊断 220809 OOT 收益塌缩（仅诊断 + 回退过早落地代码）
+
+### 任务
+诊断 `oot_20260531_220809_cluster_both_sigtype_v10` 相比 `oot_20260531_163014_*` 的收益塌缩
+（trade_count 5400→361、年化 94.7%→4.86%）。本轮**只写诊断文档，不实施修复代码**（用户决策）。
+
+### 结论（根因）
+- 不是 OOT/cfg/cap/代码 bug（两次 run 同 git_sha `bb6a2b58`、同 cfg、同 cap、trade_filter 通过率一致）。
+- 真因：**逐品种磁盘特征数据覆盖缺口**——`cta/data/feature/minute30/` 对 INDEX 全簇(IF0/IC0/IH0/IM0)+CU0
+  只有 2026-01~05 的 85 个文件，缺 2010-2025 历史；训练窗口 2015-2020 在这些品种上 merge_asof 全 miss
+  → 415 列全 NaN → 模型 AUC≈0.5 → cluster_index 0 笔成交。
+- **关键真相**：20260529 的 5400 笔 / 277% 跑的是 21 个候选派生合成特征(`generic_auto_*`/`generic_model_*`)，
+  **0 个真实磁盘特征**（那时 2026-only parquet 还没生成 → silent fallback → 21 列）。277% 不代表真实特征能力。
+
+### 改动（代码）
+- 无生产代码改动。本会话曾试改 Fix-1~5（fail-loud merge 校验 / 源端 fill-ratio 门槛 / pool 聚合 raise /
+  移除 silent fallback / 训练入口 feature-health gate + 新建 `pipeline_health.py`），**已全部逐条反向回退**
+  （非 git checkout，因相关文件含其它会话未提交改动）；回退后 import 验证通过、无残留标记。
+
+### 文档
+- 新增 `cta/docs/review/20260531_fix_features.md`：现象/真因/20260529 真相/调研/推荐修复（补数据 + 显式
+  fallback 模式 `generic_mode='candidate_only'`，留待下轮）。
+
+### 风险与后续
+- 修复策略已与用户敲定（§5.2）：①补齐 INDEX/CU0 全历史 minute 特征；②默认 `auto` fail-loud +
+  新增显式 `candidate_only` 复现 20260529；③区分"目录空→fallback" vs "有文件但全 NaN→raise"。
+- 重训后须**重新基准**真实特征模型收益，不要直接对标 277%。
+
+---
+
+## 2026-05-31 (日) · walk_forward 加 2026 前瞻窗 + signal_type notional 份额上限 + 修红回绿
+
+### 任务
+(1) walk_forward_summary 增加显式 [2026-01-01, 2026-05-31] 前瞻(OOS)窗；(2) 方案A：signal_type 控量改用
+notional 份额上限 + ranker 优先级；(3) 修复 review 发现的 8 个红测试 + 后续连带，全量回绿。
+
+### 改动（代码）
+- `cta/model/reporting/walk_forward_diagnostics.py`：抽出 `_window_row` helper；in-sample 自动等分窗限制在
+  `forward_window_start`(默认 2026-01-01) 之前；显式追加 `forward_window` 行 [2026-01-01, 2026-05-31]
+  （无 2026 数据→trade_count=0 占位，补数据后自动填）；in-sample 稳定性统计不含前瞻窗。新增可配参数
+  `forward_window_start/end`（默认值，非硬编码），caller 用默认值不受影响。
+- `cta/config/model_oot_eval_config.py`：新增 `signal_type_max_notional_pct` 字段（按 signal_type 限累计在仓
+  名义份额）+ `__post_init__` 校验/冻结 + helper `resolve_signal_type_max_notional_pct`；rank_bonus 派生
+  0.05→0.10。（阈值 delta 为"目标配比版"由用户调参，本轮保留。）
+- `cta/model/oot/pipeline_oot_evaluation.py`：`signal_type_open_notional` 跟踪 + portfolio_constraints
+  注入 `cap_signal_type`（min 入 notional 链）。
+
+### 测试
+- 新增 `test_walk_forward_eval.py` 2 例（前瞻窗占位 / 有 2026 数据填充）；`test_model_pipeline_part04`
+  新增 signal_type notional 份额上限测试；config 测试同步 + notional 校验测试。
+- 修复一批通用机制测试：给 symbol/cluster/leverage/daily/weekly/throttle/intrabar 等"非 signal_type 专项"
+  测试补齐 5 个 signal_type 杠杆的 `={}` 解耦（size/concurrent/notional/2×delta），隔离被测机制。
+- 全量回归 `pytest cta/config/tests cta/portfolio_logic/tests cta/risk/tests cta/model/tests` → **739 passed**。
+
+### 风险与后续
+- 诊断（见上一条本日记录 + 与用户讨论）：trade_filter 阈值 delta 控不动"执行笔数"（受下游抢槽位限制），
+  notional 份额上限 + ranker 优先级才是有效控量杠杆；阈值 delta 对肥尾类型会 churn composition。
+- 2026 前瞻窗待用户补入 2026-01~05 预测数据后自动填充；届时重跑 OOT 即可在 walk_forward_summary 看到该窗。
+- 三层一致（review M2）：signal_type 并发/notional/阈值仍仅 OOT 生效，sim/live 等价件待补。
+
+---
+
+## 2026-05-31 (日) · 整体 code review → cta/docs/review/20260531.md（发现仓库为红）
+
+### 任务
+对本会话 signal_type 精细化改动链（§8 sizing + §11 并发/阈值 + 风控 scaler）做整体 code review，产出 dated review 文档。
+
+### 头号发现（H1）：仓库当前为红
+全量回归 `pytest cta/config/tests cta/portfolio_logic/tests cta/risk/tests cta/model/tests` → **8 failed / 725 passed**。
+根因：§11 把三个 per-signal_type dict（size_multiplier / max_concurrent / threshold_delta）设为 default-on（非空默认值），
+改变了既有 pipeline 测试的硬编码数值/拦截预期，但实现 §11 时未跑/修全量 pipeline 测试。8 个失败（跨
+test_blind_spot_coverage / test_model_pipeline_part01/02/04/06），实现逻辑本身正确，是"默认值改动未同步测试"的回归。
+修法：受影响测试显式传 `signal_type_*={}` 解耦，或更新期望值。
+
+### 其它发现
+- M1 sizing 系数是"天花板"非"真乘数"（`min(eff_pos_cap, risk_based)`）→ 放大有条件、缩量总生效。
+- M2 三层不一致：杠杆2/3 仅 OOT，sim/live 无等价件、杠杆1 scaler default-OFF（实盘前必补）。
+- M3 ranker 不感知 signal_type 并发 cap（槽位浪费）；M4 并发拦截缺 pipeline 单测；M5 pyramid add-layer 计数偏紧。
+- L1 doc/code 字段命名漂移；L2 CapsConfig 默认 10/1/8→14/3/8 文档未同步；L3 pipeline 539 行/config 604 行超 500；
+  L4 bypass vs delta 优先级未文档化；L5 巨型分号单行。
+
+### 修改文件
+- 新增 `cta/docs/review/20260531.md`。本轮**未改代码**（review only）。
+
+### 风险与后续
+- 仓库为红是当前最高优先级；建议立即修 H1 的 8 个测试回绿，再处理 M2 三层一致。
+
+### 任务
+基于 v2 run `oot_20260531_090349_cluster_both_sigsize_v2` 的 `05_by_signal_type`（含 avg_net_pnl_per_trade /
+max_drawdown_pct / sharpe / calmar / top5_symbol），制定 signal_type 精细化方案写入 `cta/docs/usage_pct.md`。
+
+### 方案要点（三级分层 + 三杠杆）
+- 诊断：avg_pnl/笔 离散度 74×（atr 184 vs trend_accel 13,556）；回撤集中在 atr(-7.66%)/donchian(-6.48%)；
+  tight_range Sharpe -1.05、trend_accel/tight_range top5_symbol≈99%（肥尾）。
+- 杠杆1 `signal_type_size_multiplier`（已有，扩展）：trend_accel 0.7 / donchian 0.5 / tight_range 0.3 / atr 0.4。
+- 杠杆2 `signal_type_max_concurrent_positions`（**新**）→ 需求 2 限同时在仓：Tier C 收紧 1-3。
+  注入 pipeline portfolio_constraints 循环 + runtime_state.signal_type_counts + 新 block_reason
+  `blocked_signal_type_concurrent`。
+- 杠杆3 `signal_type_trade_filter_percentile_delta`（**新**）→ 需求 1 控量压离散：atr +15 / donchian +12 /
+  tight_range +20、Tier S -3~-5。注入 `oot_trade_filter_gate.py` 阈值叠加（仅 percentile 模式）。
+- 目标：avg_pnl/笔 离散度 ≤~10×、各类 maxDD ≥ -4%、组合 Sharpe/Calmar ≥ v2。
+
+### 修改文件
+- `cta/docs/usage_pct.md`（追加 §11 方案 + §12 验证迭代；428 行）。
+
+### 风险与后续
+- 文档为 CODE-READY 规格，代码未落地；杠杆2/3 的 sim/live 等价件列为 follow-up（OOT 先验证）。
+- 落地后须按 §12 重跑 v3 三向对比，单维度迭代调参。
+
+---
+
+## 2026-05-31 (日) · 实现 §8：回退上限 + signal_type 差异化 sizing（OOT 复跑验证大胜）
+
+### 任务
+按 `cta/docs/usage_pct.md` §8 落地代码：回退放宽的上限、per_cluster→8、新增按 signal_type 的差异化 sizing。
+
+### 改动（代码）
+- **改动 A+B**（config 默认值；OotEvaluationConfig 部分本已预置，本轮补 CapsConfig）：
+  `cta/portfolio_logic/config.py` CapsConfig 回退 → `max_total_positions=10`、`max_per_symbol=1`、
+  **`max_total_per_cluster=8`**（旧 4 略放宽）、`max_symbol_notional_pct=0.30`、`max_cluster_notional_pct=0.50`。
+  `cta/config/model_oot_eval_config.py`：`max_position_scale=0.10`、5 上限回退、`signal_type_size_multiplier`
+  默认 `{bull_pullback_continuation:2.0, breakout_pullback_continuation:1.5, atr_breakout:0.4}`（已预置 + helper
+  `resolve_effective_position_scale_cap`）。
+- **改动 C**（OOT 注入）：`cta/model/oot/pipeline_oot_evaluation.py` 取 `signal_type_arr`，sizing 处把单笔名义
+  上限改为 `min(max_position_scale*st_mult, 1.0)`（reverse-sizing + fallback 两分支）。
+- **改动 D**（ranker 名额优先级）：`OpportunityRankerConfig` 新增 `signal_type_rank_bonus`（归一化），
+  `opportunity_ranker.allocate` 按 `score+bonus` 排序（不动 score_threshold）；pipeline 由 multiplier 派生 bonus
+  经 `dataclasses.replace` 注入。
+- **改动 F**（三层一致）：新增 `cta/risk/sizing/signal_type_size_scaler.py`（`SignalTypePositionScaler`）+
+  `SignalTypeSizeScalerConfig`，RiskSystemConfig 加 `enable_signal_type_size_scaler`（默认 False）+ orchestrator 装配；
+  让 sim/live 的 lots×scaler 模型可与 OOT 系数对齐（默认关，不动现有 live 行为）。
+
+### 测试（改动 E）
+新增 `cta/risk/tests/test_signal_type_size_scaler.py`（8 例）；修复 3 个 cap-机制测试（加 `signal_type_size_multiplier={}`
+解耦 atr_breakout 0.4× 影响）。回归 `pytest cta/config/tests cta/portfolio_logic/tests cta/risk/tests cta/model/tests`
+→ **726 passed**。
+
+### OOT 复跑验证（NEW=oot_20260531_011914_cluster_both_sigsize，三向对比 BEFORE/AFTER）
+- **月度 Sharpe 2.65→3.91（+47%）**、Calmar 9.09→9.77、MDD -4.31%→**-3.87%**（均改善）。
+- 集中度大幅下降：top5 品种 40.3%→**29.2%**、top1 单笔 8.6%→**3.75%**、**concentration_warning True→False**。
+- 仅以年化 -1.3pp（39.15%→37.80%）换取上述全面改善。signal_type 机制验证：bull_pullback 净利↑、
+  atr_breakout 净利 1.58M→0.96M↓（符合设计）。**判定：风险调整后大胜，保留激进档。**
+
+### 文件
+config(2) + pipeline(1) + ranker(2) + risk sizing(新1+config+orchestrator+__init__) + tests(新1+改2)；
+更新 `cta/docs/usage_pct.md` §9 实测结果。
+
+### 风险与后续
+- sim/live 的 `SignalTypePositionScaler` 默认关闭，启用前需 soak 验证 lots×系数与 OOT 名义口径的成交一致性。
+- 若想找回 1.3pp 年化：atr_breakout 系数 0.4→0.5-0.6（中等档）重测权衡。
+
+---
+
+## 2026-05-31 (日) · 把 usage_pct.md 重写为 CODE-READY 实现规格
+
+### 任务
+将 `cta/docs/usage_pct.md` 整体重写成可直接生成代码的实现规格（§8 CODE-READY），落实 3 项决定：
+1. 回退 5 个被证伪的放宽上限；2. `max_total_per_cluster` 在旧值 4 基础上放宽到 **8**；
+3. 新增按 signal_type 差异化 sizing（pullback 放大、atr_breakout 缩小）。
+
+### 文档规格要点（待编码 agent 实现，本轮不改代码）
+- 改动 A：OotEvaluationConfig（symbol_notional 0.40→0.30、per_symbol 5→3、total 100→10）+
+  CapsConfig（total 100→10、per_symbol 5→1、per_cluster 20→**8**、symbol 0.40→0.30、cluster 0.60→0.50）。
+- 改动 B：`max_position_scale` 0.15→**0.10**（回退到 BEFORE 最优口径）。
+- 改动 C：新增 `signal_type_size_multiplier`（默认 bull_pullback=2.0 / breakout_pullback=1.5 / atr_breakout=0.4），
+  `__post_init__` 归一化+校验(0,5]，注入 `pipeline_oot_evaluation.py` L388 单笔名义上限
+  `min(max_position_scale*st_mult,1.0)`（reverse-sizing+fallback 两分支都乘）。
+- 改动 D：ranker `allocate()` L174 按 `score+bonus(signal_type)` 排序优先级，不动 score_threshold。
+- 含 TDD 测试清单、三层一致约束（sim/live sizing 须用同字段）、重跑/三向对比判定标准。
+
+### 用户拍板量级
+per_cluster=8；signal_type 激进档（2.0/1.5/0.4）；max_position_scale 回退 0.10。
+
+### 修改文件
+- 重写 `cta/docs/usage_pct.md`（283 行；§1-§7 诊断 + §8-§10 实现规格）。
+
+### 风险与后续
+- 文档是施工规格，代码尚未落地。编码后须按 §9 重跑 OOT，三向对比确认 Sharpe/Calmar 不降、MDD 不恶化；
+  不达标则把激进档退中等档（1.5/1.3/0.6）。
+
+---
+
+## 2026-05-31 (日) · BEFORE/AFTER 对比验证：放宽仓位上限为净负面，建议回退
+
+### 任务
+跑放宽后的 AFTER（`oot_20260531_000100_cluster_both`）与 BEFORE（`oot_20260530_215522_cluster_both`）对比，
+更新 `cta/docs/usage_pct.md`。
+
+### 结论（反转上一条建议）
+放宽 U1-U5（total 10→100、per_cluster 4→20、per_symbol 3→5、symbol_notional 0.30→0.40、cluster 0.50→0.60）后：
+- 执行笔数 +18%（7248→8569），但净利仅 **+0.9%**（9,326,370→9,408,272）。
+- MDD -4.31%→**-5.25%**、月度 Sharpe 2.65→**2.50**、Calmar 9.09→**7.51** 全面变差；
+  风险资本效率 8.18×→**5.45×**。
+- 新增交易零 edge：cluster_other +1020 笔仅 +3 万；**atr_breakout +1167 笔，桶净利反降 22.5 万**。
+- → portfolio_constraints 砍掉的 88% 候选是有效质量闸门，非瓶颈。**建议把 U1-U5 五个默认值回退到 BEFORE。**
+- 真正增长杠杆改为 U10（按 signal_type 差异化 sizing：pullback_continuation 加权、atr_breakout/day 降权）。
+
+### 修改文件
+- 更新 `cta/docs/usage_pct.md`（§0 结论反转 + 新增 §7.5 BEFORE/AFTER 对比 + §7 建议表改为"回退" + 清理末尾杂质标签）。
+
+### 风险与后续
+- U1-U5 配置默认值**当前仍是放宽后的值**，尚未回退；待确认后改回
+  `cta/config/model_oot_eval_config.py` 与 `cta/portfolio_logic/config.py` 并重跑确认。
+
+---
+
+## 2026-05-31 (日) · 资金/名义利用率分析 → `cta/docs/usage_pct.md`
+
+### 任务
+分析放宽参数前的 OOT `cta/backtest/oot_20260530_215522_cluster_both`（收益/仓位/交易/signal_type/cluster
++ 09_diagnostics），定量评估仓位上限是否合理并给出参数修改建议。
+
+### 主要发现
+- **资金利用率峰值仅 4.81%**（全期 margin），95% 本金闲置；单笔 `position_scale` 恒为 0.10（被天花板裁）。
+- **gate_funnel：ranker 后 59,475 候选 → 仅执行 7,248（淘汰 88%）**，死在 portfolio_constraints；
+  一边大量优质候选被拒、一边资金闲置 = 笔数/名义约束过紧。
+- 单品种名义紧贴旧 0.30 上限（binding）；板块名义只到 ~30%（< 0.50，不 binding，真正瓶颈是
+  CapsConfig `max_total_per_cluster=4`）；`max_total_notional_pct=1.5` 从未触及。
+- 集中度偏高：pnl_gini 0.45、top5 品种占净利 40%、cluster_other 41%、EC0 单品种 15.4%；
+  但剔除 top20 笔仍有 24.7% 年化（底子稳）。
+- signal_type：bull/breakout pullback_continuation 60%+ 胜率、占净利 67%；interval：minute60 > minute30 > day。
+- bond 唯一净亏板块（信号问题，非容量）。
+
+### 建议（写入文档 §7）
+优先"加宽度"而非"加单笔大小"：U1-U5（total 10→100、per_cluster 4→20、per_symbol 3→5、
+symbol_notional 0.30→0.40、cluster_notional 0.50→0.60）已落地待验证；`max_position_scale` 维持 0.10；
+bond/持续亏损品种另行处置；10M 本金偏大 20×，实盘需统一容量口径。
+
+### 修改文件
+- 新增 `cta/docs/usage_pct.md`（219 行，分析型，不改代码）。
+
+### 风险与后续
+- U1-U5 尚未用完整 OOT 验证；文档 §8 给出重跑命令与 AFTER/BEFORE 对比判定标准
+  （重点看集中度是否下降、margin 峰值是否仍 < 30-40%）。
+
+---
+
+## 2026-05-30 (六) · 放宽仓位上限（笔数/名义）统一两层 + 修复 OOT 报告缺列崩溃
+
+### 任务
+为测试更宽松的并发/名义上限，把 OOT 评估的两层仓位限制统一上调；
+顺带修复回归中暴露的报告生成器在 trades 缺 `net_pnl` 列时崩溃的预存 bug。
+
+### 改动
+1. **仓位上限统一放宽**（两层同口径）：
+   - `cta/config/model_oot_eval_config.py`（OotEvaluationConfig）：
+     `max_symbol_notional_pct` 0.30→**0.40**、`max_concurrent_positions_per_symbol` 3→**5**、
+     `max_concurrent_positions_total` 10→**100**。
+   - `cta/portfolio_logic/config.py`（CapsConfig）：
+     `max_total_positions` 10→**100**、`max_per_symbol` 1→**5**、`max_total_per_cluster` 4→**20**、
+     `max_symbol_notional_pct` 0.30→**0.40**、`max_cluster_notional_pct` 0.50→**0.60**
+     （`max_total_notional_pct` 仍 1.5；校验 0.40≤0.60≤1.5 通过）。
+   - 注：`cta/config/cross_sectional_rotation_config.py` 的 `max_symbol_notional_pct=0.10` 是
+     轮动权重上限（语义不同子系统），**不在本次统一范围**。`max_position_scale`（单笔≤10% 权益）**未动**。
+2. **修复报告生成器缺列崩溃**（预存 bug，与上条无关，由 `test_group_pool_mode` 暴露）：
+   trades 缺 `net_pnl` 列时 `df.get("net_pnl", <标量>)` 返回 float，后续 `.notna()/.fillna()` 崩。
+   统一改为 Series 默认 / 显式列存在判断：
+   - `cta/model/reporting/oot_concentration.py` `_executed_trades`：加 `if "net_pnl" in columns` 守卫，缺列返回空。
+   - `cta/model/reporting/walk_forward_diagnostics.py:106`：标量 `0.0` → `pd.Series(dtype=float)`。
+   - `cta/model/reporting/pipeline_html_report.py:36-38`：3 处标量 → `pd.Series(0.0, index=...)`。
+   - `cta/model/reporting/pipeline_outputs.py:58/62/63`：3 处标量 → `pd.Series(..., index=oot.index)`。
+
+### 运行命令
+```bash
+python3 -m pytest cta/model/tests/ cta/portfolio_logic/tests \
+  cta/config/tests/test_model_oot_eval_config.py cta/live/tests/test_risk.py \
+  cta/sim/tests/test_adapters.py -q
+```
+
+### 结果
+388 passed（此前红的 `test_group_pool_mode` 现转绿）。
+
+### 风险与后续
+- 上限大幅放宽后单簇/单品种集中度会上升，需用一次完整 OOT eval 复核 MDD 与板块集中度
+  （`00_overview/headline_metrics.csv` + `09_diagnostics/concentration_diagnostics.csv`）后再决定是否定稿。
+- 两层仍并存（OotEvaluationConfig 管 sizing/并发，CapsConfig 管 portfolio_logic runtime 名义/笔数），
+  本次仅统一数值，未合并为单一来源。
+
+---
+
+## 2026-05-30 (六) · 撰写银河 CTP 仿真接入规划 `cta/docs/sim_plan.md`
+
+### 任务
+以 CTA 实盘视角，把"接入银河证券期货 CTP 仿真"的全部改动拉成可执行专项计划。
+
+### 修改文件
+- **新增** `cta/docs/sim_plan.md`（366 行，14 条 S-A~S-N 改动项，每条 5 字段）：
+  - 每日实盘闭环架构图（T-1 盘后数据 / T 盘前自检 / T 盘中信号-下单-管仓 / T 盘后对账-报告）
+  - **P0 接入阻断**：S-A 银河 CTP 前置+凭据、S-B 数据下载+完整性闸门、
+    **S-C 实时信号生成入口★（最大缺口：现无"加载模型→今日 predict→出候选"在线路径）**、
+    S-D live 接 RiskOrchestrator(M2/B1)、S-E 逐笔日志对齐 OOT trade_cols(L33)、
+    **S-F 三层一致性对账闸门★（cfg_fingerprint 三处比对 + 逐笔 decision parity，用户第4点）**
+  - **P1 完整闭环**：S-G 拆单(iceberg/TWAP/ADV 参与率)、S-H 持仓管理、S-I 盘前自检、
+    S-J 日/周/月+复盘报告、S-K 断线容灾
+  - **P2 精细化**：S-L 撮合真实性、S-M 监控告警、S-N 资金风控实盘 wire
+  - §7 三层一致铁律 + §8 soak 灰度门槛(dry-run→1手 5-10日 parity 全过→放量) + §9 落地顺序 +
+    §10 风险回退 + §11 不变量（防泄露/三层一致/fail-open/凭据绝不入库/cta 边界）
+
+### 核对的真实锚点
+trade_cols 在 `pipeline_oot_evaluation.py:33`；live 零引用 cta.risk（M2 确认）；无拆单实现；
+无在线信号入口（S-C 确认）；凭据模板现用 SimNow 地址(180.168.146.187/broker 9999)需换银河前置。
+
+### 验收
+- `wc -l` → 366；`grep -c '^### S-'` → 14；`test_docs_sync.py` → 3 passed
+- 用户 5 点全覆盖（数据 S-B / 信号 S-C / 拆单 S-G / 日志+对账+三层一致 S-E/S-F / 报告 S-J）
+
+### 风险与后续
+纯文档。脊梁是 S-C（实时信号）+ S-F（三层对账）；建议按 §9 W1 先打通"连接+数据+信号 dry-run"。
+
+---
+
+## 2026-05-30 (六) · 继续落地 `better_20260530.md`：C4/C5（OOT guard 链 + score drift 基准与接线）
+
+### 任务
+继续实现 backlog 后续代码：  
+1) OOT 评估接入可回放 guard 链（按时间顺序）并写入 `risk_block_reason`；  
+2) 训练阶段产出 score distribution baseline，sim/live/OOT 可复用 drift 基准；  
+3) 补齐 CLI 和文档命令入口。
+
+### 修改文件
+- `cta/config/model_oot_eval_config.py`  
+  新增 OOT guard 链配置字段：`use_oot_guard_chain`、各 guard 开关及 guard config（cross_cluster / consecutive_loss / signal_concentration / score_drift）。
+- `cta/model/oot/pipeline_oot_evaluation_inputs.py`  
+  `apply_risk_orchestrator_columns` 增加 OOT guard 链回放：按时间顺序维护开仓状态并追加 `risk_block_reason`，支持 `cross_cluster` / `consecutive_loss` / `signal_concentration` / `score_distribution_drift`。
+- `cta/model/orchestration/pipeline_run_predictions.py`  
+  新增 `write_score_distribution_baseline_from_scored_rows`，输出  
+  `score_distribution_train_*.json` 与 `score_distribution_train_latest.json`（仅 train/valid）。
+- `cta/model/orchestration/pipeline_run.py`  
+  训练流程新增写出 score distribution baseline（与 quantile manifest 同目录）。
+- `cta/sim/adapters/entry_gate_chain.py`  
+  新增 Stage0 可选 score drift guard（critical/emergency 时阻断开仓），复用同一 baseline。
+- `cta/model/eval_only_cli.py`  
+  新增开关：`--enable-oot-guard-chain`、`--enable-oot-cross-cluster-guard`、`--enable-oot-consecutive-loss-guard`、`--enable-oot-signal-concentration-guard`、`--enable-oot-score-drift-guard`、`--score-drift-train-path`。
+- 测试：  
+  `cta/model/tests/test_risk_wiring.py`、`cta/model/tests/test_eval_only.py`、`cta/sim/tests/test_adapters.py`。
+- 文档：`cta/run.md`、`cta/model/model.md`（新增 guard 链与 score drift 命令说明）。
+- `cta/risk/guards/config.py`  
+  `ScoreDistributionDriftConfig.train_distribution_path` 默认值改为 `cta/model/manifests/score_distribution_train_latest.json`。
+
+### 验证命令
+```bash
+python3 -m pytest cta/model/tests/test_risk_wiring.py -q
+python3 -m pytest cta/model/tests/test_eval_only.py -q
+python3 -m pytest cta/sim/tests/test_adapters.py -q
+python3 -m pytest cta/risk/tests/test_score_distribution_drift.py -q
+python3 -m pytest \
+  cta/model/tests/test_pipeline_oot_evaluation.py \
+  cta/config/tests/test_model_oot_eval_config.py \
+  cta/model/tests/test_risk_wiring.py \
+  cta/sim/tests/test_adapters.py -q
+python3 -m py_compile \
+  cta/model/orchestration/pipeline_run_predictions.py \
+  cta/model/oot/pipeline_oot_evaluation_inputs.py \
+  cta/sim/adapters/entry_gate_chain.py \
+  cta/config/model_oot_eval_config.py \
+  cta/risk/guards/config.py
+```
+
+### 输出位置
+- manifest 输出：`cta/model/manifests/score_distribution_train_*.json`  
+- latest 链接文件：`cta/model/manifests/score_distribution_train_latest.json`
+
+### 风险与后续
+- `consecutive_loss` 在 OOT 回放侧目前依赖评估流程中的顺序更新，建议后续补更贴近“真实平仓后记账”的事件驱动回放测试。  
+- 可继续把 OOT guard 链细化为“按 cluster + interval 配置强度”的参数化清单。
+
+## 2026-05-30 (六) · 继续落地 `better_20260530.md`：C2/C3/C7/C8 + D1 超长文件拆分
+
+### 任务
+继续按 `cta/docs/better_20260530.md` 顺序推进，补齐上一轮未落地的快赢项和风险阈值逻辑。
+
+### 修改文件
+- `cta/risk/threshold/quantile_threshold.py`：C2 修正 `emit_pctl=True`，用 symbol 自身 raw 分位在 cluster-wide 分布上插值成等效 pctl 阈值，不再只是 `p70 -> 70`。
+- `cta/model/eval_only_cli.py`、`cta/model/eval_only_run.py`：C7 新增 `--note`，写入 `cfg_fingerprint.json`；C3 新增 `meta/cfg_drift_report.json`，对比 train fingerprint 与 eval cfg 的关键字段。
+- `cta/model/reporting/oot_report_writer.py`：C7 在 `executive_summary.md` 追加「复现信息」段，包含命令、启动时间、run_tag、git_sha、关键 cfg 与 note。
+- `cta/config/model_oot_eval_config.py`、`cta/config/baseline_skill_suite_config.py`、`cta/config/skill_tight_range_breakout_config.py`、`cta/model/reporting/group_pool_aggregate.py`、`cta/model/oot/oot_trade_simulation.py`、`cta/model/reporting/walk_forward_diagnostics.py`：C8 默认资金口径统一到 `10_000_000`。
+- `cta/data_code/futures_downloader_utils.py`、`cta/data_code/futures_downloader.py`：D1 拆分规范化/重采样 helper，主 downloader 压到 500 行。
+- `cta/model/dataset/pipeline_dataset_rotation.py`、`cta/model/dataset/pipeline_dataset_prep.py`：D1 拆分截面轮动候选构造，dataset prep 压到 500 行以内。
+- `cta/model/tests/test_pipeline_oot_evaluation_time_and_limit.py`、`cta/model/tests/test_model_pipeline_part03_symbol_cap.py`：D1 拆分超长测试文件。
+- 文档：`cta/run.md`、`cta/keyword.md`、`cta/model/model.md`、`cta/config/README.md` 同步新增 `--note`、默认资金/周回撤口径和旧 flag 清理。
+- 测试：更新 `test_quantile_threshold.py`、`test_eval_only.py`、`test_oot_report_writer.py`、`test_strategy_and_suite_configs.py`。
+
+### 验证命令
+```bash
+python3 -m pytest cta/risk/tests/test_quantile_threshold.py -q
+python3 -m pytest cta/config/tests/test_strategy_and_suite_configs.py -q
+python3 -m pytest cta/model/tests/test_eval_only.py::TestRunOotEvalBatch::test_batch_surfaces_note_in_fingerprint_and_summary \
+  cta/model/tests/test_eval_only.py::TestRunOotEvalBatch::test_batch_writes_cfg_drift_report_when_train_fingerprint_differs \
+  cta/model/tests/test_oot_report_writer.py::TestOotReportWriter::test_summary_includes_reproducibility_info_when_provided -q
+python3 -m pytest cta/run/tests/test_no_500plus_files.py -q
+python3 -m py_compile cta/data_code/futures_downloader.py cta/data_code/futures_downloader_utils.py \
+  cta/model/dataset/pipeline_dataset_prep.py cta/model/dataset/pipeline_dataset_rotation.py
+```
+
+### 输出位置
+- eval-only bundle：`cta/backtest/oot_<timestamp>_<run_tag>/`
+- 新增/增强文件：`00_overview/executive_summary.md`、`meta/cfg_fingerprint.json`、`meta/cfg_drift_report.json`
+
+### 风险与后续
+- C4/C5 属于更重的 OOT guard 回放与在线 drift monitor wire，未在本轮强行半成品接入。
+
+## 2026-05-30 (六) · 实现 `better_20260530.md` 首批真 alpha 诊断与真实成本口径
+
+### 任务
+读取 `cta/docs/better_20260530.md`，按 TDD 先补测试再实现首批可闭环项：B1/B2/B3/B4/C1/C6 的最小纵切。
+
+### 修改文件
+- `cta/model/reporting/oot_concentration.py`：新增 OOT 收益集中度诊断，输出剔 top1/top5/top20 后收益、top1 单笔占比、top5 品种占比、pnl_gini 与红线标记。
+- `cta/model/reporting/walk_forward_diagnostics.py`：新增 OOT 子窗口 walk-forward 稳定性汇总。
+- `cta/model/reporting/oot_report_writer.py`：headline 增加集中度、可部署资金口径；写出 `09_diagnostics/concentration_diagnostics.csv` 与 `walk_forward_summary.csv`。
+- `cta/config/cost_manifest.py`、`cta/config/model_oot_eval_config.py`、`cta/model/oot/pipeline_oot_evaluation_inputs.py`：新增 symbol 级成本覆盖、ADV 冲击成本、OOT liquidity floor guard 入口。
+- `cta/model/oot/pipeline_oot_evaluation.py`：OOT 评估接入 `blocked_liquidity_floor`，并保留逐笔 `liquidity_block_reason`。
+- `cta/model/orchestration/pipeline_cli.py`、`cta/model/eval_only_cli.py`：新增 `--enable-impact-cost`、`--impact-cost-k`、`--disable-liquidity-floor`。
+- `cta/live/live_runner.py`：live 启动前从同一 `OotEvaluationConfig` 注入 `EntryGateChain` 与 `PositionEvaluator`。
+- 文档：`cta/run.md`、`cta/keyword.md`、`cta/config/README.md`、`cta/model/model.md` 同步新增运行命令和字段说明。
+- 测试：新增/更新 `test_oot_concentration_diagnostics.py`、`test_walk_forward_eval.py`、`test_oot_liquidity_floor.py`、`test_impact_cost.py`、`test_pipeline_cli.py`、`test_live_runner.py`、`test_eval_only.py`。
+
+### 运行命令
+```bash
+python3 -m pytest cta/model/tests/test_oot_concentration_diagnostics.py \
+  cta/model/tests/test_walk_forward_eval.py \
+  cta/model/tests/test_oot_liquidity_floor.py \
+  cta/config/tests/test_impact_cost.py -q
+
+python3 -m cta.model.eval \
+  --from-root cta/backtest \
+  --pattern "20260529_GRP_CLUSTER_*_both_model_pipeline" \
+  --output-root cta/backtest/$(date +%Y%m%d)_eval_quality \
+  --run-tag cluster_both_quality \
+  --enable-risk-system \
+  --risk-quantile-field p70 \
+  --risk-manifest-path cta/model/manifests/score_quantile_manifest_latest.json \
+  --enable-impact-cost \
+  --impact-cost-k 0.10
+```
+
+### 输出位置
+- 结构化 OOT 报告：`cta/backtest/oot_<timestamp>_cluster_both_quality/`
+- 新诊断文件：`09_diagnostics/concentration_diagnostics.csv`、`09_diagnostics/walk_forward_summary.csv`
+
+### 风险与后续
+- 本次 B3 使用候选行已有流动性字段触发 guard；若历史 predictions 缺字段会 fail-open。下一步应把 origin 行情的滚动 ADV / spread / turnover join 到候选表。
+- C1 的冲击成本默认关闭，需要显式 `--enable-impact-cost` 做容量压力测试。
+- C2/C3/C4/C5/D1-D4 仍建议继续按 `better_20260530.md` 的周计划推进。
+
+## 2026-05-30 (六) · 优化 backlog `cta/docs/better_20260530.md`（+C7/C8）
+
+### 任务
+按用户要求继续优化改进 backlog 文档，补 2 条新条目 + 更新资金口径。
+
+### 修改文件
+- `cta/docs/better_20260530.md`（356 → 418 行，14 → 16 条）：
+  - **新增 C7**（P1 ⚡quick win，0.5d）：`executive_summary.md` 加「复现信息」段——运行命令(argv)、
+    启动时间(generated_at)、git_sha、run_tag、关键 cfg、主要测试方向（新增 eval CLI `--note`）。
+    锚点 `oot_report_writer.py:_write_headline_and_summary` L263-268 + `meta/cfg_fingerprint.json`
+    L117-118（命令/时间已记录，只是没 surface 到摘要）。
+  - **新增 C8**（P1 ⚡quick win，0.5d）：回测资金 `initial_capital` 1M→10M（3 处 config 默认：
+    model_oot_eval_config:130 / baseline_skill_suite_config:88 / skill_tight_range_breakout_config:68）。
+    **显式标注口径风险**：notional cap 用 `equity`(=capital+pnl)，改资金对 return% 的影响取决于
+    sizing 是否随 equity 缩放（随 equity→return% 不变只是绝对数 10x；fixed-lot→return% 缩 1/10），
+    改前先确认 sizing 模式、改后必须重跑 OOT 验证。
+  - §6 落地顺序加「第 0 步 quick win：C7+C8 先做」+ 依赖图补 C7/C8；C6 prose 100万→1000万 + 与 C8 交叉引用。
+
+### 验收
+- `wc -l` → 418；`grep -c '^### [BCD][0-9]'` → 16；C7/C8 在 §2 总表
+- `python3 -m pytest cta/run/tests/test_docs_sync.py -q` → 3 passed
+
+### 风险与后续
+纯文档。注：C1（symbol 级成本 + 冲击成本）的 config 字段本日已被并入
+`model_oot_eval_config.py`（commission_pct_by_symbol / use_impact_cost 等）；C8 的实际
+配置改动（1M→10M）+ C7 的 executive_summary 代码实现仍待按 backlog 实施。
+
+---
+
+## 2026-05-30 (六) · 撰写系统改进 backlog `cta/docs/better_20260530.md`
+
+### 任务
+以中国 CTA 实盘视角，把系统当前最该改进的事项写成可被 codex/opus 直接实现的 backlog 文档。
+
+### 修改文件
+- **新增** `cta/docs/better_20260530.md`（356 行，14 条改进项 B1-B4/C1-C6/D1-D4）：
+  每条含 6 字段（现状/alpha 影响/实现锚点/改法/验收/工作量），P0-P2 分级，附依赖图 + 不变量。
+  - P0：B1 live 接 RiskOrchestrator、B2 OOT 收益质量诊断（剔 top-N 后年化 + 集中度红线）、
+    B3 低流动性护栏在 OOT 生效、B4 walk-forward 多窗口稳健性闸门
+  - P1：C1 成本升级(symbol 级 + 冲击成本)、C2 quantile 真正生效、C3 cfg 一致性 CI、
+    C4 guard 接 OOT、C5 模型衰减监控、C6 可部署资金收益口径
+  - P2：D1 拆 >500 行文件、D2 中性常量列清理、D3 文档对齐、D4 CI 强制
+- `cta/run.md`：删除 model_pipeline 示例中已删的 3 个 train flag（trailing/profit/trend）+
+  对应说明段（补 5 功能下线注记）—— 修复 5 功能删除遗留的 docs_sync 回归。
+
+### 验收
+- `wc -l cta/docs/better_20260530.md` → 356；`grep -c '^### [BCD]'` → 14
+- `python3 -m pytest cta/run/tests/test_docs_sync.py -q` → 3 passed（已修 run.md 回归）
+- 注：`test_no_500plus_files.py` 仍失败，是 4-7 个预存在 .py 超长文件（即本文档 D1 待办），
+  与本次无关、非本次引入
+
+### 风险与后续
+纯文档 + run.md 文案清理，不动代码逻辑。建议按 §6 顺序优先做 B2/B4/B3（看清真 alpha）→ B1（切盘）。
+
+---
+
+## 2026-05-30 (六) · 删除 5 个 OOT 功能（train + OOT + sim 全链路）
+
+### 任务
+按用户要求，安全删除 5 个功能及 `--enable-all-oot-modules` 开关与对应文档：
+trailing_take_profit / profit_aware_horizon / trend_aware_trade_filter /
+ma_cross_gate / regime_short_filter。**保留**共享基建（trailing_exit ATR 移动止损引擎、
+horizon_extend、base trade_filter gate、compute_trend_score / PositionTrendState /
+regime_label 特征、hard_stop P1-13）。
+
+### 整文件删除（15 个）
+- 配置：`cta/config/{trailing_take_profit_config,profit_aware_horizon_config,trend_aware_trade_filter_config}.py`
+- 模块：`cta/portfolio_logic/{trailing_take_profit,profit_aware_horizon}.py`
+- 设计文档：`cta/docs/ma_cross_regime_aware_design.md`
+- 测试：`test_{ma_cross_gate,regime_short_filter,trailing_take_profit_config,profit_aware_horizon_config,trend_aware_trade_filter_config}.py`（config/tests）、
+  `test_{trailing_take_profit,profit_aware_horizon}.py`（portfolio_logic/tests）、
+  `test_eval_only_cli_oot_flags.py`、`test_oot_trend_filter_enabled_keys.py`（model/tests）
+
+### 外科编辑（移除引用，保留文件）
+- `cta/config/model_oot_eval_config.py`：删 ~13 个字段（use_ma_cross_gate / ma_cross_* /
+  use_regime_short_filter / regime_short_* / use_trend_aware_trade_filter / require_* /
+  trend_threshold_* / trailing_take_profit / profit_aware_horizon）+ __post_init__ 校验/归一化段
+- `cta/model/oot/oot_gates.py`：删 apply_ma_cross_gate / apply_regime_short_filter /
+  _effective_trend_filter_enabled_keys / _enabled_keys_from_dict（保留 filter_candidates）
+- `cta/model/oot/oot_trade_filter_gate.py`：删 _trend_aware_delta_series；
+  `trend_aware_threshold_delta` / `trend_aware_relaxed` 两列保留为中性常量（兼容 trade schema）
+- `cta/model/oot/pipeline_oot_evaluation_gates.py`：删两个 gate 调用
+- `cta/model/oot/pipeline_oot_evaluation.py`：删 simulate_trailing_exit 的 2 个 cfg kwargs
+- `cta/model/oot/block_reasons.py`：删 BR_BLOCKED_MA_CROSS_TREND / BR_BLOCKED_REGIME_SHORT_FILTER
+- `cta/portfolio_logic/trailing_exit.py`：删 trailing_tp + profit_horizon 子评估器（保留 ATR
+  移动止损 + horizon_extend）；trailing_tp_active / trailing_tp_highwater / horizon_extended_to
+  保留为中性常量
+- `cta/model/eval_only_cli.py`：删 5 模块 flag + `--enable-all-oot-modules` + _expand_cells_spec
+- `cta/model/eval_only_run.py`：删 cfg fingerprint 中 5 模块字段
+- `cta/model/orchestration/pipeline_cli.py`：删 3 个 train flag + _parse_enabled_cells
+- `cta/sim/adapters/{entry_gate_chain,position_evaluator,__init__}.py`：删 Stage 2/3 + trailing_tp/horizon
+
+### 受影响测试修复
+test_bull_mode_trade_filter_gate / test_pipeline_cli / test_model_oot_eval_config /
+test_adapters / test_trailing_exit / test_htf_gate_fallback_sim / test_bond_filter_parity
+移除引用已删功能的用例；test_model_stage_layout 顺带补 train/eval 新入口（预存在失败）。
+
+### 活文档
+- `cta/docs/sim_live_integration_roadmap2.md`：加 2026-05-29 功能下线声明
+- `cta/sim/adapters/__init__.py` 头注释：标 P1-8/9/10/11 下线
+
+### 验收
+- `python3 -m cta.model.eval --help` / `train --help`：5 模块 flag 全部消失（grep=0）
+- 全链路 import OK，无 dangling reference（grep 仅剩注释已清）
+- 回归：`pytest cta/sim cta/config cta/portfolio_logic cta/risk + model 关键` → **587 passed**；
+  首轮 13 failed 全部为"测试引用已删功能"（无真实行为回归），逐一修复后全绿
+
+### 风险与后续
+- trade CSV schema 保留 5 个中性常量列（trend_aware_* / trailing_tp_* / horizon_extended_to），
+  避免破坏 pipeline_oot_evaluation 固定列表 + 报告写出；如需彻底移除列需另立任务同步改 schema + 报告器
+- 历史 OOT 报告（cta/backtest、cta/report/backtest）按用户决策保留不动
+
+---
+
+## 2026-05-30 (六) · 实施 `cta/docs/review/risk.md` 关键修复（H1/H2/M1 + 导入链解耦）
+
+### 任务
+- 读取并落地 `cta/docs/review/risk.md` 的关键问题修复：
+1. H1：quantile 阈值不应覆盖更严格 static 阈值。
+2. H2：W7-W10 sizer 要能被 `RiskOrchestrator.from_config` 自动装配。
+3. M1：`linear_dd_hysteresis_pct` 不能是死配置，必须真正生效。
+- 修复当前 `cta.risk`/`cta.live`/`cta.portfolio_logic` 包级导入副作用，恢复 risk 测试可运行性。
+
+### 修改文件
+- `cta/risk/threshold/quantile_threshold.py`
+  - `emit_pctl=True` 时改为 `max(base_threshold, label_value)`，防止下调 stricter static 阈值。
+- `cta/risk/orchestrator.py`
+  - `from_config` 自动接入 Holiday/Volatility/NightCarry/DailyVaR/ExecutionQuality/ProfitGiveBack 六个 sizer。
+  - `LinearDdScaler` 接入 `hysteresis_pct=cfg.linear_dd_hysteresis_pct`。
+- `cta/risk/sizing/linear_dd_scaler.py`
+  - 新增 `hysteresis_pct` 与状态锁定逻辑：触发后需回撤修复到 `trigger-hysteresis` 以下才解除缩仓；恶化时可继续收紧。
+- `cta/risk/config.py`
+  - `ProfitGiveBackConfig` 依赖改为 `cta.risk.sizing.config`，避免 guards 包副作用链。
+- `cta/risk/sizing/config.py`
+  - 新增 `ProfitGiveBackConfig`（sizing/guard 共用）。
+- `cta/risk/sizing/profit_give_back.py`
+- `cta/risk/state/intraday_profit_tracker.py`
+  - 统一改用 `cta.risk.sizing.config.ProfitGiveBackConfig`。
+- `cta/risk/__init__.py`
+- `cta/risk/guards/__init__.py`
+- `cta/live/__init__.py`
+- `cta/portfolio_logic/__init__.py`
+  - 全部改为 lazy export，消除包导入时的重依赖副作用。
+- 新增测试：
+  - `cta/risk/tests/test_import_safety.py`
+- 更新测试：
+  - `cta/risk/tests/test_quantile_threshold.py`
+  - `cta/risk/tests/test_orchestrator.py`
+  - `cta/risk/tests/test_linear_dd_scaler.py`
+
+### 运行命令（已验证）
+```bash
+python3 -m pytest -q cta/risk/tests
+python3 -m pytest -q cta/live/tests/test_risk.py
+```
+
+结果：
+- `cta/risk/tests`：`262 passed`
+- `cta/live/tests/test_risk.py`：`17 passed`
+
+### 风险与后续
+- 当前仓库其余模块存在独立配置问题（如 `OotEvaluationConfig` 缺字段导致部分 sim/model 用例收集失败），与本次 risk 修复无直接耦合，建议下一轮单独收敛。
+
+---
+
+## 2026-05-29 (五) · Code review `cta/risk/` → `cta/docs/review/risk.md`
+
+### 任务
+对 `cta/risk/**`（22 业务 .py + 23 test）做完整 code review，产出 `cta/docs/review/risk.md`。
+
+### 主要结论
+- 架构优秀（插件化三层 + fail-open + frozen cfg 严校验），257 tests 全过，全文件 < 500 行。
+- **H1（高危）**：`QuantileThresholdAdjuster` 在 `emit_pctl=True`（orchestrator 默认）下丢弃
+  manifest per-symbol 数据、输出恒为 p70 字面值 → 子系统①默认退化为 no-op；且会把
+  `StaticThresholdAdjuster` 设的 bond 严格 80pp（Action 2）悄悄拉回 70pp。
+- **H2**：W7-W10 共 10 个 sizer/guard 未进 `orchestrator.from_config` 自动装配，sim 路径
+  实际不生效；risk.md §20 标"已落"应区分"已实现 vs 已接入生产"。
+- **M1**：`linear_dd_hysteresis_pct` 配置定义但无人消费（死配置）。
+- **M2**：`cta/live/**` 零引用 cta.risk（live 未接，违反三层同 cfg 不变量）。
+- L1-L3：dynamic_bump/linear_dd 文档"阶梯"vs 实现"连续"不一致、bucket_scaling 头注释过期、
+  manifest meta 可能含绝对路径。
+
+### 修改文件
+- 新增 `cta/docs/review/risk.md`
+
+### 风险与后续
+建议按 P0(H1/H2) → P1(M1/M2) → P2(L*) 修复；H1 是 default-on 前的阻断项。
+
+---
+
+## 2026-05-29 (五) · 完成 risk.md W9 + W10（Drift / GiveBack / DailyVaR / ExecutionQuality）
+
+### 任务
+
+继续完成 `cta/docs/risk.md` 中未落地的 W9/W10：
+
+- W9: `ScoreDistributionDriftMonitor` + `ProfitGiveBackGuard`
+- W10: `DailyVaRBudget` + `ExecutionQualityFeedback`
+
+要求按 TDD 实施，先测试再实现。
+
+### 修改文件
+
+新增（10 个业务文件）：
+- `cta/risk/state/score_distribution_tracker.py`
+- `cta/risk/monitors/__init__.py`
+- `cta/risk/monitors/score_distribution_drift.py`
+- `cta/risk/guards/score_distribution_drift_guard.py`
+- `cta/risk/state/intraday_profit_tracker.py`
+- `cta/risk/guards/profit_give_back_guard.py`
+- `cta/risk/sizing/profit_give_back.py`
+- `cta/risk/state/daily_var_tracker.py`
+- `cta/risk/sizing/daily_var_budget.py`
+- `cta/risk/state/execution_quality_tracker.py`
+- `cta/risk/sizing/execution_quality_scaler.py`
+
+测试新增（4 个）：
+- `cta/risk/tests/test_score_distribution_drift.py`
+- `cta/risk/tests/test_profit_give_back_guard.py`
+- `cta/risk/tests/test_daily_var_budget.py`
+- `cta/risk/tests/test_execution_quality_feedback.py`
+
+配置/导出更新：
+- `cta/risk/guards/config.py`（新增 `ScoreDistributionDriftConfig`、`ProfitGiveBackConfig`）
+- `cta/risk/sizing/config.py`（新增 `DailyVaRBudgetConfig`、`ExecutionQualityConfig`）
+- `cta/risk/{__init__.py,guards/__init__.py,sizing/__init__.py,state/__init__.py}`
+
+文档更新：
+- `cta/docs/risk.md`（W9/W10 状态改为已落 + 清单 + 测试统计更新）
+- `cta/run.md`（新增 W9/W10 最小验证命令）
+
+### 运行命令（已验证）
+
+```bash
+python3 -m pytest -q \
+  cta/risk/tests/test_score_distribution_drift.py \
+  cta/risk/tests/test_profit_give_back_guard.py \
+  cta/risk/tests/test_daily_var_budget.py \
+  cta/risk/tests/test_execution_quality_feedback.py
+
+python3 -m pytest -q cta/risk/tests
+```
+
+结果：
+- 新增用例：`20 passed`
+- 风控全量：`257 passed`
+
+## 2026-05-29 (五) · 实现 W7+W8 风控六件套（节假日 / 波动率 / cluster 联动 / 连损 / 周末 carry / 信号集中）
+
+### 任务
+
+按 `cta/docs/risk.md` §20 路标，落地 W7+W8 共 6 个 P0/P1 组件。W7 三件套是 sim soak
+启动门槛的 P0/P1 必须项；W8 三件套是 sim soak 期间的 P1 精细化。这一批组件全部走"继承
+`_BaseRule` / `PositionScaler`"零侵入模式，不动现有代码，纯增量。
+
+### 修改文件
+
+新建 7 个业务 .py + 7 个 test .py：
+
+**业务（7 个）**：
+- `cta/risk/guards/cross_cluster_correlation_guard.py` —— §17.1 W7 P0
+- `cta/risk/guards/consecutive_loss_guard.py` —— §17.2 W7 P1
+- `cta/risk/guards/signal_concentration_guard.py` —— §17.3 W8 P1
+- `cta/risk/sizing/holiday_position_reducer.py` —— §16.4 W7 P0
+- `cta/risk/sizing/volatility_regime_scaler.py` —— §16.6 W8 P1
+- `cta/risk/sizing/night_session_carry.py` —— §16.5 W8 P1
+- `cta/risk/state/consecutive_loss_tracker.py` —— 配套 state（LossKey + cooldown + JSON 持久化）
+
+**新建 cfg**：
+- `cta/risk/sizing/config.py`（3 个 sizer cfg + post_init 校验）
+- `cta/risk/guards/config.py` 追加 3 个 guard cfg
+
+**测试**（78 个 cases）：test_cross_cluster_correlation_guard / test_consecutive_loss_guard /
+test_signal_concentration_guard / test_holiday_position_reducer / test_volatility_regime_scaler /
+test_night_session_carry / test_consecutive_loss_tracker
+
+**更新导出**：cta/risk + guards/sizing/state 各 __init__.py 同步暴露新组件
+**文档**：cta/docs/risk.md §20 W7/W8 标记 ✅ 已落 + 落地清单
+
+### 关键设计
+
+1. **零侵入**：Guard 继承 `cta.live.risk._BaseRule`；Sizer 实现 `cta.risk.base.PositionScaler`
+   协议 —— append 进现有链路即生效
+2. **方向分桶 cluster 计数**：CrossClusterCorrelationGuard 优先按 long/short 分别计数
+   （`open_positions_by_cluster_direction`），无该字段时退化到不分方向
+3. **per-bar 自动 reset**：SignalConcentrationGuard 内部 cache (bar_date, bar_minute)，
+   ctx.now 跨 bar 时自动 reset 计数，无需 caller 显式调
+4. **inverse_for_clusters**：HolidayPositionReducer 对避险品种（bond 等）翻转曲线 ——
+   节前不缩反而满仓
+5. **5 档波动率分段**：VolatilityRegimeScaler 默认 (30/70/85/95) 边界对应 (1.2/1.0/0.8/0.6/0.4)，
+   低 vol 放大 20% + 高 vol 砍 60%；cap_mult=1.3 防过度放大
+
+### 运行命令（已验证）
+
+```bash
+# 风控全单测
+python3 -m pytest cta/risk/tests/ -q
+# → 237 passed in 0.53s（W1-W4 80 + W6 79 + W7+W8 78）
+
+# 周边回归
+python3 -m pytest cta/live/tests cta/portfolio_logic/tests cta/sim/tests cta/config/tests -q
+# → 509 passed in 4.84s（无回归）
+```
+
+### 验收
+
+| 项 | 结果 |
+|---|---|
+| `pytest cta/risk/tests/ -q` | **237 passed** ✓ |
+| 周边回归 | **509 passed** ✓ |
+| 所有新文件 < 500 行 | 最大 262 行（consecutive_loss_tracker.py）✓ |
+| 累计 W1-W8 风控组件 | **16 个**（3 threshold + 6 sizing + 7 guards） |
+
+### 剩余 W9-W10 + W5 接入
+
+| W | 组件 | 优先级 |
+|---|------|--------|
+| W5 | OOT pipeline / sim entry_gate_chain / train manifest 接入点 wire | 关键（涉及改现有文件，单独验证） |
+| W9 | ScoreDistributionDriftMonitor + ProfitGiveBackGuard | P1（视 sim soak 数据再做）|
+| W10 | DailyVaRBudget + ExecutionQualityFeedback | P2（实盘灰度后）|
+
+### 风险
+
+| # | 风险 | 缓解 |
+|---|------|------|
+| R1 | 6 个新组件尚未接入 sim/live | 等 W5 接入点；接口稳定，wire 是机械工作 |
+| R2 | HolidayPositionReducer 需 `holidays_csv`，仓库未提供 | 复用 trading_calendar.load_holidays_from_csv；空 calendar 时 fail-open |
+| R3 | VolatilityRegimeScaler 依赖 `realized_vol_pctl` 候选列 | 多列名 fallback + 缺数据时 mult=1.0 |
+| R4 | ConsecutiveLossGuard 需 strategy on_trade 喂 tracker | 接入时 wire 到 sim_runner._attach_observers |
+
+---
+
+## 2026-05-29 (五) · 实现 W6 P0 风控四件套（涨跌停 / 流动性 / 换月 / 数据新鲜度）
+
+### 任务
+
+按 [`cta/docs/risk.md`](../docs/risk.md) §20 路标，落地 W6 P0 四件套——sim soak 启动
+门槛前必须有的"市场安全硬约束"。这 4 条 guard 直接关系到"实盘不爆仓"，是中国期货
+策略上线的最低硬指标。
+
+### 修改文件
+
+新建 6 个业务 .py + 6 个 test .py + 配套 cfg：
+
+**业务**：
+- `cta/risk/guards/__init__.py` + `config.py`（4 个 frozen dataclass + post_init 校验）
+- `cta/risk/guards/limit_move_guard.py` —— §16.1 涨跌停硬约束
+- `cta/risk/guards/liquidity_floor_guard.py` —— §16.2 流动性下限
+- `cta/risk/guards/rollover_freeze_guard.py` —— §16.3 换月禁交
+- `cta/risk/guards/prediction_stale_guard.py` —— §18.2 数据新鲜度
+- `cta/risk/state/rollover_calendar.py` —— 换月日历 CSV loader
+- `cta/risk/state/liquidity_snapshot_tracker.py` —— per-symbol N 日 volume/spread/OI 滚动
+
+**测试**：
+- `cta/risk/tests/test_limit_move_guard.py`（14 cases）
+- `cta/risk/tests/test_liquidity_floor_guard.py`（15 cases）
+- `cta/risk/tests/test_rollover_freeze_guard.py`（14 cases）
+- `cta/risk/tests/test_prediction_stale_guard.py`（13 cases）
+- `cta/risk/tests/test_rollover_calendar.py`（10 cases）
+- `cta/risk/tests/test_liquidity_snapshot_tracker.py`（13 cases）
+
+**更新**：
+- `cta/risk/__init__.py` / `cta/risk/state/__init__.py`：re-export 新组件
+- `cta/docs/risk.md` §20：W6 标记 ✅ 已落 + 落地清单
+
+### 关键设计
+
+1. **继承 `cta.live.risk._BaseRule`，不动现有 6 条规则**（plan invariant 1）。caller 把
+   新 guard append 进 `RiskGuard.rules` 即可生效，与现有体系无缝衔接
+2. **fail-open**：所有 state 文件缺失 / order 字段不完整 → 放行；上线前默认即安全
+3. **平仓默认放行**（不变量 §21.7）—— 持仓有出口
+4. **mtime cache** （PredictionStaleGuard）—— 借鉴 review §4.4 P1-4，避免每订单一次 IO
+
+### 期间修的 3 个 bug
+
+- LimitMoveGuard：`cfg.block_close_at_unfavorable_limit=True` 时 close 路径未走限价
+  判定 → 修正
+- 测试数值错：误以 RB limit_pct=0.07 计算（实际 black cluster=0.06） → 测试数值同步
+- PredictionStaleGuard：用 `pd.Timestamp.now().timestamp()` 算 age，pandas 把 naive
+  视为 UTC → +8h 偏差 → 改用 `time.time()` 与 file mtime 直接比
+
+### 运行命令
+
+```bash
+# 单测
+python3 -m pytest cta/risk/tests/ -q
+# → 159 passed in 0.56s（W1-W4 80 + W6 79）
+
+# 周边 sanity
+python3 -m pytest cta/live/tests cta/portfolio_logic/tests cta/sim/tests -q
+# → 363 passed in 5.19s（无回归）
+
+# 集成示例（W6 P0 四件套 wire 到 RiskGuard 链路）
+from cta.live.risk import RiskGuard
+from cta.risk import (
+    LimitMoveGuard, LiquidityFloorGuard,
+    RolloverFreezeGuard, PredictionStaleGuard,
+)
+from cta.risk.state import RolloverCalendar, LiquiditySnapshotTracker
+
+calendar = RolloverCalendar.from_csv("cta/config/contract_rollover_calendar.csv")
+tracker = LiquiditySnapshotTracker()
+guard = RiskGuard(rules=[
+    LimitMoveGuard(),                              # §21 invariant 6: 市场结构 Guard 优先
+    LiquidityFloorGuard(tracker=tracker),
+    RolloverFreezeGuard(calendar=calendar),
+    PredictionStaleGuard(...),
+    # 现有 6 条 _BaseRule（MaxOrderSize, ...）排在后面
+])
+```
+
+### 输出位置
+
+- 代码：`cta/risk/guards/`（6 .py，最长 140 行）
+- 状态层新增：`cta/risk/state/`（2 .py）
+- 文档更新：`cta/docs/risk.md` §20 W6 状态 ✅
+
+### 验收
+
+| 项 | 结果 |
+|---|---|
+| `pytest cta/risk/tests/ -q` | **159 passed** ✓ |
+| `pytest cta/live cta/portfolio_logic cta/sim` 不回归 | **363 passed** ✓ |
+| 所有新文件 < 500 行 | 最大 162 行（test_prediction_stale_guard.py）✓ |
+| 与 `cta.live.risk._BaseRule` 接口完全兼容 | ✓（直接 append 进 RiskGuard.rules） |
+
+### 风险与后续
+
+| # | 风险 | 缓解 |
+|---|------|------|
+| R1 | LiquidityFloorGuard 数据源依赖 caller（order dict 自带或 tracker 注入），sim_runner / live_runner 接入 wire 尚未做 | 下一轮（W7）做接入；本轮 guards 接口稳定，wire 是机械工作 |
+| R2 | RolloverFreezeGuard 需 `contract_rollover_calendar.csv` 但仓库未提供该文件 | 数据准备：从 vnpy.contract 或 wind/通联数据生成；空 calendar 时 guard 自动 fail-open，不会误拦 |
+| R3 | PredictionStaleGuard 接 sim/live 时需注入 predictions_path | live_runner / sim_runner 的 cfg 加 `predictions_path` 字段，下一轮做 |
+| R4 | LimitMoveGuard 需 order 携带 prev_close，可能需要 sim 侧从 bar 拼装 | 已 fail-open；wire 时由 strategy.on_bar 注入 prev_close 到 order |
+
+**下一步**：
+- **W2/W5 接入点 wire**（plan 原计划）：把 W1-W4 的 RiskOrchestrator + W6 四件套真接到
+  `entry_gate_chain.py` Stage 5 + `_attach_observers` + `pipeline_oot_evaluation_inputs`
+- **W7 P0/P1**：HolidayPositionReducer + CrossClusterCorrelationGuard + ConsecutiveLossGuard
+
+---
+
+## 2026-05-29 (五) · 风控文档扩展：12 条中国 CTA 特化风控策略 (§16-§22)
+
+### 任务
+
+继 `cta/risk/` 骨架落地后，把 `cta/docs/risk.md` 从 393 → 975 行，新增 4 章节
+（§16-§19）覆盖 12 条中国期货专属风控策略 + 扩展阶段实施（§20）+ 4 条新不变量
+（§21）+ v3 路线（§22 替原 §15）。
+
+### 12 条新风控策略
+
+**§16 市场结构风控（6 条）**：
+- §16.1 **LimitMoveGuard**（涨跌停硬约束，P0）—— 近板 / 触板拒开仓
+- §16.2 **LiquidityFloorGuard**（流动性下限，P0）—— volume/spread/OI 占比三指标
+- §16.3 **RolloverFreezeRule**（换月禁交，P0）—— 主力切换前后窗口
+- §16.4 **HolidayPositionReducer**（节假日降仓，P0）—— 距长假线性减仓
+- §16.5 **NightSessionCarryRule**（夜盘/周末隔仓，P1）—— 按 cluster 不同 carry mult
+- §16.6 **VolatilityRegimeScaler**（波动率自适应，P1）—— 5 档 ATR pctl
+
+**§17 集中度 / 相关性 / 连损（3 条）**：
+- §17.1 **CrossClusterCorrelationGuard**（cluster 联动，P0）—— 黑色/有色/化工组合 cap
+- §17.2 **ConsecutiveLossGuard**（连续亏暂停，P1）—— 24h 冷却同 (symbol, signal_type)
+- §17.3 **SignalConcentrationGuard**（同类信号并发上限，P1）
+
+**§18 模型治理（2 条）**：
+- §18.1 **ScoreDistributionDriftMonitor**（模型分漂移，P1）—— KL 散度 3 档警戒
+- §18.2 **PredictionStaleGuard**（数据新鲜度，P0）—— predictions.csv mtime / model age
+
+**§19 收益保护 + 风险预算 + 执行反馈（3 条）**：
+- §19.1 **ProfitGiveBackGuard**（盈利回吐保护，P1）—— 日内盈利达 3% 后回吐 50% 强平
+- §19.2 **DailyVaRBudget**（VaR 预算，P2）—— 每 cluster 80bp 预算
+- §19.3 **ExecutionQualityFeedback**（执行质量反馈，P2）—— 实际滑点/reject 反馈缩仓
+
+每条策略给出：背景动机 / 触发条件表 / 行为表 / cfg dataclass / 实现路径 / 复用现有
+资产 / 关键边界。优先级 P0/P1/P2 对应 sim soak 启动门槛 / sim soak 期 / 实盘灰度。
+
+### 新增 4 条不变量（§21）
+
+6. **市场结构 Guard 优先** —— LimitMoveGuard / LiquidityFloorGuard / RolloverFreezeRule
+   排在 RiskGuard 链路最前；硬约束优先于 alpha 优化
+7. **平仓默认不拦** —— 所有 Guard `block_close_orders=False`，特殊场景显式开
+8. **状态 reset 边界统一** —— 按 Asia/Shanghai 21:00 夜盘起算下一交易日，不用 wall clock
+9. **A/B 可观测** —— 每条 Guard/Scaler 必须在 AdjustedDecision.debug 写触发理由 + 前后值
+
+### 扩展阶段实施（W6-W10，§20）
+
+| 周 | 策略 | 优先级 |
+|---|------|--------|
+| W6 | LimitMoveGuard / LiquidityFloorGuard / RolloverFreezeRule / PredictionStaleGuard | P0 |
+| W7 | HolidayPositionReducer / CrossClusterCorrelationGuard / ConsecutiveLossGuard | P0/P1 |
+| W8 | VolatilityRegimeScaler / NightSessionCarryRule / SignalConcentrationGuard | P1 |
+| W9 | ScoreDistributionDriftMonitor / ProfitGiveBackGuard | P1 |
+| W10 | DailyVaRBudget / ExecutionQualityFeedback | P2 |
+
+### 修改文件
+
+- `cta/docs/risk.md`：393 → 975 行（追加 §15-§22 全部章节）
+
+### 验收
+
+- `wc -l cta/docs/risk.md` → 975
+- `grep -c '^## §' cta/docs/risk.md` → 23 个二级章节
+- 文档结构通过人工 review，每条策略包含完整 cfg/实现路径/边界
+
+### 风险与后续
+
+- 文档仅 spec，**代码尚未实现**；W6-W10 按周节奏推进，每周 2-4 个组件
+- 部分策略（如 §17.1 cluster 相关性、§16.6 vol regime）会**主动减仓**，可能影响
+  alpha；落地前需 A/B 对照 OOT 数据
+- §18.1 ScoreDistributionDriftMonitor 与 ScoreQuantileManifest 共用 train 分布，需
+  确保 manifest 内同时存 P50/60/70/80/90/95 + histogram bins（manifest schema 待扩展）
+
+---
+
+## 2026-05-29 (五) · 新增风控系统 `cta/risk/` 三层组件 + 设计文档
+
+### 任务
+
+承接 plan [`cta-enumerated-pancake.md`](../../../.claude/plans/cta-enumerated-pancake.md)：
+搭风控系统骨架，覆盖用户提出的 3 个增量需求：
+1. 按 (cluster, symbol, interval) 模型分位数 + 动态阈值（初始与 70/80pp 等价）
+2. (cluster, interval, score_bucket) 桶级长期亏损 → 持续缩仓（不是 disable）
+3. portfolio 周回撤 1% 起线性降仓 + 模型阈值同步抬高，dd 信号 = max(weekly, cumulative)
+
+### 修改文件
+
+新建 `cta/risk/` 子包（15 个业务 .py + 7 个 test .py），文件最大 324 行：
+
+- `cta/risk/__init__.py` / `base.py` / `config.py` / `orchestrator.py`：抽象接口 + RiskSystemConfig + 编排器
+- `cta/risk/threshold/`：static / quantile / dynamic_bump 3 个 ThresholdAdjuster
+- `cta/risk/sizing/`：bucket_scaling / linear_dd_scaler / portfolio_throttle 3 个 PositionScaler
+- `cta/risk/state/`：score_quantile_manifest / bucket_pnl_tracker / dd_signal_provider 3 个状态层
+- `cta/risk/tests/`：7 个 test 文件，80 个 test cases 覆盖 happy/fail-open/边界/集成
+- `cta/docs/risk.md`：设计文档（~380 行）
+
+新建空目录：`cta/model/manifests/`（train 输出 quantile manifest）、`cta/run/state/`（bucket 状态 JSON）。
+
+不动现有代码（`cta/live/risk.py` 6 条 `_BaseRule` + `cta/portfolio_logic/risk_throttle.py`
+全保留；本轮**只**搭骨架，wire 到 train / OOT / sim entry_gate_chain 留下一轮做）。
+
+### 默认行为
+
+- `enable_quantile_threshold=True` 但 `quantile_field="p70"` + manifest 缺失时退回 base → **行为等价**当前
+- `enable_bucket_scaling=False`：需要 30 日 sim soak 预热后再 default-on
+- `enable_linear_dd_scaler=True` 但 `trigger_pct=0.01`：dd<1% 完全无影响
+- `enable_dynamic_bump=True` 但 dd<1% 时 +0pp → **行为等价**
+
+→ **接入到 OOT/sim 前的回放跑出来应与基线完全一致**（默认 cfg）。
+
+### 运行命令
+
+```bash
+# 单测全过
+python3 -m pytest cta/risk/tests/ -q
+# → 80 passed in 0.51s
+
+# 端到端 sanity（实施 wire 后）
+# Step 1：train → 产 score_quantile_manifest
+python3 -m cta.model.train --group-pool --only-clusters metal --interval day \
+  --output-root cta/report/backtest
+
+# Step 2：OOT eval 开 risk system（cfg 默认全开）
+python3 -m cta.model.eval --from-root cta/report/backtest \
+  --pattern "20260529_GRP_CLUSTER_*_both_model_pipeline" \
+  --enable-all-oot-modules --output-root cta/report/backtest
+```
+
+### 输出位置
+
+- 代码：`cta/risk/**` 共 22 个 .py
+- 文档：`cta/docs/risk.md`
+- 状态目录（运行时产出，不入库）：`cta/run/state/`、`cta/model/manifests/`
+
+### 验收
+
+- `python3 -m pytest cta/risk/tests/ -q` → **80 passed** ✓
+- 全 cta 回归：1373 passed / 2 pre-existing failed（model_oot_eval_config 514 行 + 类似
+  pre-existing 长文件白名单失败，与本轮无关）
+- 所有新文件 < 500 行（最大 324）
+
+### 风险与后续
+
+| # | 风险 | 缓解 |
+|---|------|------|
+| R1 | bucket 192 桶里大半 sample_count<20 → 长期不动作 | 默认 enable_bucket_scaling=False；sim soak 30 日预热 |
+| R2 | linear_dd 在 1% dd 立即降 10%，震荡时反复缩仓 | hysteresis 字段已留（cfg.linear_dd_hysteresis_pct）；待 sizer 实现侧加 |
+| R3 | quantile manifest 训练时距 OOT 漂移 | 每周 retrain；manifest 含 ts + git_sha；保留 30 天历史 |
+| R4 | 接入点（train pipeline / OOT / entry_gate_chain）尚未 wire | 下一轮做；本轮已写好 ScoreQuantileManifest.build_from_predictions 等"待挂"API |
+
+**下一轮**（W2/W5）：把 train pipeline + pipeline_oot_evaluation_inputs + entry_gate_chain
+Stage 5 真接上。
+
+---
+
+## 2026-05-28 (四) · 清空 symbol_disable_manifest（AL0 / TA0 / L0 恢复交易）
+
+### 任务
+
+2026-05-15 把 AL0（沪铝）/ TA0（PTA）/ L0（塑料）以 `persistent_loss` 标签写入
+`cta/feature/symbol_disable_manifest.csv`，让训练/OOT/sim/live 全链路剔除。本轮决定
+**清空 manifest**，3 个品种重新放回候选池观察 —— 在 Action 1/2/3 default-on + 5 OOT
+模块全开的新基线下，原来的 alpha 反向判定可能已不成立，需重新验证。
+
+### 修改文件
+
+- `cta/feature/symbol_disable_manifest.csv`：保留 header，删除 3 条 seed 行（备份为
+  `.bak.20260528`，便于 1 周内观察后回滚）。
+- `cta/config/tests/test_symbol_disable.py:104`：
+  - 旧测试 `test_real_manifest_contains_seed_entries`（断言 AL0/TA0/L0 必须在 manifest 里）
+  - 改为 `test_real_manifest_currently_empty`（断言 `disabled == set()`）
+
+### 验收
+
+- `python3 -c "from cta.config.symbol_disable import load_disabled_symbols; print(load_disabled_symbols())"`
+  → `set()` ✓
+- `python3 -m pytest cta/config/tests/ -q` → 146 passed ✓
+- `python3 -m pytest cta/model/tests/test_auto_flag_persistent_loss_symbols.py -q` → 5 passed ✓
+- `cta/model/tools/auto_flag_persistent_loss_symbols.py` 工具链未受影响（仍可基于新 OOT
+  自动产出候选并入 manifest）。
+
+### 风险与回退
+
+- **核心风险**：3 个品种历史净亏损约 -63k；放回后若新基线（Action 1/2/3 + 5 模块）仍打不正，
+  累计亏损会重新堆积。
+- **观察期**：建议跑 1 次完整 OOT eval 后人工 review 3 个品种的 net/gross_pnl；如仍负，
+  按原 reason tag 重新写回 manifest。
+- **回退路径**：`cp cta/feature/symbol_disable_manifest.csv.bak.20260528 cta/feature/symbol_disable_manifest.csv`
+  并把 test 改回旧版本。
+
+---
+
+## 2026-05-28 (四) · 对齐 `review/20260528.md` 的 sim/live P0-P1 修复（第一批）
+
+### 任务
+
+按 `cta/docs/review/20260528.md` 优先级修复 sim/live 上线前问题，重点覆盖：
+- P0-2（HTF fallback 测试漂移）
+- P0-3（TradeRecorder UTC 兜底时区错位）
+- P0-4（sim 缺 cfg fingerprint）
+- P1-1（broker 对账按 count 而非 volume）
+- P1-2 / P1-3（risk 并发锁 + flat 无持仓 no-op）
+- P1-4（kill_switch 频繁磁盘 IO）
+- P1-5（WebhookAlerter 同步阻塞）
+- P1-7（rotation silent drop 可观测性）
+- P1-8（PositionEvaluator 缺 state_provider 的显式告警）
+
+### 修改文件
+
+| 文件 | 改动 |
+|---|---|
+| `cta/sim/tests/test_htf_gate_fallback_sim.py` | bond 默认从“拦截”改为“放行”；新增 precious 仍拦截 + 空 fallback map 回退严格行为 |
+| `cta/live/trade_recorder.py` | `datetime` 统一 `ensure_naive_shanghai`；支持记录每笔 `commission`，`to_trade_log` 优先用逐笔成本 |
+| `cta/live/tests/test_trade_recorder.py` | 新增 aware→naive Shanghai 与缺 datetime 兜底测试 |
+| `cta/sim/sim_runner.py` | 启动后 best-effort 写 `meta/cfg_fingerprint.json`；默认从 `oot_cfg` 构造 manifest 成本 resolver 并挂到 `TradeRecorder`/`DailyPnlTracker` |
+| `cta/sim/tests/test_sim_runner.py` | 新增 cfg fingerprint 落盘测试 |
+| `cta/live/live_runner.py` | broker reconciliation 改为按 lots/volume 对账（而非条数） |
+| `cta/live/tests/test_live_runner.py` | 新增“key 相同但 volume 不同必须 fail”与“volume 相同可通过”测试 |
+| `cta/live/risk.py` | `OrderRateLimit` / `PortfolioThrottleRule` 加锁；`flat + pos=0` 直接 no-op |
+| `cta/live/tests/test_risk.py` | 新增并发单秒限流测试；新增 flat 无持仓 no-op 测试 |
+| `cta/live/kill_switch.py` | 增加 signal 文件 `(mtime,size)` 缓存，避免重复 `read_text` |
+| `cta/live/tests/test_kill_switch.py` | 新增缓存命中仅读取一次文件测试 |
+| `cta/live/monitoring.py` | `WebhookAlerter.send` 改异步入队，后台 worker 发送；新增 `shutdown(flush=...)` |
+| `cta/live/tests/test_monitoring.py` | 调整为异步断言；新增“慢 HTTP 不阻塞主线程”测试 |
+| `cta/sim/adapters/rotation_order_wire.py` | 为 symbol mismatch / invalid price / non-positive lots 增加 debug drop 日志 |
+| `cta/sim/tests/test_rotation_main_loop_wire.py` | 新增 silent drop 日志断言用例 |
+| `cta/sim/adapters/position_evaluator.py` | 启用 trend 模块但缺 `state_provider` 时告警一次 |
+| `cta/sim/tests/test_adapters.py` | 新增缺 state_provider 告警测试 |
+
+### 验证
+
+```bash
+python3 -m pytest -q cta/sim/tests cta/live/tests
+```
+
+结果：`266 passed`。
+
+---
+
+## 2026-05-28 (四) · 修复 5 OOT 模块"开但空跑"的 4 个根因
+
+### 任务
+
+承接 2026-05-27 5oot_on_v2 诊断（年化 33% 几乎与 baseline 一致）：cfg 写 True 但 3 个 trend filter（ma_cross / regime_short / trend_aware）拦截 = 0；调查 4 个嫌疑根因，逐个修复。
+
+### 4 个根因诊断 + 修复结果
+
+| # | 嫌疑 | 真实情况 | 修复 |
+|---|---|---|---|
+| **1** | `require_ma_alignment_magnitude=2` 与 ma_alignment 值域 [-1,0,+1] 不兼容 | ✅ 真 bug，永远不满足 | 默认 2 → **1** |
+| **2** | ma_cross/regime_short cluster key 归一化问题 | ✅ 真 bug，但位置不对——是 `_effective_trend_filter_enabled_keys` 要求 `stop_pct > 0.01`，而 2026-05-20 `intrabar_stop_loss_pct_by_cluster_interval` 默认回退到空 → 永远 False | 移除 stop_pct coupling，保留 day-only |
+| **3** | `extensions_used=0` 表明 profit_aware_horizon 没生效 | ❌ **误诊**：`extensions_used` 是 horizon_extend 模块的次数计数；profit_aware_horizon 的真实信号是 `horizon_extended_to` 列。同 1000 笔比对，**48 笔 horizon A>B**（最多延长 55 bars），整体 705 笔 horizon ≥60 vs baseline 388 笔（+82%）| no-op（机制本来就工作） |
+| **4** | ma_alignment 90% NaN | ❌ **部分误诊**：把 day + minute 混在一起统计成 90%。day 单独看仅 9.7% NaN（合理 warm-up），minute 98% NaN（独立问题，但与 day-only 约束兼容） | no-op（不阻塞 day-only 启用） |
+
+### 修改文件
+
+| 文件 | 改动 |
+|---|---|
+| `cta/config/model_oot_eval_config.py` | `require_ma_alignment_magnitude: int = 2` → `= 1`；含注释说明 |
+| `cta/config/trend_aware_trade_filter_config.py` | 同上同源修改 |
+| `cta/model/oot/oot_gates.py` | `_effective_trend_filter_enabled_keys` 移除 `stop_pct > 0.01` 约束，保留 day-only |
+| `cta/config/tests/test_ma_cross_gate.py` | `test_skips_day_when_stop_loss_not_widened` → `test_fires_on_day_with_default_stop_loss`（反转断言） |
+| `cta/config/tests/test_regime_short_filter.py` | 同上 |
+| **NEW** `cta/model/tests/test_oot_trend_filter_enabled_keys.py` | 4 条测试：default cfg 保留 day cells / minute 过滤 / 空输入 / widened stop 不影响结果 |
+| `cta/report/change_log.md` | 本条目 |
+
+### 修复后 smoke 证据
+
+**day-only 单 cluster pattern**（`20260526_GRP_CLUSTER_*_day_both_model_pipeline`）：
+
+| 模块 | 修复前 | 修复后 |
+|---|---|---|
+| blocked_ma_cross_trend | 0 | **5** |
+| blocked_regime_short_filter | 0 | **20** |
+| trend_aware_relaxed | 0 | 0（需进一步排查 realized_vol_rank 列） |
+| trailing_tp_active | 8 | 8（维持） |
+| horizon_extended_to ≥ 60 | 705 | 700（profit_aware 真延长） |
+
+修复前 5 模块只有 2 个真生效（trailing_tp + profit_horizon）；修复后增加 ma_cross + regime_short，**4 个 / 5 个真生效**。
+
+### trend_aware_relaxed = 0 残留问题
+
+修复 magnitude 后理论上应该有触发，但仍然 0。可能原因（待后续诊断）：
+- `realized_vol_rank` 列在 candidate 表里全 NaN
+- 或 candidate 的 `regime_label` 不在 `('trend_up','trend_down','expansion')` 内（实际是这 3 个值占多数，应该没问题）
+
+不阻塞本次修复——其他 4 个模块已 ≥ 80% 真生效。
+
+### 测试结果
+
+```
+pytest cta/config/tests/ cta/model/tests/test_eval_only* \
+       cta/model/tests/test_pipeline_oot_evaluation.py \
+       cta/model/tests/test_oot_trend_filter_enabled_keys.py \
+       cta/portfolio_logic/tests/
+→ 286 passed
+```
+
+### 风险与后续
+
+| # | 风险 | 应对 |
+|---|---|---|
+| R1 | `_effective_trend_filter_enabled_keys` 移除 stop_pct coupling 后，下次有人放宽 stop_loss 时 trend filter 行为不变（之前是耦合的） | day-only 约束保留，避免 minute 风险溢出；显式 docstring 写明已解耦 |
+| R2 | `require_ma_alignment_magnitude=1` 让 trade_filter 在更多 candidate 上放宽阈值 | 设计上 trend_aware 是 trade_filter 的"放宽"机制，触发后还需通过其他 gate；下轮 OOT 观察实际通过率 |
+| R3 | trend_aware_relaxed 仍 0 → trade_filter 没在 trend 时放宽 | 不阻塞，下一轮专门修；可能要补 `realized_vol_rank` 列计算 |
+| R4 | minute 路径 ma_alignment 98% NaN 长期存在 | 与 day-only 约束兼容；若未来要把 trend filter 推到 minute，需先补 candidate 层 minute 级 ma_alignment 计算 |
+
+---
+
+## 2026-05-27 (三) · 收紧 weekly DD 默认 + eval CLI 加 5 OOT 模块开关
+
+### 任务
+
+1. 把 `weekly_max_drawdown_pct` 默认从 0.03 → **0.025**（上一轮 233900 的 MDD 从 -4.6% 加深到 -6.9%，需要在保 Sharpe 的前提下收紧）
+2. eval CLI 加 5 个 OOT-only 模块开关 + 一键 `--enable-all-oot-modules`，让用户复用 `20260526_GRP_CLUSTER_*` train 产物快速 A/B 对比
+
+### 修改文件
+
+| 文件 | 改动 |
+|---|---|
+| `cta/config/model_oot_eval_config.py` | `weekly_max_drawdown_pct` 默认 0.03 → 0.025；inline 注释更新 |
+| `cta/config/tests/test_model_oot_eval_config.py` | `test_accepts_default_values` 期望值同步 |
+| `cta/model/eval_only_cli.py` | 新增 5 enable flags + 各自 `*-enabled-cells` + `--enable-all-oot-modules` / `--all-oot-enabled-cells`；新增 `_expand_cells_spec(spec)` 支持 `all_day` / `all` / "cluster\|interval,..." 三种形态 |
+| `cta/model/eval_only_run.py` | `_dump_cfg_fingerprint` 扩到含 5 个 OOT-only 字段 + `weekly_max_drawdown_pct`，防止下次 v_acb 同款命名失真 |
+| **NEW** `cta/model/tests/test_eval_only_cli_oot_flags.py` | 9 条单测：5 模块独立开 / `--enable-all-oot-modules` 默认 cells / `all` 24-cell / 显式逗号串 / default 全 False |
+| `cta/report/change_log.md` | 本条目 |
+
+### 新增 cfg 字段映射
+
+| 模块 | use flag | enabled cells | 位置 |
+|---|---|---|---|
+| trailing_take_profit | `cfg.trailing_take_profit.use_trailing_take_profit` | `cfg.trailing_take_profit.enabled_by_cluster_interval` | nested |
+| profit_aware_horizon | `cfg.profit_aware_horizon.use_profit_aware_horizon` | `cfg.profit_aware_horizon.enabled_by_cluster_interval` | nested |
+| ma_cross_gate | `cfg.use_ma_cross_gate` | `cfg.ma_cross_enabled_by_cluster_interval` | top |
+| regime_short_filter | `cfg.use_regime_short_filter` | `cfg.regime_short_filter_enabled_by_cluster_interval` | top |
+| trend_aware_trade_filter | `cfg.use_trend_aware_trade_filter` | `cfg.trend_aware_trade_filter_enabled_by_cluster_interval` | top |
+
+`_expand_cells_spec` 支持：
+- `all_day` → 8 cluster × day = 8 cell
+- `all` → 8 cluster × {day, 60min, 30min} = 24 cell
+- `precious|day,index|day,metal|day` → 显式逗号串
+
+### 用法（A/B 对比）
+
+```bash
+# === BASELINE：对应已有的 oot_20260526_233900_cluster_both ===
+# 默认 cfg：Action 1/2/3 default-on + 5 OOT 模块 OFF
+# （这就是 233900 那个 Sharpe 2.47 的 run，作为对照组）
+
+# === AFTER：5 OOT 模块全开 ===
+nohup python3 -m cta.model.eval \
+  --from-root cta/report/backtest \
+  --pattern "20260526_GRP_CLUSTER_*_both_model_pipeline" \
+  --output-root cta/report/backtest \
+  --run-tag cluster_both_5oot_on \
+  --enable-all-oot-modules \
+  --all-oot-enabled-cells all_day \
+  > 20260527_eval_5oot.out 2>&1 &
+```
+
+预计耗时 < 1 分钟（无重训）。输出落到 `cta/report/backtest/oot_<ts>_cluster_both_5oot_on/`，含 `meta/cfg_fingerprint.json` 可直接 grep 5 个 use_* 是否真 True。
+
+### 测试结果
+
+```
+pytest cta/config/tests/test_model_oot_eval_config.py \
+       cta/model/tests/test_eval_only.py \
+       cta/model/tests/test_eval_only_cli_oot_flags.py
+→ 24 passed
+```
+
+Smoke（precious\|day 单 cluster）：
+
+```
+bundle: /tmp/cta_eval_5oot_smoke/oot_20260527_084246_precious_day_5oot
+cfg fingerprint：5 个 use_* 全 True、各 8 day cells、weekly_max_drawdown_pct=0.025 ✓
+耗时 2.4 秒
+```
+
+### 风险与后续
+
+| # | 风险 | 应对 |
+|---|---|---|
+| R1 | weekly DD 收紧到 2.5% 可能触发更多 `block_new_entries_on_weekly_dd_breach` | 同 cfg 已有 `weekly_dd_position_scale_after_breach=0.5` 缩仓策略；先观察一轮 |
+| R2 | 5 OOT 模块全开后笔数可能进一步增（trailing 让大赢笔提前平 / horizon 让大输笔继续持） | 用 `--all-oot-enabled-cells precious|day,index|day` 只开 2 cluster 灰度更稳 |
+| R3 | regime_short_filter 默认 block "trend_up" 时挡 short，可能误伤趋势末尾均值回归 | 已在 design 文档 §3.4 评估；smoke 显示 0 误拦 |
+| R4 | cells spec 用 `all` 启用 minute 路径可能让 trailing_tp 在小区间过度激活 | 默认 `all_day` 已规避；显式传 `all` 才会全开 |
+
+---
+
+## 2026-05-25 (一) · 把 model_pipeline 拆成 train + eval 双入口
+
+### 任务
+
+承接 v_acb 诊断：3 个 Action default-on 在远端旧 sha 没生效，**根因之一**是用户每次改 cfg 都得重跑完整 `model_pipeline`（含 4-5 个模型重训），心理成本高 → 倾向于"copy 上次命令直接 sbumit"，而上次命令可能用的是旧 cfg。把训练 / 评估拆开后，改 cfg 重跑只需 <1 分钟，可有效鼓励"先改 cfg 再 eval"的迭代流程。
+
+### 修改文件
+
+| 文件 | 改动 |
+|---|---|
+| **NEW** `cta/model/eval_only_run.py` | 核心模块：`TrainRunMeta` dataclass、`discover_train_runs(root, pattern)`、`rerun_oot_for_train_run(meta, cfg, output_dir)`、`run_oot_eval_batch(...)` 批量入口 + 聚合 bundle |
+| **NEW** `cta/model/eval_only_cli.py` | CLI：`--from-root` / `--pattern` / `--output-root` / `--run-tag` + Action 1/2/3 退路开关（`--commission-mode {manifest,global}` / `--bond-filter {strict,default}` / `--htf-fallback {per_cell,global_skip,global_both}`）+ `--cfg-json` patch |
+| **NEW** `cta/model/eval.py` | `python -m cta.model.eval` entry shim |
+| **NEW** `cta/model/train.py` | `python -m cta.model.train` entry shim（实际仍调 `cta.model.model_pipeline`，对称命名便于记忆） |
+| **NEW** `cta/model/tests/test_eval_only.py` | 6 条单测：discover / rerun / Action 1 cost 切换生效 / batch 聚合 / cfg fingerprint dump |
+| `cta/report/change_log.md` | 本条目 |
+| `cta/model/model.md` | §5 增双入口用法 |
+
+### 用法
+
+```bash
+# 1) 第一次跑：train + 一次 eval（与原行为完全一致）
+python -m cta.model.train \
+  --group-pool --group-by cluster --interval day 60min 30min \
+  --start 2010-01-01 --end 2025-12-31 \
+  --train-end 2020-12-31 --valid-end 2023-12-31 \
+  --use-portfolio-logic-runtime \
+  --output-root cta/report/backtest
+
+# 2) 同样的 train 产物，**改 cfg 后只重跑 OOT**（毫秒级 / 秒级）：
+python -m cta.model.eval \
+  --from-root cta/report/backtest \
+  --pattern "20260523_GRP_CLUSTER_*_day_both_model_pipeline" \
+  --output-root cta/backtest/20260525_eval_strict_bond \
+  --bond-filter strict        # 显式 opt-in / out 每个 Action
+  --commission-mode manifest
+  --htf-fallback per_cell
+
+# 3) 切回旧行为对比（v_cb 那种空成本表）：
+python -m cta.model.eval \
+  --from-root cta/report/backtest \
+  --pattern "20260523_GRP_CLUSTER_*_day_both_model_pipeline" \
+  --output-root cta/backtest/20260525_eval_global_cost \
+  --commission-mode global
+```
+
+### bundle 结构（与 group_pool 一致）
+
+```
+output_root/
+  oot_<YYYYMMDD>_<HHMMSS>_<run_tag>/
+    00_overview/                # executive_summary.md + headline_metrics.csv
+    01_aggregate/ ... 09_diagnostics/   # 复用 oot_report_writer
+    raw/all_trade_details.csv   # 多 cluster 聚合
+    reports/{analyst,executive}.html + brief.md
+    meta/cfg_fingerprint.json   # ⭐ 解决 v_acb 那样的命名失真
+    meta/run_tag.txt
+  eval_<ts>_per_cluster/        # 每个 cluster 的中间产物（可清理）
+```
+
+### cfg fingerprint（v_acb 命名失真根治）
+
+每次 eval 都把以下字段 dump 到 `meta/cfg_fingerprint.json`，eyeball 一眼就能确认本次跑用了哪些 Action：
+
+- `commission_pct_by_cluster_interval` / `slippage_pct_by_cluster_interval` （Action 1）
+- `trade_filter_*_threshold_by_cluster_interval` （Action 2）
+- `portfolio_logic.interval_gate.fallback_when_htf_missing_by_cluster_interval` （Action 3）
+- `argv` 完整复现命令
+
+### 测试结果
+
+```
+pytest cta/model/tests/test_eval_only.py
+→ 6 passed
+```
+
+End-to-end smoke（precious day 真实 train 产物）：
+
+```bash
+python -m cta.model.eval \
+  --from-root cta/backtest/20260524_v_acb_3clusters \
+  --pattern "20260524_GRP_CLUSTER_PRECIOUS_day_*_model_pipeline" \
+  --output-root /tmp/cta_eval_smoke \
+  --run-tag precious_day_smoke
+
+# 输出：
+# discovered 1 train runs
+# OOT block_reason distribution: {'blocked_trade_filter': 14, '__executed__': 11}
+# bundle: /tmp/cta_eval_smoke/oot_20260526_215127_precious_day_smoke
+# 总耗时 < 1 秒
+```
+
+### 风险与后续
+
+| # | 风险 | 应对 |
+|---|---|---|
+| R1 | eval 的 cfg 字段覆盖与 train 的 cfg 不一致（如训练用了 stop_loss=0.01，eval 改成 0.03）| stop_loss 是 OOT-only 字段，可任意改；但若改了 train 的 `train_end/valid_end` 等需重训才能生效；CLI 在 README 写明 |
+| R2 | `oot_report_writer` 在 bundle 失败时 silently 降级 | logger.warning 提示；raw/all_trade_details.csv 是最低保证 |
+| R3 | bundle 命名仍可能失真（用户写错 --run-tag） | cfg_fingerprint.json 是 source of truth；可加 lint：若 run_tag 含 "acb"/"abc" 但 cfg 三个 Action 都关 → 警告 |
+| R4 | eval CLI 暴露的 cfg 切换有限（暂只 3 个 Action） | 复杂场景用 `--cfg-json patch.json` 或直接 Python 调 `run_oot_eval_batch()` |
+
+---
+
+## 2026-05-24 (日) · 把 3 个 Action 翻为默认开启
+
+### 任务
+
+把上一段「真实 cost 表 + bond filter 严格阈值 + htf_missing 局部放宽」3 个动作的
+默认值从 **空 dict（off）翻为非空 dict（on）**，让任何使用 `OotEvaluationConfig()` /
+`IntervalGateConfig()` 默认构造的代码自动获得新行为，无需在 CLI / cfg 装配里手动 opt-in。
+
+### 修改文件
+
+| 文件 | 改动 |
+|---|---|
+| `cta/config/model_oot_eval_config.py` | 新增 4 个 `_default_*` 工厂函数；4 个 dataclass 字段 `default_factory` 从 `dict` → 工厂；imports `cluster_bond_filter_manifest` + `cost_manifest` |
+| `cta/portfolio_logic/config.py` | 新增 `_default_fallback_when_htf_missing_by_cluster_interval()`；`IntervalGateConfig.fallback_when_htf_missing_by_cluster_interval` default 从 `dict` → 工厂（minute60/30 上 6 个非 bond/precious cluster 设 "both"） |
+| `cta/portfolio_logic/tests/test_interval_gate.py` | `test_filter_marks_allowed_and_blocked_rows`：显式传 `fallback_when_htf_missing_by_cluster_interval={}` 保留旧 strict-skip 语义 |
+| `cta/portfolio_logic/tests/test_interval_gate_fallback.py` | 重命名 `test_default_fallback_skip_emits_htf_missing` → `test_default_bond_60min_falls_back_to_global_skip`；新增 2 条单测：`test_default_metal_60min_passes_neutral` / `test_explicit_empty_dict_reverts_to_global_skip` |
+| `cta/model/tests/test_resolve_per_row_cost.py` | 把原 `test_default_falls_back_to_global_constants` 改为 `test_explicit_empty_dict_falls_back_to_global_constants`；新增 `test_default_cfg_uses_real_cost_manifest` |
+| `cta/model/tests/test_model_pipeline_part01.py` ~ `_part07.py`、`test_blind_spot_coverage.py` | 7 个文件 18 处：每个 `commission_pct_per_trade=0, slippage_pct_per_trade=0` 后追加 `commission_pct_by_cluster_interval={}, slippage_pct_by_cluster_interval={}`（明确"这些 fixture 要纯零成本"，不受新默认影响） |
+| `cta/report/change_log.md` | 本条目 |
+
+### 新默认行为（核心）
+
+```python
+# OotEvaluationConfig() 默认
+commission_pct_by_cluster_interval = build_cluster_interval_cost_dict("commission")
+slippage_pct_by_cluster_interval   = build_cluster_interval_cost_dict("slippage")
+trade_filter_percentile_threshold_by_cluster_interval = STRICT_BOND_PERCENTILE_THRESHOLDS
+trade_filter_raw_threshold_by_cluster_interval        = STRICT_BOND_RAW_THRESHOLDS
+
+# IntervalGateConfig() 默认
+fallback_when_htf_missing_by_cluster_interval = {
+    "other|60min": "both", "other|30min": "both",
+    "agri|60min":  "both", "agri|30min":  "both",
+    "chemical|60min": "both", "chemical|30min": "both",
+    "metal|60min": "both", "metal|30min": "both",
+    "black|60min": "both", "black|30min": "both",
+    "index|60min": "both", "index|30min": "both",
+    # bond / precious 不在默认放宽 dict → 走全局 skip
+    # day 路径全部不在 → 走全局 skip
+}
+```
+
+### 不变量保护 / 退路
+
+- 显式传 `{}` 可恢复旧 off 行为：
+  - `OotEvaluationConfig(commission_pct_by_cluster_interval={}, slippage_pct_by_cluster_interval={})`
+  - `OotEvaluationConfig(trade_filter_percentile_threshold_by_cluster_interval={}, trade_filter_raw_threshold_by_cluster_interval={})`
+  - `IntervalGateConfig(fallback_when_htf_missing_by_cluster_interval={})`
+- 显式传部分自定义 dict 整体替换默认（不 merge），与现有 dataclass override 语义一致
+
+### 测试结果
+
+```
+pytest cta/config/tests cta/portfolio_logic/tests cta/model/tests/test_pipeline_oot_evaluation.py \
+       cta/model/tests/test_resolve_per_row_cost.py cta/model/tests/test_blind_spot_coverage.py \
+       cta/model/tests/test_model_pipeline_part01.py-part07.py cta/run/tests/test_docs_sync.py
+→ 270 + 24 + 9 + 39 + 3 = 345 passed
+```
+
+### 风险
+
+| # | 风险 | 应对 |
+|---|---|---|
+| R1 | 已有外部脚本依赖空 dict 默认 → 新建 OOT 会自动用新成本表，回测结果不可比 | 在 OOT 输出目录的 `meta/` 写明 cfg 用的 default mode；下游聚合工具据此对齐口径 |
+| R2 | 测试 fixture 依赖 cost=0 但忘加 `_by_cluster_interval={}` → 静默拿到新默认 | 已批量补完 18 处；新写测试用 lint：grep `commission_pct_per_trade=0` 应同时含 `commission_pct_by_cluster_interval` |
+| R3 | minute60 fallback="both" 让本来该被 HTF 拦截的真趋势相反单进入 → trade_filter / regime_gate 之后能否兜底 | 这两层独立把关，且本次 bond/precious 不放宽是兜底策略 |
+
+---
+
+## 2026-05-24 (日) · 真实 cost 表 + bond filter 严格阈值 + htf_missing 局部放宽
+
+### 任务
+
+承接 2026-05-24 第一段「profit_aware 复盘」的诊断结论（postmortem `cta/docs/review/20260524_profit_aware_postmortem.md`），落地 3 个治本动作：
+
+1. **真实 commission / slippage 表**：把全局硬编码 3 bps 改成按 `(cluster, interval)` 分层的真实费率
+2. **cluster_bond trade_filter 阈值单独抬高**：bond 单簇 cost/|gross| = 152%（given 0.5bp 毛利上限）必须从 percentile 70 → 80 才能挑出能覆盖成本的信号（最初定 85/88 偏严，担心直接吃完信号；本轮回调到统一 80 留余量）
+3. **htf_missing 局部放宽**：14,885 行被 htf_missing 拦截（占候选 21%），需按 `(cluster, interval)` 单独将 fallback 切到 `both`（neutral pass），day 路径保持严格
+
+### 修改文件
+
+| 文件 | 改动 |
+|---|---|
+| **NEW** `cta/config/cost_manifest.py` | 8-cluster × 6-interval 真实单边 commission/slippage 表 + `build_cluster_interval_cost_dict()` helper；含 INTERVAL_SLIPPAGE_MULTIPLIER（minute 比 day 滑点高 30-150%） |
+| `cta/config/model_oot_eval_config.py` | 新增 `commission_pct_by_cluster_interval` / `slippage_pct_by_cluster_interval` 两个 dict 字段；`__post_init__` 校验 + MappingProxyType 冻结；默认空 → 向后兼容 |
+| `cta/model/oot/pipeline_oot_evaluation_inputs.py` | 新增 `resolve_per_row_cost_pct(df, cfg)` 函数，与现有 `resolve_per_row_intrabar_stop_pct` 同款风格 |
+| `cta/model/oot/pipeline_oot_evaluation.py` | L85 cost_pct 改为按行解析；L209 新增 `cost_pct_arr`；L232 intrabar 循环改用 per-row cost；保留 `cost_pct` 列写入逻辑 |
+| **NEW** `cta/config/cluster_bond_filter_manifest.py` | `STRICT_BOND_PERCENTILE_THRESHOLDS = {bond\|day: 80, bond\|60min: 80, bond\|30min: 80, bond\|15min: 80}` 等 |
+| `cta/portfolio_logic/config.py` | `IntervalGateConfig` 新增 `fallback_when_htf_missing_by_cluster_interval: dict[str, str]`；校验 "skip"/"both" + 归一化 + MappingProxy 冻结 |
+| `cta/portfolio_logic/interval_gate.py` | `HtfGate.filter` 缺 HTF 分支增 per-cell fallback 路由：先查 dict（按 `cluster\|interval` key），未命中走全局 fallback |
+| **NEW** `cta/config/tests/test_cost_manifest.py` | 10 条单测：cluster 覆盖、bp 区间、bond < black、interval 倍数、build dict |
+| **NEW** `cta/model/tests/test_resolve_per_row_cost.py` | 6 条单测：默认 fallback、override 路由、minute vs day 独立、build_dict 联动、空 df |
+| **NEW** `cta/config/tests/test_cluster_bond_filter_manifest.py` | 8 条单测：值 > 70、key 都是 bond\|*、灌进 cfg 后 frozen |
+| **NEW** `cta/portfolio_logic/tests/test_interval_gate_fallback.py` | 7 条单测：默认 skip、全局 both、per-cell both 覆盖 skip、per-cell skip 覆盖 both、interval 别名、bad key/value 校验 |
+| `cta/report/change_log.md` | 本条目 |
+
+### 不变量保护
+
+- 三个改动**默认全部 off / 空 dict** → 现有 OOT 口径完全不变
+- `commission_pct_by_cluster_interval={}` 时 fallback 到 `commission_pct_per_trade + slippage_pct_per_trade`
+- `fallback_when_htf_missing_by_cluster_interval={}` 时沿用 `fallback_when_htf_missing` 全局值
+- bond manifest 是**可选导入**的常量，不动 dataclass 默认值
+
+### 运行命令（推荐下一轮 OOT 用法）
+
+```python
+from cta.config.cost_manifest import build_cluster_interval_cost_dict
+from cta.config.cluster_bond_filter_manifest import (
+    STRICT_BOND_PERCENTILE_THRESHOLDS,
+)
+
+cfg = OotEvaluationConfig(
+    # Action 1: 真实成本
+    commission_pct_by_cluster_interval=build_cluster_interval_cost_dict(kind="commission"),
+    slippage_pct_by_cluster_interval=build_cluster_interval_cost_dict(kind="slippage"),
+    # Action 2: bond 严格阈值
+    trade_filter_percentile_threshold_by_cluster_interval={
+        **STRICT_BOND_PERCENTILE_THRESHOLDS,
+    },
+    portfolio_logic=PortfolioLogicConfig(
+        interval_gate=IntervalGateConfig(
+            fallback_when_htf_missing="skip",
+            # Action 3: minute 路径上放宽 htf_missing
+            fallback_when_htf_missing_by_cluster_interval={
+                "other|60min": "both",
+                "other|30min": "both",
+                "agri|60min":  "both",
+                "agri|30min":  "both",
+                "chemical|60min": "both",
+                "metal|60min": "both",
+                # day 全部保持 skip
+            },
+        ),
+    ),
+)
+```
+
+### 测试结果
+
+```
+pytest cta/config/tests cta/portfolio_logic/tests cta/model/tests/test_pipeline_oot_evaluation.py cta/model/tests/test_resolve_per_row_cost.py
+→ 267 passed
+```
+
+### 预期回测改善
+
+- **cluster_bond** 笔数预计从 75-89 笔/2 年 降到 < 30 笔/2 年，净亏 -775 → 转正或接近 0
+- **htf_missing 拦截** 从 14,885 行降到 ~7,000-9,000 行（仅 day 路径保留 skip）
+- **bond cost/|gross|** 由 152% 降到 ~80%（commission 0.3 bp + slippage 0.5 bp 双单边 = 1.6 bp，远低于硬编码 6 bp 总成本）
+- **precious cost** 从 1.2% 进一步降到 ~0.7%（确认 AU/AG 的低成本，让 Module A trailing TP 的 +14k 收益更可见）
+
+### 风险与后续
+
+| # | 风险 | 应对 |
+|---|---|---|
+| R1 | 真实费率不同期货公司差异大 | manifest 取**保守上限**，方便用户按实际加点向下调 |
+| R2 | bond 阈值 80 仍可能太严或太松 | 80 是 70（默认）和 85（首版偏严）之间的折中；若下轮 OOT bond 笔数仍 > 30 且亏损，可继续抬到 85；若 < 5 笔，可降到 75 |
+| R3 | htf_missing fallback 切到 both 可能放行真正趋势相反的候选 | per-cell 设计只放宽 minute 路径，day 仍严格；且 trade_filter / regime_gate 是独立层把关 |
+| R4 | 新增 per-row cost 字段在 OOT trade DataFrame 里 cost_pct 不再是常数 | 下游聚合若用 `cost_pct.mean()` 仍正确；用 `cost_pct.iloc[0]` 假设全行同值的代码需要检查 |
+
+---
+
+## 2026-05-24 (日) · profit_aware 上线后复盘 · 修复 4 个 lookahead / 评估顺序 / trend_score bug
+
+### 任务
+
+对比 BEFORE（`cta/report/backtest/oot_20260523_034107_cluster_both`）vs
+AFTER（`cta/backtest/oot_20260523_154428_cluster_both`）发现总收益反而下降
+43.85% → 41.42%，MDD 从 -4.59% 恶化到 -6.95%。深挖根因 + 修代码 bug + 给出后续优化方案。
+
+### 根因
+
+- 5 个模块中只有 **Module A (trailing_take_profit)** 真正在 precious|day 启用并触发
+  17 次（其中 2 笔实际成交，贡献 +13.9k）。Module B/C/D/E 全部未 wire / 未 opt-in。
+- 整个 pipeline 重训 + 新加列 `regime_label` / `ma_alignment` 进 `generic-mode auto`，
+  对模型 ranking 形成扰动 → 跨 cluster 蝴蝶效应 → 1262 笔同 key 交易 PnL 几乎不变
+  但 490 笔被换出 / 474 笔新入选 → cluster_other 净损 -60k 吞掉所有正贡献。
+- 模拟器层面发现 4 个实施 bug（见下），与本次回退无关但必须修。
+
+### 主要修改文件
+
+- `cta/portfolio_logic/trailing_exit.py`
+  - **F1**：把 trailing TP 块从 hard_stop 检查 **之前** 移到 **之后**（设计文档 §3.4 串联顺序）。
+  - **F2**：highwater 用 **本 bar 开始前**的 `running_high` / `running_low` 快照（消除 same-bar lookahead）。
+  - **F3**：删除硬编码 `trend_score=0.5`，新增 `_trend_score_for_position(side, regime_label, pnl_pct)`
+    helper，调 `compute_trend_score()` 并按 side 翻转 ma/regime 项。
+  - **F4**：`use_trailing_take_profit=False` 时不再构造 evaluator（性能 + 列污染修复）。
+- `cta/portfolio_logic/tests/test_trailing_exit.py`：新增 3 个 P0 回归 case
+  （`test_hard_stop_wins_over_trailing_tp_in_same_bar` / `test_trailing_tp_no_same_bar_lookahead`
+  / `test_trailing_tp_disabled_when_use_flag_false`）。
+- `cta/docs/review/20260524_profit_aware_postmortem.md`：完整复盘 + 优化方案。
+
+### 测试
+
+```bash
+python3 -m pytest cta/portfolio_logic/ cta/config/tests/test_trailing_take_profit_config.py \
+                  cta/config/tests/test_profit_aware_horizon_config.py \
+                  cta/model/tests/test_pipeline_oot_evaluation.py -q
+# → 114 passed
+```
+
+### 后续建议（详见 postmortem §6）
+
+1. **下一轮 OOT 一次性开 A+C+B**（不要只单独开 A），CLI 参考 postmortem §6.1。
+2. **加 `--reuse-models` flag** 消除"模型重训扰动"，让 gate 改动 A/B 真正可对比。
+3. **OOT capital pool 按 cluster 隔离**，避免一个 cluster 的策略改动扰动其它 cluster。
+4. **Module D / E 仍未 wire 到 candidate gen**，工作量各 ~1 天，列为 follow-up。
+
+---
+
 ## 2026-05-23 (六) · profit_aware_trend_adaptive · CLI 接入 A/B/C 灰度开关
 
 ### 任务
@@ -1167,6 +2813,521 @@ python3 -m pytest -q cta/feature/tests/test_feature_modules_smoke.py cta/feature
 ```
 
 结果：通过。
+
+---
+
+## 2026-05-30 · current · OOT 日度仓位分布改为“当时资金占比(%)”
+
+### 任务
+
+- 将 `cta/backtest/oot_20260530_215522_cluster_both/09_diagnostics/` 下刚生成的 3 份分布文件中所有仓位字段从绝对金额改为当时百分比口径。
+
+### 修改文件
+
+- `cta/backtest/oot_20260530_215522_cluster_both/09_diagnostics/daily_trade_position_distribution.csv`
+- `cta/backtest/oot_20260530_215522_cluster_both/09_diagnostics/monthly_trade_position_distribution.csv`
+- `cta/backtest/oot_20260530_215522_cluster_both/09_diagnostics/weekday_trade_position_distribution.csv`
+
+### 口径说明
+
+- 百分比计算：
+  - 逐笔仓位：`position_notional_after_trade / equity_before * 100`
+  - 逐笔保证金占用：`(margin_used_before_entry + entry_margin) / equity_before * 100`
+  - 日末仓位：`eod_position_notional / eod_equity * 100`
+  - 日末保证金：`eod_margin_used_after_trade / eod_equity * 100`
+- 时间戳回退：`entry_fill_datetime -> datetime -> entry_datetime -> signal_datetime`
+
+### 结果
+
+- 三份分布文件已覆盖为百分比口径，仓位字段统一带 `_pct` 后缀。
+
+---
+
+## 2026-05-30 · current · 全局 `max_position_scale` 统一到 `0.15`
+
+### 修改内容
+
+- 将 OOT 默认仓位上限从 `0.10` 提升到 `0.15`：
+  - `cta/config/model_oot_eval_config.py`
+- 同步更新相关测试中的显式参数，保持测试语义一致：
+  - `cta/model/tests/test_pipeline_oot_evaluation.py`
+  - `cta/model/tests/test_model_pipeline_part04.py`
+
+### 验证
+
+```bash
+python3 -m pytest -q \
+  cta/model/tests/test_pipeline_oot_evaluation.py \
+  cta/model/tests/test_model_pipeline_part04.py \
+  cta/config/tests/test_model_oot_eval_config.py
+```
+
+结果：`46 passed`。
+
+---
+
+## 2026-05-31 · current · OOT 自动输出“按日笔数+仓位时间分布”（09_diagnostics）
+
+### 任务
+
+- 将“按日笔数 + 仓位时间分布”统计接入 OOT 报告主流程，保证每次跑 OOT 自动产出。
+
+### 修改文件
+
+- `cta/model/reporting/oot_report_views.py`
+  - 新增 `write_trade_position_time_distributions(...)`
+  - 自动生成：
+    - `09_diagnostics/daily_trade_position_distribution.csv`
+    - `09_diagnostics/monthly_trade_position_distribution.csv`
+    - `09_diagnostics/weekday_trade_position_distribution.csv`
+  - 统计口径：
+    - 仅 `execution_status=executed`
+    - 时间回退：`entry_fill_datetime -> datetime -> entry_datetime -> signal_datetime`
+    - 仓位字段统一输出为占当时权益百分比（`*_pct`）
+- `cta/model/reporting/oot_report_writer.py`
+  - 在 `write_oot_evaluation_report(...)` 主链路中接入该自动统计步骤。
+- `cta/model/tests/test_oot_report_writer.py`
+  - 新增回归测试 `test_write_oot_evaluation_report_writes_daily_position_time_distributions`
+  - 断言三份分布文件存在、列结构正确、成交笔数汇总正确。
+
+### 验证命令
+
+```bash
+python3 -m pytest -q cta/model/tests/test_oot_report_writer.py
+python3 -m pytest -q cta/model/tests/test_oot_concentration_diagnostics.py cta/model/tests/test_group_pool_mode.py -k "oot_report or write_group_pool_runtime_bundle_writes_aggregate_trade_details"
+```
+
+结果：通过。
+
+---
+
+## 2026-05-30 · current · sim_plan3 按优先级续做（S-D/S-E/S-H/S-J 落地补齐）
+
+### 本轮实现
+
+1. `LegacyCtaAdapter` 实盘/仿真主链路接线增强（S-D + S-H）：
+   - 文件：`cta/strategy/cta_adapter.py`
+   - 新增运行时对象接入：
+     - `entry_gate_chain`
+     - `position_evaluator`
+     - `state_provider`
+     - `signal_generator_context`
+   - 下单链路顺序固定为：
+     1) `signal_generator_context` 补模型分数  
+     2) `entry_gate_chain`（trade_filter/HTF/risk_orchestrator）  
+     3) `order_filter`（RiskGuard/kill_switch）  
+     4) `order_slicer`  
+     5) send order
+   - 持仓阶段新增 `position_evaluator` 强平入口（`forced_exit`，默认绕过入场过滤）。
+
+2. `sim_runner` 自动透传接线（S-D + S-E）：
+   - 文件：`cta/sim/sim_runner.py`
+   - `_attach_observers` 新增透传到策略实例：
+     - `entry_gate_chain` / `position_evaluator` / `state_provider` / `signal_generator_context`
+   - `trade_recorder_dir` 可用时默认自动挂 `oot_trade_logger`（OOT 风格逐笔结构化日志）。
+
+3. 新增 live 周/月/复盘报告模块（S-J）：
+   - 新增目录：`cta/live/reporting/`
+   - 新增文件：
+     - `periodic_report.py`：周/月/summary 聚合（复用 OOT aggregate 口径）
+     - `review_report.py`：live vs OOT 三段归因（signal/execution/risk）
+     - `build_reports.py`：CLI 一键从 CSV 产出 periodic + review 报告
+     - `__init__.py`
+
+4. 文档同步：
+   - `cta/run.md`：新增 live 报告 CLI 命令与 sim/live 自动接线说明
+   - `cta/live/README.md`：补充 reporting 模块与执行流程（含 position_evaluator 强平点）
+
+### 新增测试（先测后改）
+
+- `cta/strategy/tests/test_cta_adapter_live_wiring.py`
+  - entry_gate_chain 阻断/缩量
+  - signal_generator_context 分数字段注入
+  - position_evaluator 强平
+- `cta/sim/tests/test_sim_runner_live_wiring.py`
+  - runtime 对象透传
+  - 自动挂载 `oot_trade_logger`
+- `cta/live/tests/test_periodic_review_reports.py`
+  - periodic 聚合仅统计成交行
+  - review 三段归因闭合到 delta
+- `cta/live/tests/test_reporting_cli.py`
+  - CLI 端到端产物校验
+
+### 验证命令
+
+```bash
+python3 -m pytest -q \
+  cta/strategy/tests/test_cta_adapter.py \
+  cta/strategy/tests/test_cta_adapter_live_wiring.py \
+  cta/sim/tests/test_sim_runner.py \
+  cta/sim/tests/test_sim_runner_live_wiring.py \
+  cta/live/tests/test_daily_report.py \
+  cta/live/tests/test_daily_report_archiver.py \
+  cta/live/tests/test_periodic_review_reports.py \
+  cta/live/tests/test_reporting_cli.py \
+  cta/live/tests/test_live_runner.py \
+  cta/run/tests/test_no_500plus_files.py
+```
+
+结果：`76 passed`。
+
+---
+
+## 2026-05-30 · current · sim_plan3 P0 主链路实现（TDD）
+
+### 本次实现
+
+1. 数据链路（S-B）：
+   - 新增 `cta/data_code/daily_update.py`
+     - 一条龙编排：`download_all` → `data_integrity_check` → `run_all_features` → `candidate_training_dataset`
+     - 支持 `top-n-symbols`、多 interval、可选开关（完整性闸门/特征/样本）
+   - 新增 `cta/data_code/data_integrity_check.py`
+     - 校验 day/minute 数据：缺文件、时间非单调、重复、未来时间、latest 日期滞后
+     - CLI 可单独执行，失败返回非 0
+
+2. 实时信号与模型加载（S-C）：
+   - 新增 `cta/live/model_registry.py`
+     - 封装 `HotReloadableRegistry`，提供在线 `predict`、`resolve_model_dir`、模型文件时效统计
+   - 新增 `cta/live/signal_generator.py`
+     - 候选扩展（side 缺失自动 long/short）
+     - 在线特征拼接
+     - 依次执行 `trade_filter/regime/mfe_mae/final` 模型预测
+     - 通过 `ScoreQuantileManifest` 回填 `trade_filter_prob_pctl`
+     - 复用 OOT 同款 `apply_oot_model_gates` 输出 `_model_pass/_model_block_reason`
+
+3. 逐笔结构化日志（S-E）：
+   - 新增 `cta/live/trade_logger.py`（`OotStyleTradeLogger`）
+     - 输出 OOT 风格列（blocked/filled、prob/pctl、block_reason）
+     - 同时写 CSV + decision JSONL
+   - 接线 `cta/strategy/cta_adapter.py`
+     - 下单前记录 decision（通过/拦截）
+     - 成交回报记录 fill
+     - `on_stop()` 自动 flush
+
+4. 三层一致性检查（S-F）：
+   - 新增 `cta/sim/cfg_consistency_check.py`
+     - 对比 OOT/sim/live `cfg_fingerprint` 关键字段
+     - 输出 mismatch 明细并返回状态码
+
+5. live 接线增强：
+   - 更新 `cta/live/live_runner.py`
+     - 当 `setting` 提供 `cluster_registry_path` 时，自动注入 `signal_generator_context`
+       （`model_registry/score_manifest/feature_loader/generate_fn`）
+   - 新增 `cta/live/order_slicer.py` + `cta/live/preopen_checklist.py`
+     - `order_slicer`：iceberg/twap + ADV 参与率上限
+     - `preopen_checklist`：预测新鲜度、模型时效、kill switch、保证金 go/no-go
+   - 更新 `cta/sim/sim_runner.py`
+     - `SimRunConfig` 新增 `order_slice_cfg/order_slicer` 接线，可把拆单器注入策略适配器
+   - 更新 `cta/strategy/cta_adapter.py`
+     - 增加 `order_slicer` 钩子，父单可按子单列表拆分发单
+     - 增加 `oot_trade_logger` 钩子，决策与成交回报统一结构化记录
+   - 更新 `cta/live/__init__.py` lazy exports
+
+6. 文档同步：
+   - `cta/run.md`：新增 daily_update 与 data_integrity_check 命令、三层一致性检查命令、signal generator 调用示例
+   - `cta/live/README.md` / `cta/sim/README.md`：补充新增模块说明
+
+### 新增/修改测试（先测后改）
+
+- 新增：
+  - `cta/data_code/tests/test_daily_update.py`
+  - `cta/data_code/tests/test_data_integrity_check.py`
+  - `cta/live/tests/test_model_registry.py`
+  - `cta/live/tests/test_signal_generator.py`
+  - `cta/live/tests/test_trade_logger.py`
+  - `cta/sim/tests/test_cfg_consistency_check.py`
+  - `cta/live/tests/test_order_slicer.py`
+  - `cta/live/tests/test_preopen_checklist.py`
+- 增强：
+  - `cta/live/tests/test_live_runner.py`（signal_generator_context 注入）
+  - `cta/strategy/tests/test_cta_adapter.py`（decision/fill 结构化日志接线）
+  - `cta/sim/tests/test_sim_runner.py`（order_slicer 接线）
+
+### 验证命令
+
+```bash
+python3 -m pytest -q \
+  cta/data_code/tests/test_daily_update.py \
+  cta/data_code/tests/test_data_integrity_check.py \
+  cta/live/tests/test_model_registry.py \
+  cta/live/tests/test_signal_generator.py \
+  cta/live/tests/test_trade_logger.py \
+  cta/live/tests/test_order_slicer.py \
+  cta/live/tests/test_preopen_checklist.py \
+  cta/sim/tests/test_cfg_consistency_check.py \
+  cta/live/tests/test_live_runner.py \
+  cta/sim/tests/test_sim_runner.py \
+  cta/strategy/tests/test_cta_adapter.py \
+  cta/run/tests/test_docs_sync.py \
+  cta/run/tests/test_no_500plus_files.py
+```
+
+结果：通过（79 passed）。
+
+---
+
+## 2026-05-29 · current · risk 命令化（run.md / model.md / keyword.md）+ CLI 接入
+
+### 本轮修改
+
+1. `model_pipeline` CLI 新增 risk orchestrator 参数（训练+OOT一体链路）：
+   - `--enable-risk-system`
+   - `--risk-quantile-field`
+   - `--risk-manifest-path`
+   - `--risk-enable-bucket-scaling`
+   - `--risk-disable-linear-dd-scaler`
+   - `--risk-disable-dynamic-bump`
+   - `--risk-disable-quantile-threshold`
+   - 文件：`cta/model/orchestration/pipeline_cli.py`
+
+2. `eval` CLI（`python -m cta.model.eval`）同步接入同一组 risk 参数：
+   - 文件：`cta/model/eval_only_cli.py`
+
+3. 文档补齐运行命令：
+   - `cta/run.md`：新增“风控系统（risk orchestrator）快速命令”
+   - `cta/model/model.md`：新增 risk orchestrator 命令与开关说明
+   - `cta/docs/risk.md`：新增 W2/W4/W5 可复现命令
+   - `cta/keyword.md`：新增 7 个 risk 参数释义
+
+4. 测试（TDD）：
+   - `cta/model/tests/test_pipeline_cli.py`：新增 risk 参数解析/配置断言
+   - `cta/model/tests/test_eval_only_cli_oot_flags.py`：新增 eval risk 参数断言
+
+### 验证命令
+
+```bash
+python3 -m pytest cta/model/tests/test_pipeline_cli.py cta/model/tests/test_eval_only_cli_oot_flags.py cta/run/tests/test_docs_sync.py -q
+python3 -m pytest cta/model/tests/test_risk_wiring.py cta/sim/tests/test_adapters.py -q
+```
+
+结果：通过。
+
+---
+
+## 2026-05-29 · current · risk.md 未完成项闭环（W2/W4/W5）
+
+### 本轮完成
+
+1. W2（train hook）：
+   - 新增训练侧 quantile manifest 写出能力：
+     - `cta/model/orchestration/pipeline_run_predictions.py`
+       - `write_score_quantile_manifest_from_scored_rows(...)`
+   - 在 `run_model_pipeline` 中接入 train/valid `trade_filter_prob` 采样并落地 manifest：
+     - `cta/model/orchestration/pipeline_run.py`
+   - manifest 输出目录：`cta/model/manifests/`（含 `score_quantile_manifest_latest.json`）。
+
+2. W4（sim Stage 5 wire）：
+   - `EntryGateChain` 新增 RiskOrchestrator Stage 5（threshold + sizing）：
+     - `cta/sim/adapters/entry_gate_chain.py`
+   - `GateDecision` 增加 `adjusted_lots` / `effective_threshold` 回传字段。
+
+3. W5（OOT + cfg_fingerprint）：
+   - OOT 输入侧新增风控列注入：
+     - `cta/model/oot/pipeline_oot_evaluation_inputs.py`
+       - `apply_risk_orchestrator_columns(...)`
+   - OOT 评估链路接入风险 block 合并与字段落盘：
+     - `cta/model/oot/pipeline_oot_evaluation.py`
+   - `cfg_fingerprint.json` 新增 `risk_system` 子配置：
+     - `cta/model/eval_only_run.py`
+   - `OotEvaluationConfig` 新增可选字段：
+     - `cta/config/model_oot_eval_config.py`
+       - `risk_system: RiskSystemConfig | None = None`
+
+4. 文档与测试：
+   - `cta/docs/risk.md` §12 状态更新：W2/W4/W5 全部完成。
+   - 新增/更新测试：
+     - `cta/model/tests/test_risk_wiring.py`
+     - `cta/sim/tests/test_adapters.py`
+     - `cta/model/tests/test_eval_only.py`
+     - `cta/config/tests/test_model_oot_eval_config.py`
+
+### 验证命令
+
+```bash
+python3 -m pytest cta/model/tests/test_risk_wiring.py cta/sim/tests/test_adapters.py cta/model/tests/test_eval_only.py cta/config/tests/test_model_oot_eval_config.py -q
+python3 -m pytest cta/model/tests/test_pipeline_oot_evaluation.py cta/model/tests/test_resolve_per_row_cost.py cta/sim/tests/test_bond_filter_parity.py cta/sim/tests/test_htf_gate_fallback_sim.py -q
+python3 -m pytest cta/model/tests/test_model_pipeline_part01.py cta/model/tests/test_model_pipeline_part02.py -q
+```
+
+结果：通过。
+
+---
+
+## 2026-05-29 · current · 修复 regime_classifier 泄露风险（P0/P1）
+
+### 本轮修复
+
+1. 修复 breakout pullback 特征未来穿越（P0）：
+   - 文件：`cta/skills/price_action/breakout_pullback.py`
+   - 变更：`bp_pullback_low` / `bp_bars_since_breakout` 的计算改为**只使用到确认 bar 为止**的数据；
+     不再扫描 `i0+1 ~ end` 全窗口后回写当前确认 bar。
+2. 收紧 regime_classifier 特征过滤（P1）：
+   - 文件：`cta/model/dataset/pipeline_feature_curation.py`
+   - 变更：新增 `regime_proxy_block`，拦截高风险同源代理特征：
+     - `generic_auto_side_code`
+     - `generic_model_mfe_side_interaction`
+     - `generic_model_mfe_edge`
+     - `generic_model_trade_breakout_trend`
+3. 先写测试再改实现（TDD）：
+   - `cta/skills/price_action/tests/test_breakout_pullback.py`
+     - `test_pullback_extreme_uses_only_data_up_to_confirmation_bar`
+   - `cta/model/tests/test_model_pipeline_part04.py`
+     - `test_filter_model_leakage_features_for_regime_classifier_blocks_side_and_mfe_proxies`
+
+### 验证
+
+```bash
+python3 -m pytest cta/skills/price_action/tests/test_breakout_pullback.py cta/model/tests/test_model_pipeline_part04.py -q
+```
+
+结果：18 passed。
+
+---
+
+## 2026-05-28 · current · bond 分组 HTF fallback 优先级修复（先测后改）
+
+### 任务背景
+
+- OOT 横向对比显示 `cluster_bond` 在 `oot_20260527_223140_cluster_both_5oot_on_v2` 中出现 0 成交；
+- 关键阻塞来自 `blocked_htf_gate/htf_missing`（非 trade_filter 主导）；
+- 按优先级先做最小变更：仅放宽 `bond|60min`、`bond|30min` 的 HTF missing fallback。
+
+### 修改文件
+
+| 文件 | 修改内容 |
+|---|---|
+| `cta/portfolio_logic/tests/test_interval_gate_fallback.py` | 先改测试预期：`bond|60min` 默认应 neutral 放行；新增 `precious|60min` 仍走全局 skip 的边界测试 |
+| `cta/portfolio_logic/tests/test_config.py` | 新增默认映射单测：`bond|60min/30min` 必须为 `"both"`，`precious` 不在默认映射里 |
+| `cta/portfolio_logic/config.py` | `_default_fallback_when_htf_missing_by_cluster_interval()` 默认映射加入 `bond|60min`、`bond|30min`；同步注释 |
+| `cta/portfolio_logic/README.md` | 更新 HTF 默认行为说明（全局 strict + per-cell intraday override） |
+
+### TDD 验证记录
+
+1. 先改测试后执行（预期失败）：
+
+```bash
+python3 -m pytest -q cta/portfolio_logic/tests/test_interval_gate_fallback.py cta/portfolio_logic/tests/test_config.py
+```
+
+结果：`2 failed`（`bond|60min` 仍被 `htf_missing` 拦截，且默认映射无 `bond|60min`）。
+
+2. 实现修复后执行：
+
+```bash
+python3 -m pytest -q cta/portfolio_logic/tests/test_interval_gate_fallback.py cta/portfolio_logic/tests/test_config.py
+python3 -m pytest -q cta/portfolio_logic/tests/test_interval_gate.py
+```
+
+结果：全部通过（`21 passed` + `5 passed`）。
+
+---
+
+## 2026-05-25 · current · roadmap2 P1 收口：rotation 主循环仿真/实盘下单 wire
+
+### 本轮完成
+
+1. 补齐 P1-7 最后一公里（Rotation intent → strategy 下单 + 主循环接线）：
+   - 新增 `cta/sim/adapters/rotation_order_wire.py`
+   - 提供：
+     - `RotationOrderWireConfig`
+     - `dispatch_rotation_intents(...)`
+     - `wire_rotation_main_loop(...)`
+   - 支持 `RotationOrderIntent` 转订单并优先复用 strategy 的 `_dispatch_order`；无该方法时回落到 `buy/short`。
+2. 在 `run_sim` 增加可选自动挂载：
+   - `cta/sim/sim_runner.py`：
+     - `SimRunConfig.enable_rotation_main_loop`
+     - `SimRunConfig.rotation_stepper`
+     - `SimRunConfig.rotation_portfolio_state`
+     - `SimRunConfig.rotation_wire_kwargs`
+   - `run_live` 复用 `SimRunConfig`，因此 live 路径同步可用。
+3. adapter 导出更新：
+   - `cta/sim/adapters/__init__.py` 导出上述 wire API。
+4. 文档同步：
+   - `cta/docs/sim_live_integration_roadmap2.md`：P1-7 状态改为 ✅ completed。
+   - `cta/run.md`：新增 `6.2.2` 示例，演示 rotation 主循环下单接线。
+
+### 测试（TDD）
+
+- 新增测试：
+  - `cta/sim/tests/test_rotation_main_loop_wire.py`
+    - `test_wire_calls_stepper_and_dispatches_only_matching_symbol`
+    - `test_wire_prefers_strategy_dispatch_order_when_available`
+    - `test_run_sim_attaches_rotation_wire_when_enabled`
+
+### 验证命令
+
+```bash
+python3 -m pytest -q cta/sim/tests/test_rotation_main_loop_wire.py
+python3 -m pytest -q \
+  cta/sim/tests/test_rotation_order_mapper.py \
+  cta/sim/tests/test_sim_runner.py \
+  cta/sim/tests/test_adapters.py \
+  cta/live/tests/test_live_runner.py
+```
+
+结果：通过（3 + 43 tests）。
+
+---
+
+## 2026-05-25 · current · sim/live integration roadmap2（P0+P1 首批落地）
+
+### 本轮完成
+
+1. P0Δ-1（cost manifest 一致性）：
+   - 新增 `cta/sim/costs.py`，提供 `resolve_trade_cost_pct(...)`，直接复用 OOT `resolve_per_row_cost_pct`。
+   - 新增测试 `cta/sim/tests/test_cost_manifest_parity.py`，校验 sim/oot 成本解析逐单一致。
+2. P0Δ-2（bond 严格阈值一致性）：
+   - 新增测试 `cta/sim/tests/test_bond_filter_parity.py`，对 100 条 bond 候选逐条比对 EntryGateChain 与 OOT trade_filter gate 决策。
+3. P0Δ-3（HTF fallback 一致性）：
+   - 扩展 `cta/sim/adapters/entry_gate_chain.py`：
+     - 支持 HTF gate stage（`block_stage="htf"`）；
+     - 仅在 `use_portfolio_logic_runtime=True` 且 `portfolio_logic.enable_htf_gate=True` 时启用；
+     - 支持传入 `htf_state`。
+   - 新增测试 `cta/sim/tests/test_htf_gate_fallback_sim.py`，覆盖 metal|60min 缺 HTF 放行、bond|60min 缺 HTF 拦截。
+4. P0Δ-4（cfg 漂移守门）：
+   - 新增 `cta/run/tests/test_cfg_drift_guard.py`，禁止 `cta/sim`/`cta/live` 运行时代码硬编码 `STRICT_BOND_` 与指定成本字面量。
+5. P0-2（online_feature parity 加严）：
+   - 增强 `cta/live/tests/test_online_feature_parity.py`，新增 100+ 特征列、`1e-6` 阈值一致性测试。
+6. P0-5（contract_resolver vnpy fallback hook）：
+   - 在 `cta/portfolio_logic/contract_resolver.py` 新增 `build_vnpy_contract_query_fn(main_engine)`；
+   - 在 `cta/sim/sim_runner.py` 增加可选 contract_resolver 接入：
+     - `SimRunConfig.enable_contract_resolver`
+     - `SimRunConfig.contract_resolver`
+     - `SimRunConfig.contract_calendar_path`
+   - 新增/增强测试：
+     - `cta/portfolio_logic/tests/test_contract_resolver.py`
+     - `cta/sim/tests/test_sim_runner.py`
+7. P1-7（rotation intent 适配）：
+   - 在 `cta/sim/adapters/rotation_stepper.py` 新增 `intent_to_legacy_order(...)`；
+   - 新增测试 `cta/sim/tests/test_rotation_order_mapper.py`。
+8. P1-10/11（state provider 实时补齐）：
+   - `EntryGateChain.evaluate(...)` 支持 `state_provider`，自动回填 `ma_alignment/regime_label/realized_vol_rank`；
+   - 增强测试 `cta/sim/tests/test_adapters.py` 覆盖该路径。
+9. 文档参数同步（清 warning）：
+   - `cta/run.md` 与 `cta/keyword.md` 新增 `--strict-fail-fast` / `--no-strict-fail-fast` 说明。
+
+### 本轮验证
+
+```bash
+python3 -m pytest -q \
+  cta/sim/tests/test_sim_runner.py \
+  cta/sim/tests/test_adapters.py \
+  cta/sim/tests/test_cost_manifest_parity.py \
+  cta/sim/tests/test_bond_filter_parity.py \
+  cta/sim/tests/test_htf_gate_fallback_sim.py \
+  cta/sim/tests/test_rotation_order_mapper.py \
+  cta/portfolio_logic/tests/test_contract_resolver.py \
+  cta/run/tests/test_cfg_drift_guard.py \
+  cta/live/tests/test_online_feature_parity.py
+```
+
+结果：`66 passed`。
+
+```bash
+python3 -m pytest -q cta/sim/tests cta/live/tests cta/portfolio_logic/tests cta/run/tests
+```
+
+结果：除既有 `test_no_500plus_files.py`（历史大文件超长）外，其余通过；非本次改动引入。
 
 ---
 

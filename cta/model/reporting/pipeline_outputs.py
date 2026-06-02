@@ -55,12 +55,12 @@ def _build_last_oot_decile_table(prediction_df: pd.DataFrame, bins: int=10) -> p
     if oot.empty:
         return pd.DataFrame(columns=out_cols)
     oot['trade_filter_prob'] = score.loc[oot.index]
-    exec_mask = pd.to_numeric(oot.get('is_executed', 0), errors='coerce').fillna(0).astype(int) == 1
+    exec_mask = pd.to_numeric(oot.get('is_executed', pd.Series(0, index=oot.index)), errors='coerce').fillna(0).astype(int) == 1
     oot = oot.loc[exec_mask].copy()
     if oot.empty:
         return pd.DataFrame(columns=out_cols)
-    mfe = pd.to_numeric(oot.get('future_mfe_atr', 0.0), errors='coerce').fillna(0.0)
-    mae = pd.to_numeric(oot.get('future_mae_atr', 0.0), errors='coerce').fillna(0.0)
+    mfe = pd.to_numeric(oot.get('future_mfe_atr', pd.Series(0.0, index=oot.index)), errors='coerce').fillna(0.0)
+    mae = pd.to_numeric(oot.get('future_mae_atr', pd.Series(0.0, index=oot.index)), errors='coerce').fillna(0.0)
     oot['future_return_atr'] = mfe - LABEL_MAE_PENALTY * mae
     oot['is_executed'] = 1
     n = len(oot)

@@ -117,7 +117,7 @@ def test_trade_filter_gate_bypasses_cross_sectional_rotation_signal() -> None:
 
     assert bool(gate_out.iloc[0]) is True
     assert str(block_out.iloc[0]) == ""
-    assert float(out.iloc[0]["trade_filter_gate_threshold"]) == 70.0
+    assert float(out.iloc[0]["trade_filter_gate_threshold"]) == 76.0
 
 
 def test_trade_filter_gate_bypasses_spread_arbitrage_signal() -> None:
@@ -144,47 +144,46 @@ def test_trade_filter_gate_bypasses_spread_arbitrage_signal() -> None:
     assert float(out.iloc[0]["trade_filter_gate_threshold"]) == 70.0
 
 
-def test_trade_filter_gate_supports_trend_aware_percentile_delta() -> None:
-    df = _base_df().iloc[[0]].copy()
-    df["bull_mode"] = "normal"
-    df["ma_alignment"] = [2.0]
-    df["regime_label"] = ["trend_up"]
-    df["realized_vol_rank"] = [0.8]
+def test_trade_filter_gate_supports_signal_type_threshold_delta() -> None:
+    df = pd.DataFrame(
+        {
+            "symbol": ["IF0", "IF0", "IF0"],
+            "exchange": ["CFFEX", "CFFEX", "CFFEX"],
+            "interval": ["day", "day", "day"],
+            "side": ["long", "long", "long"],
+            "bull_mode": ["normal", "normal", "normal"],
+            "trade_filter_prob": [0.70, 0.70, 0.70],
+            "trade_filter_prob_pctl": [70.0, 70.0, 70.0],
+            "signal_type": [
+                "bull_pullback_continuation",
+                "breakout_pullback_continuation",
+                "trend_acceleration_breakout",
+            ],
+        }
+    )
     cfg = OotEvaluationConfig(
         use_trade_filter_gate=True,
         trade_filter_gate_mode="cluster_interval_percentile",
         trade_filter_percentile_threshold=70.0,
-        use_trend_aware_trade_filter=True,
-        trend_threshold_delta_pctl=-10.0,
-        trend_aware_trade_filter_enabled_by_cluster_interval={"index|day": True},
+        trade_filter_percentile_threshold_delta_by_signal_type={
+            "bull_pullback_continuation": -5.0,
+            "breakout_pullback_continuation": -3.0,
+            "trend_acceleration_breakout": 5.0,
+        },
     )
-    gate = pd.Series([True], index=df.index, dtype=bool)
-    block = pd.Series([""], index=df.index, dtype=object)
-    out, gate_out, _ = apply_trade_filter_gate(df, cfg=cfg, gate_by_legacy=gate, model_block_reason=block)
+    gate = pd.Series([True, True, True], index=df.index, dtype=bool)
+    block = pd.Series(["", "", ""], index=df.index, dtype=object)
 
-    # 75 >= (70-10) => pass
-    assert float(out.iloc[0]["trade_filter_gate_threshold"]) == 60.0
-    assert bool(gate_out.iloc[0]) is True
-    assert float(out.iloc[0]["trend_aware_threshold_delta"]) == -10.0
-
-
-def test_trade_filter_gate_trend_aware_not_applied_when_disabled_key() -> None:
-    df = _base_df().iloc[[0]].copy()
-    df["bull_mode"] = "normal"
-    df["ma_alignment"] = [2.0]
-    df["regime_label"] = ["trend_up"]
-    df["realized_vol_rank"] = [0.8]
-    cfg = OotEvaluationConfig(
-        use_trade_filter_gate=True,
-        trade_filter_gate_mode="cluster_interval_percentile",
-        trade_filter_percentile_threshold=70.0,
-        use_trend_aware_trade_filter=True,
-        trend_threshold_delta_pctl=-10.0,
-        trend_aware_trade_filter_enabled_by_cluster_interval={"metal|day": True},
+    out, gate_out, _block_out = apply_trade_filter_gate(
+        df,
+        cfg=cfg,
+        gate_by_legacy=gate,
+        model_block_reason=block,
     )
-    gate = pd.Series([True], index=df.index, dtype=bool)
-    block = pd.Series([""], index=df.index, dtype=object)
-    out, gate_out, _ = apply_trade_filter_gate(df, cfg=cfg, gate_by_legacy=gate, model_block_reason=block)
-    assert float(out.iloc[0]["trade_filter_gate_threshold"]) == 70.0
+
+    assert float(out.iloc[0]["trade_filter_gate_threshold"]) == 65.0
+    assert float(out.iloc[1]["trade_filter_gate_threshold"]) == 67.0
+    assert float(out.iloc[2]["trade_filter_gate_threshold"]) == 75.0
     assert bool(gate_out.iloc[0]) is True
-    assert float(out.iloc[0]["trend_aware_threshold_delta"]) == 0.0
+    assert bool(gate_out.iloc[1]) is True
+    assert bool(gate_out.iloc[2]) is False

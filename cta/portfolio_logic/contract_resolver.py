@@ -23,7 +23,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Callable, Mapping
+from typing import Any, Callable, Mapping
 
 import pandas as pd
 
@@ -222,6 +222,46 @@ class ContractResolver:
         return bool(in_window.any())
 
 
+def build_vnpy_contract_query_fn(main_engine: Any) -> Callable[[str], list[str]]:
+    """Build ``vnpy_query_fn(prefix)`` from ``MainEngine.get_all_contracts()``.
+
+    Returned callable format matches ``ContractResolver(vnpy_query_fn=...)`` contract:
+    it returns a list like ``["RB2501.SHFE", "RB2505.SHFE"]``.
+    """
+
+    def _query(prefix: str) -> list[str]:
+        pref = "".join(ch for ch in str(prefix).strip().upper() if ch.isalpha())
+        if not pref:
+            return []
+        getter = getattr(main_engine, "get_all_contracts", None)
+        if not callable(getter):
+            return []
+        try:
+            contracts = list(getter() or [])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("vnpy get_all_contracts failed: %s", exc)
+            return []
+        out: list[str] = []
+        for c in contracts:
+            symbol = str(getattr(c, "symbol", "") or "").strip().upper()
+            if not symbol:
+                continue
+            head_alpha = ""
+            for ch in symbol:
+                if ch.isalpha():
+                    head_alpha += ch
+                else:
+                    break
+            if not head_alpha.startswith(pref):
+                continue
+            ex_obj = getattr(c, "exchange", "")
+            exchange = str(getattr(ex_obj, "value", ex_obj) or "").strip().upper()
+            out.append(f"{symbol}.{exchange}" if exchange else symbol)
+        return sorted(set(out))
+
+    return _query
+
+
 def from_fut_mapping(
     mapping_df: pd.DataFrame,
     *,
@@ -288,6 +328,7 @@ def load_default_resolver(
 __all__ = [
     "ActiveContractInfo",
     "ContractResolver",
+    "build_vnpy_contract_query_fn",
     "from_fut_mapping",
     "load_default_resolver",
 ]

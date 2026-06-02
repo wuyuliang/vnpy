@@ -85,7 +85,7 @@ class BaselineSuiteConfig:
     start_date: str = "2000-01-01"
     end_date: str = "2019-12-31"
     trade_side_mode: str = "both"
-    initial_capital: float = 1_000_000.0
+    initial_capital: float = 10_000_000.0
     periods_per_year: int | None = None
     signal_types: tuple[str, ...] = BASELINE_SIGNAL_TYPES
     output_root: Path = DEFAULT_REPORT_ROOT

@@ -106,80 +106,6 @@ def _percentile_score(df: pd.DataFrame, prob: pd.Series, keys: pd.Series) -> pd.
     return pd.Series(np.nan, index=df.index, dtype=float)
 
 
-def _pick_numeric(df: pd.DataFrame, candidates: tuple[str, ...]) -> pd.Series:
-    for col in candidates:
-        if col in df.columns:
-            return pd.to_numeric(df[col], errors="coerce")
-    return pd.Series(np.nan, index=df.index, dtype=float)
-
-
-def _trend_aware_delta_series(
-    df: pd.DataFrame,
-    *,
-    cfg: Any,
-    keys: pd.Series,
-    mode: str,
-) -> tuple[pd.Series, pd.Series]:
-    """Return (delta, relaxed_flag) for trend-aware threshold relaxation."""
-    out_delta = pd.Series(0.0, index=df.index, dtype=float)
-    out_relaxed = pd.Series(False, index=df.index, dtype=bool)
-    if not bool(getattr(cfg, "use_trend_aware_trade_filter", False)):
-        return out_delta, out_relaxed
-
-    enabled_raw = dict(getattr(cfg, "trend_aware_trade_filter_enabled_by_cluster_interval", {}) or {})
-    enabled = {str(k).strip().lower(): bool(v) for k, v in enabled_raw.items() if bool(v)}
-    if not enabled:
-        return out_delta, out_relaxed
-
-    ma = _pick_numeric(df, ("ma_alignment", "generic_ma_alignment")).abs()
-    regime = df.get("regime_label", df.get("pred_regime_label", pd.Series([""] * len(df), index=df.index)))
-    regime = regime.astype(str).str.strip().str.lower()
-    vol_rank = _pick_numeric(
-        df,
-        ("realized_vol_rank", "generic_realized_vol_rank", "feature_realized_vol_rank"),
-    )
-    req_ma = int(getattr(cfg, "require_ma_alignment_magnitude", 2))
-    req_vol = float(getattr(cfg, "require_vol_rank_above", 0.5))
-    req_labels = {
-        str(x).strip().lower()
-        for x in getattr(cfg, "require_regime_labels", ("trend_up", "trend_down", "expansion"))
-        if str(x).strip()
-    }
-    enabled_row = keys.astype(str).str.lower().map(lambda k: bool(enabled.get(k, False)))
-    base_relax = (
-        enabled_row
-        & (ma >= req_ma)
-        & regime.isin(req_labels)
-        & (vol_rank >= req_vol)
-    )
-
-    # Consecutive relaxation cap by cluster|interval key.
-    max_relaxed = max(1, int(getattr(cfg, "max_consecutive_relaxed_bars", 60)))
-    if base_relax.any():
-        relaxed = pd.Series(False, index=df.index, dtype=bool)
-        for key, idxs in keys.groupby(keys).groups.items():
-            run = 0
-            for idx in idxs:
-                if bool(base_relax.loc[idx]):
-                    run += 1
-                    relaxed.loc[idx] = run <= max_relaxed
-                else:
-                    run = 0
-                    relaxed.loc[idx] = False
-        base_relax = relaxed
-
-    delta_val = float(
-        getattr(
-            cfg,
-            "trend_threshold_delta_pctl" if mode == "cluster_interval_percentile" else "trend_threshold_delta_raw",
-            0.0,
-        )
-    )
-    out_delta.loc[base_relax] = delta_val
-    out_relaxed = base_relax.astype(bool)
-    return out_delta, out_relaxed
-
-
 def apply_trade_filter_gate(
     df: pd.DataFrame,
     *,
@@ -198,8 +124,14 @@ def apply_trade_filter_gate(
     keys = clusters.astype(str) + "|" + intervals.astype(str)
     side = out.get("side", pd.Series([""] * len(out), index=out.index)).astype(str).str.strip().str.lower()
     bull_mode = out.get("bull_mode", pd.Series(["normal"] * len(out), index=out.index)).astype(str).str.strip().str.lower()
+    signal_type = out.get(
+        "signal_type", pd.Series([""] * len(out), index=out.index)
+    ).astype(str).str.strip().str.lower()
     mode = str(getattr(cfg, "trade_filter_gate_mode", "raw")).strip().lower()
-    trend_delta, trend_relaxed = _trend_aware_delta_series(out, cfg=cfg, keys=keys, mode=mode)
+    # trend_aware_trade_filter 功能已于 2026-05-29 删除；保留以下两列为中性常量，
+    # 仅为兼容 pipeline_oot_evaluation trade schema（trade_cols 固定列表）。
+    trend_delta = pd.Series(0.0, index=out.index, dtype=float)
+    trend_relaxed = pd.Series(False, index=out.index, dtype=bool)
 
     if mode == "cluster_interval_percentile":
         score = _percentile_score(out, prob, keys)
@@ -233,6 +165,14 @@ def apply_trade_filter_gate(
         short_attack = (bull_mode == "attack") & (side == "short") & (~has_side_override)
         threshold.loc[long_attack] = threshold.loc[long_attack] + attack_long_delta
         threshold.loc[short_attack] = threshold.loc[short_attack] + attack_short_delta
+        st_delta_map = dict(
+            getattr(cfg, "trade_filter_percentile_threshold_delta_by_signal_type", {}) or {}
+        )
+        if st_delta_map:
+            st_delta = signal_type.map(
+                lambda st: float(st_delta_map.get(str(st).strip().lower(), 0.0))
+            ).astype(float)
+            threshold = threshold + st_delta
         threshold = threshold.clip(lower=0.0, upper=100.0)
         pass_trade = score.fillna(-np.inf) >= threshold
         out["trade_filter_prob_pctl"] = score
@@ -267,6 +207,14 @@ def apply_trade_filter_gate(
         short_attack = (bull_mode == "attack") & (side == "short") & (~has_side_override)
         threshold.loc[long_attack] = threshold.loc[long_attack] + attack_long_delta
         threshold.loc[short_attack] = threshold.loc[short_attack] + attack_short_delta
+        st_delta_map = dict(
+            getattr(cfg, "trade_filter_raw_threshold_delta_by_signal_type", {}) or {}
+        )
+        if st_delta_map:
+            st_delta = signal_type.map(
+                lambda st: float(st_delta_map.get(str(st).strip().lower(), 0.0))
+            ).astype(float)
+            threshold = threshold + st_delta
         threshold = threshold.clip(lower=0.0, upper=1.0)
         pass_trade = score >= threshold
 
@@ -276,9 +224,6 @@ def apply_trade_filter_gate(
         if str(signal_type).strip()
     }
     if bypass_types:
-        signal_type = out.get(
-            "signal_type", pd.Series([""] * len(out), index=out.index)
-        ).astype(str).str.strip().str.lower()
         pass_trade = pass_trade | signal_type.isin(bypass_types)
 
     out["trade_filter_cluster"] = clusters

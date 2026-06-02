@@ -101,18 +101,23 @@ class TestSymbolDisable(unittest.TestCase):
             out = mask_disabled_rows(df, manifest_path=p)
             self.assertEqual(len(out), 3)
 
-    def test_real_manifest_contains_seed_entries(self) -> None:
-        """20260514 复盘把 AL0/TA0/L0 加入 manifest，保证修复后这些品种被剔除。"""
+    def test_real_manifest_currently_empty(self) -> None:
+        """2026-05-28：清空 manifest，所有品种均可交易（AL0/TA0/L0 也恢复）。
+
+        20260514 复盘曾把 AL0/TA0/L0 标为 persistent_loss 剔除；本轮决定
+        重新放开全部品种观察。manifest 文件保留（只留 header），便于后续按
+        reason tag 再加新条目。"""
         from cta.config.symbol_disable import SYMBOL_DISABLE_MANIFEST_PATH
 
         if SYMBOL_DISABLE_MANIFEST_PATH.exists():
             disabled = load_disabled_symbols()
-            for sym in ("AL0", "TA0", "L0"):
-                self.assertIn(
-                    sym,
-                    disabled,
-                    f"{sym} should be in symbol_disable_manifest.csv (M2 seed entries)",
-                )
+            self.assertEqual(
+                disabled,
+                set(),
+                "expected symbol_disable_manifest.csv to be empty (header-only); "
+                "got non-empty disabled set, please update test or manifest "
+                f"(disabled={sorted(disabled)})",
+            )
 
 
 if __name__ == "__main__":

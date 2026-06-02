@@ -22,6 +22,7 @@ order_request 拦截 hook 中调用 ``guard.evaluate(...)``，被拒时 ``return
 from __future__ import annotations
 
 import collections
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Callable
@@ -118,16 +119,19 @@ class OrderRateLimit(_BaseRule):
     max_per_second: int
     name: str = "order_rate"
     _stamps: collections.deque = field(default_factory=collections.deque, init=False, repr=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+    _time_fn: Callable[[], float] = field(default=time.time, init=False, repr=False)
 
     def check(self, order: dict, ctx: RiskContext) -> RiskDecision:
-        now = time.time()
-        # 清掉 1 秒前的 stamp
-        while self._stamps and now - self._stamps[0] > 1.0:
-            self._stamps.popleft()
-        if len(self._stamps) >= self.max_per_second:
-            return RiskDecision(False, f"{self.name}:>={self.max_per_second}/s")
-        self._stamps.append(now)
-        return RiskDecision(True, "")
+        with self._lock:
+            now = float(self._time_fn())
+            # 清掉 1 秒前的 stamp
+            while self._stamps and now - self._stamps[0] > 1.0:
+                self._stamps.popleft()
+            if len(self._stamps) >= self.max_per_second:
+                return RiskDecision(False, f"{self.name}:>={self.max_per_second}/s")
+            self._stamps.append(now)
+            return RiskDecision(True, "")
 
 
 @dataclass
@@ -139,6 +143,7 @@ class PortfolioThrottleRule(_BaseRule):
     name: str = "portfolio_throttle"
     _engine: RiskThrottle = field(init=False, repr=False)
     _current_level: object | None = field(default=None, init=False, repr=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._engine = RiskThrottle(self.cfg)
@@ -146,15 +151,16 @@ class PortfolioThrottleRule(_BaseRule):
     def check(self, order: dict, ctx: RiskContext) -> RiskDecision:
         if str(order.get("offset", "")).lower() != "open":
             return RiskDecision(True, "")
-        snap = self._engine.make_snapshot(
-            drawdown_pct=float(getattr(ctx, "drawdown_pct", 0.0)),
-            weekly_return_pct=float(getattr(ctx, "weekly_return_pct", 0.0)),
-            monthly_return_pct=float(getattr(ctx, "monthly_return_pct", 0.0)),
-            equity=float(getattr(ctx, "capital", 0.0)),
-        )
-        level = self._engine.compute(snap, self._current_level)
-        self._current_level = level
-        caps = self._engine.apply_to_caps(self.base_caps, level)
+        with self._lock:
+            snap = self._engine.make_snapshot(
+                drawdown_pct=float(getattr(ctx, "drawdown_pct", 0.0)),
+                weekly_return_pct=float(getattr(ctx, "weekly_return_pct", 0.0)),
+                monthly_return_pct=float(getattr(ctx, "monthly_return_pct", 0.0)),
+                equity=float(getattr(ctx, "capital", 0.0)),
+            )
+            level = self._engine.compute(snap, self._current_level)
+            self._current_level = level
+            caps = self._engine.apply_to_caps(self.base_caps, level)
         total_open = int(getattr(ctx, "open_positions_total", 0))
         if total_open + 1 > int(caps.max_total_positions):
             return RiskDecision(False, f"{self.name}:throttle_total>{caps.max_total_positions}")
@@ -202,6 +208,8 @@ def make_risk_filter(
             direction, offset = "short", "open"
         elif side == "flat":
             cur = float(getattr(adapter, "pos", 0.0) or 0.0)
+            if abs(cur) < 1e-9:
+                return True
             direction = "short" if cur > 0 else "long"
             offset = "close"
         else:

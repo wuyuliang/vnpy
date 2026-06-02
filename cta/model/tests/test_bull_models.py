@@ -88,3 +88,16 @@ def test_module_label_helpers_accept_configurable_edge_thresholds() -> None:
     assert _derive_bull_attack_label(df, edge_threshold=1.5).tolist() == [0]
     assert _derive_hold_extend_label(df, edge_threshold=1.5).tolist() == [0]
     assert _derive_pyramid_label(df, edge_threshold=1.5).tolist() == [0]
+
+
+def test_hold_extend_label_is_candidate_level_not_executed_only() -> None:
+    df = pd.DataFrame(
+        {
+            "is_executed": [0, 0],
+            "future_mfe_atr": [2.0, 0.2],
+            "future_mae_atr": [0.1, 0.5],
+            "regime_label": ["trend_up", "trend_up"],
+        }
+    )
+    label = _derive_hold_extend_label(df, edge_threshold=0.8).tolist()
+    assert label == [1, 0]

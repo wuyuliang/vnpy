@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 def _derive_hold_extend_label(df: pd.DataFrame, *, edge_threshold: float = 0.8) -> np.ndarray:
-    edge, executed = derive_edge_and_executed(df, mae_penalty=0.7)
-    return ((executed) & (edge > float(edge_threshold))).astype(int).to_numpy()
+    edge, _executed = derive_edge_and_executed(df, mae_penalty=0.7)
+    return (edge > float(edge_threshold)).astype(int).to_numpy()
 
 
 @dataclass

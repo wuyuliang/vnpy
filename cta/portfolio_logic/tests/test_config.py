@@ -47,6 +47,14 @@ class TestPortfolioLogicConfig(unittest.TestCase):
                 max_total_notional_pct=1.5,
             )
 
+    def test_caps_config_defaults_follow_usage_pct_baseline(self) -> None:
+        cfg = CapsConfig()
+        self.assertEqual(int(cfg.max_total_positions), 10)
+        self.assertEqual(int(cfg.max_per_symbol), 1)
+        self.assertEqual(int(cfg.max_total_per_cluster), 8)
+        self.assertAlmostEqual(float(cfg.max_symbol_notional_pct), 0.30, places=12)
+        self.assertAlmostEqual(float(cfg.max_cluster_notional_pct), 0.50, places=12)
+
     def test_portfolio_logic_config_requires_trailing_when_pyramid_enabled(self) -> None:
         with self.assertRaises(ValueError):
             PortfolioLogicConfig(enable_pyramid=True, enable_trailing=False)
@@ -67,6 +75,13 @@ class TestPortfolioLogicConfig(unittest.TestCase):
         self.assertIsInstance(cfg.interval_rank, MappingProxyType)
         with self.assertRaises(TypeError):
             cfg.interval_rank["day"] = 0.5  # type: ignore[index]
+
+    def test_interval_gate_default_fallback_map_contains_bond_intraday_cells(self) -> None:
+        cfg = IntervalGateConfig()
+        self.assertEqual(cfg.fallback_when_htf_missing_by_cluster_interval["bond|60min"], "both")
+        self.assertEqual(cfg.fallback_when_htf_missing_by_cluster_interval["bond|30min"], "both")
+        self.assertNotIn("precious|60min", cfg.fallback_when_htf_missing_by_cluster_interval)
+        self.assertNotIn("precious|30min", cfg.fallback_when_htf_missing_by_cluster_interval)
 
     def test_throttle_level_min_prob_pctl_required(self) -> None:
         from cta.portfolio_logic.config import ThrottleLevel

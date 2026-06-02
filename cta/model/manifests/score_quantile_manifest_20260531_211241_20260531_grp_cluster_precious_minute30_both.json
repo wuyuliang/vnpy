@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-31T21:12:42",
+  "run_tag": "20260531",
+  "symbol": "GRP_CLUSTER_PRECIOUS",
+  "interval": "minute30",
+  "trade_side_mode": "both",
+  "source_predictions_paths": [
+    "/Users/wuyuliang/code/vnpy/cta/model/manifests/score_quantile_source_20260531_211241_20260531_grp_cluster_precious_minute30_both.csv"
+  ],
+  "exclude_splits": [
+    "test",
+    "oot"
+  ],
+  "entries": [
+    {
+      "cluster": "precious",
+      "symbol": "AG0",
+      "interval": "30min",
+      "p50": 0.5455681241419378,
+      "p60": 0.5733917334479988,
+      "p70": 0.6013391618961585,
+      "p80": 0.6344285231196598,
+      "p90": 0.6941828631088494,
+      "p95": 0.7601576092939117,
+      "sample_count": 9216
+    },
+    {
+      "cluster": "precious",
+      "symbol": "AU0",
+      "interval": "30min",
+      "p50": 0.5106376198003802,
+      "p60": 0.5332198333742495,
+      "p70": 0.5590259985981527,
+      "p80": 0.5890811540191898,
+      "p90": 0.6290471348187723,
+      "p95": 0.662321297642859,
+      "sample_count": 10212
+    },
+    {
+      "cluster": "precious",
+      "symbol": "*",
+      "interval": "30min",
+      "p50": 0.5240166324348234,
+      "p60": 0.5517510167982076,
+      "p70": 0.5793166766997432,
+      "p80": 0.6114889961133506,
+      "p90": 0.657951735626607,
+      "p95": 0.7112759233272614,
+      "sample_count": 19428
+    }
+  ]
+}

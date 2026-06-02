@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import unittest
 
+from cta.config.model_oot_eval_config import OotEvaluationConfig
 from cta.config.baseline_skill_suite_config import BaselineSuiteConfig
 from cta.config.skill_tight_range_breakout_config import BacktestConfig, StrategyConfig
 
@@ -12,6 +13,9 @@ class TestBaselineSuiteConfigValidation(unittest.TestCase):
         cfg = BaselineSuiteConfig()
         self.assertGreater(float(cfg.initial_capital), 0.0)
         self.assertEqual(cfg.trade_side_mode, "both")
+
+    def test_default_initial_capital_matches_deployable_scale(self) -> None:
+        self.assertEqual(float(BaselineSuiteConfig().initial_capital), 10_000_000.0)
 
     def test_rejects_unknown_side_mode(self) -> None:
         with self.assertRaises(ValueError):
@@ -76,6 +80,9 @@ class TestBacktestConfigValidation(unittest.TestCase):
         self.assertGreater(float(cfg.initial_capital), 0.0)
         self.assertGreater(int(cfg.periods_per_year), 0)
 
+    def test_default_initial_capital_matches_deployable_scale(self) -> None:
+        self.assertEqual(float(BacktestConfig().initial_capital), 10_000_000.0)
+
     def test_rejects_invalid_values(self) -> None:
         with self.assertRaises(ValueError):
             BacktestConfig(initial_capital=0.0)
@@ -83,6 +90,11 @@ class TestBacktestConfigValidation(unittest.TestCase):
             BacktestConfig(periods_per_year=0)
         with self.assertRaises(ValueError):
             BacktestConfig(interval="")
+
+
+class TestOotEvaluationConfigCapital(unittest.TestCase):
+    def test_default_initial_capital_matches_deployable_scale(self) -> None:
+        self.assertEqual(float(OotEvaluationConfig().initial_capital), 10_000_000.0)
 
 
 if __name__ == "__main__":

@@ -33,16 +33,154 @@
 4. OOT(test) 评估并输出报告
 
 OOT 风控默认值提示：
-- `weekly_max_drawdown_pct=0.03`（3%）
+- `weekly_max_drawdown_pct=0.025`（2.5%）
+- OOT 流动性下限 guard 默认开启；缺 `volume_ratio` / `bid_ask_spread_ticks` /
+  `turnover_ratio` 时 fail-open，不会因为缺字段锁单。
+- 冲击成本默认关闭；需要评估容量时加 `--enable-impact-cost --impact-cost-k 0.10`，
+  使用 `adv_lots` 或 `volume_adv20` 估算 `k * sqrt(order_lots / adv_lots)`。
 
 报告中会额外打印：
 - train/valid/test 的时间周期与样本数量
 - 特征空值统计（均值/最大值/空值列数量）
 - 特征 IC 统计（label/regime/return）
 
-最简单最全的两条命令：
-nohup python3 -m cta.feature.run_all_features   --interval day 60min 30min 15min 5min min   --start 2010-01-01 --end 2025-12-31   --workers 4   > 20260522_features.out 2>&1 &
+### 风控系统（risk orchestrator）快速命令
 
+W2/W4/W5 接入后，`model_pipeline` 会在训练阶段自动生成 quantile manifest：
+- 输出目录：`cta/model/manifests/`
+- 文件示例：`score_quantile_manifest_*.json` + `score_quantile_manifest_latest.json`
+- 同时写出 score drift 基准：`score_distribution_train_*.json` + `score_distribution_train_latest.json`
+
+按默认线性 DD + dynamic bump，开启 risk orchestrator（推荐先 day 小样本验证）：
+
+```bash
+python3 -m cta.model.model_pipeline \
+  --symbol RB0 \
+  --exchange SHFE \
+  --interval day \
+  --start 2016-01-01 --end 2025-12-31 \
+  --train-end 2020-12-31 --valid-end 2023-12-31 \
+  --max-walk-forward-windows 2 \
+  --enable-risk-system \
+  --risk-quantile-field p70
+```
+
+开启 bucket scaling（仅在已有 bucket state 预热时）：
+
+```bash
+python3 -m cta.model.model_pipeline \
+  --group-pool --group-by cluster --top-n-symbols 18 \
+  --symbols-ranking-path cta/feature/symbols_research_ranking.csv \
+  --interval day \
+  --start 2010-01-01 --end 2025-12-31 \
+  --train-end 2020-12-31 --valid-end 2023-12-31 \
+  --enable-risk-system \
+  --risk-enable-bucket-scaling \
+  --risk-manifest-path cta/model/manifests/score_quantile_manifest_latest.json
+```
+
+只重跑 OOT（不重训）并启用 risk orchestrator：
+
+```bash
+python3 -m cta.model.eval \
+  --from-root cta/backtest \
+  --pattern "*_GRP_CLUSTER_*_day_both_model_pipeline" \
+  --output-root cta/backtest/$(date +%Y%m%d)_eval_risk \
+  --run-tag cluster_both_risk \
+  --enable-risk-system \
+  --risk-quantile-field p70 \
+  --risk-manifest-path cta/model/manifests/score_quantile_manifest_latest.json
+```
+
+严格收益质量评估（不重训，打开冲击成本 + 保留默认 liquidity floor）：
+
+```bash
+python3 -m cta.model.eval \
+  --from-root cta/backtest \
+  --pattern "20260529_GRP_CLUSTER_*_both_model_pipeline" \
+  --output-root cta/backtest/$(date +%Y%m%d)_eval_quality \
+  --run-tag cluster_both_quality \
+  --enable-risk-system \
+  --risk-quantile-field p70 \
+  --risk-manifest-path cta/model/manifests/score_quantile_manifest_latest.json \
+  --enable-impact-cost \
+  --impact-cost-k 0.10 \
+  --note "strict quality diagnostics: concentration + walk-forward + impact cost"
+```
+
+开启 OOT guard 链回放（cross-cluster / score drift）：
+
+```bash
+python3 -m cta.model.eval \
+  --from-root cta/backtest \
+  --pattern "20260529_GRP_CLUSTER_*_both_model_pipeline" \
+  --output-root cta/backtest/$(date +%Y%m%d)_eval_guard \
+  --run-tag cluster_both_guard \
+  --enable-oot-guard-chain \
+  --enable-oot-cross-cluster-guard \
+  --enable-oot-score-drift-guard \
+  --score-drift-train-path cta/model/manifests/score_distribution_train_latest.json
+```
+
+报告重点看：
+- `00_overview/headline_metrics.csv`：`net_excl_top1_pct`、`annualized_excl_top20`、
+  `top1_trade_pnl_pct`、`top5_symbol_pnl_pct`、`peak_margin_used`、
+  `return_on_peak_margin`。
+- `09_diagnostics/concentration_diagnostics.csv`：收益集中度红线。
+- `09_diagnostics/walk_forward_summary.csv`：OOT 子窗口稳定性。
+
+风险链路回归测试：
+
+```bash
+python3 -m pytest -q cta/risk/tests/
+python3 -m pytest -q cta/model/tests/test_risk_wiring.py cta/sim/tests/test_adapters.py
+```
+
+W9/W10 新增模块最小验证（drift / giveback / daily_var / execution_quality）：
+
+```bash
+python3 -m pytest -q \
+  cta/risk/tests/test_score_distribution_drift.py \
+  cta/risk/tests/test_profit_give_back_guard.py \
+  cta/risk/tests/test_daily_var_budget.py \
+  cta/risk/tests/test_execution_quality_feedback.py
+```
+
+最简单最全的两条命令：
+nohup python3 -m cta.feature.run_all_features  --symbols AL0 TA0 L0 --interval day 60min 30min 15min 5min min   --start 2010-01-01 --end 2025-12-31   --workers 4   > 20260522_features.out 2>&1 &
+
+nohup python3 -m cta.feature.run_all_features  --symbols AL0 TA0 L0 --interval day 60min 30min   --start 2010-01-01 --end 2025-12-31   --workers 4   > 20260528_features.out 2>&1 &
+
+
+nohup python3 -m cta.model.train \
+  --group-pool --group-by cluster \
+  --interval day 60min 30min \
+  --start 2010-01-01 --end 2025-12-31 \
+  --train-end 2020-12-31 --valid-end 2023-12-31 \
+  --trade-side-mode both \
+  --max-walk-forward-windows 1 \
+  --window-mode expanding \
+  --by-signal-type \
+  --use-portfolio-logic-runtime \
+  --enable-cross-sectional-rotation \
+  --cross-sectional-enabled-cells "*|day" \
+  --generic-mode auto \
+  --output-root cta/backtest \
+  --seed 2026052823 \
+  2>&1 > 2026052823.out &
+
+nohup python3 -m cta.model.eval \
+  --from-root cta/backtest \
+  --pattern "20260529_GRP_CLUSTER_*_both_model_pipeline" \
+  --output-root cta/backtest \
+  --run-tag cluster_both_quality \
+  --enable-risk-system \
+  --risk-quantile-field p70 \
+  --enable-impact-cost \
+  --impact-cost-k 0.10 \
+  --note "strict quality diagnostics: concentration + walk-forward + impact cost" \
+  > 20260530_eval_quality.out 2>&1 &
+  
 nohup python3 -m cta.model.model_pipeline \
   --group-pool \
   --group-by cluster \
@@ -62,12 +200,6 @@ nohup python3 -m cta.model.model_pipeline \
   --min-used-symbols 2 \
   --enable-cross-sectional-rotation \
   --cross-sectional-enabled-cells "*|day" \
-  --enable-trailing-take-profit \
-  --trailing-tp-enabled-cells "precious|day" \
-  --enable-profit-aware-horizon \
-  --profit-aware-horizon-enabled-cells "precious|day" \
-  --enable-trend-aware-trade-filter \
-  --trend-aware-trade-filter-enabled-cells "precious|day" \
   --seed 2026052208 \
   > 2026052310.out 2>&1 &
 
@@ -168,6 +300,26 @@ python3 -m cta.data_code.expand_minute \
 ```bash
 python3 -m cta.cli validate --interval day --max-rank 10 --out cta/report/data/$(date +%Y%m%d)_day_validate.csv
 python3 -m cta.cli validate --interval minute60 --max-rank 10 --out cta/report/data/$(date +%Y%m%d)_minute60_validate.csv
+```
+
+### 1.4 一条命令跑“下载 → 完整性闸门 → 特征 → 候选训练样本”
+
+```bash
+python3 -m cta.data_code.daily_update \
+  --top-n-symbols 18 \
+  --intervals day 60min 30min \
+  --start 2010-01-01 \
+  --end 2025-12-31 \
+  --run-tag sim_plan3
+```
+
+完整性闸门可单独执行（P0 强校验）：
+
+```bash
+python3 -m cta.data_code.data_integrity_check \
+  --origin-root cta/data/origin \
+  --intervals day 60min 30min \
+  --symbols RB0 IF0 T0
 ```
 
 ---
@@ -393,9 +545,12 @@ python3 -m cta.model.model_pipeline \
 - `--rolling-test-years`：`rolling` 模式下 test 窗口长度（年）。
 - `--rolling-step-years`：`rolling` 模式窗口每次向前滚动步长（年）。
 - `--top-feature-alert-pct`：单特征重要度占比告警阈值（写入 suspect feature 报告）。
-- `--enable-trailing-take-profit` + `--trailing-tp-enabled-cells`：开启盈利仓位追踪止盈（A 模块）。
-- `--enable-profit-aware-horizon` + `--profit-aware-horizon-enabled-cells`：开启盈利后持仓期放宽（C 模块）。
-- `--enable-trend-aware-trade-filter` + `--trend-aware-trade-filter-enabled-cells`：开启趋势下 trade_filter 阈值松绑（B 模块）。
+- `--strict-fail-fast`：批量 group/interval 跑批时，任一子任务异常即立刻失败退出。
+- `--no-strict-fail-fast`：关闭 fail-fast，保留“尽量跑完其余子任务”的容错模式。
+
+> 注：trailing_take_profit / profit_aware_horizon / trend_aware_trade_filter /
+> ma_cross_gate / regime_short_filter 五个功能及 `--enable-all-oot-modules` 已于
+> 2026-05-29 删除（见 change_log）。
 
 示例（rolling + group_pool + cluster 过滤）：
 
@@ -416,27 +571,6 @@ python3 -m cta.model.model_pipeline \
   --no-by-signal-type \
   --output-root cta/backtest/custom_run \
   --seed 20260519
-```
-
-示例（只在 `precious|day` 灰度启用 A/B/C）：
-
-```bash
-python3 -m cta.model.model_pipeline \
-  --group-pool \
-  --group-by cluster \
-  --only-clusters precious \
-  --interval day \
-  --start 2018-01-01 --end 2025-12-31 \
-  --train-end 2021-12-31 --valid-end 2023-12-31 \
-  --window-mode expanding --max-walk-forward-windows 3 \
-  --use-portfolio-logic-runtime \
-  --enable-trailing-take-profit \
-  --trailing-tp-enabled-cells precious|day \
-  --enable-profit-aware-horizon \
-  --profit-aware-horizon-enabled-cells precious|day \
-  --enable-trend-aware-trade-filter \
-  --trend-aware-trade-filter-enabled-cells precious|day \
-  --seed 20260523
 ```
 
 ### 4.2.1 多 symbol **池化**训练（一个共享模型）
@@ -1164,6 +1298,49 @@ serve_forever(main_engine)
 PY
 ```
 
+### 6.2.2 截面轮动主循环下单 wire（P1-7）
+
+当你已经有 `RotationStepper` 时，可直接在 `run_sim` 打开主循环下单接线：
+
+```bash
+python3 - <<'PY'
+import pandas as pd
+from cta.config.cross_sectional_rotation_config import CrossSectionalRotationConfig
+from cta.portfolio_logic.portfolio_state import PortfolioState
+from cta.sim.adapters.rotation_stepper import RotationStepper
+from cta.sim.sim_runner import SimRunConfig, SimnowSetting, run_sim
+from cta.strategy.vnpy_adapters.baseline_strategy import BaselineSetupVnpyStrategy
+
+def universe_provider(_ts: pd.Timestamp):
+    # 返回 {symbol: bars_df}，bars_df 至少含 datetime/close
+    return {}
+
+rotation_cfg = CrossSectionalRotationConfig(
+    use_cross_sectional_momentum_rotation=True,
+    enabled_by_cluster_interval={"*|day": True},
+)
+stepper = RotationStepper(cfg=rotation_cfg, universe_provider=universe_provider, interval="day")
+
+cfg = SimRunConfig(
+    strategy_class=BaselineSetupVnpyStrategy,
+    strategy_name="RotationIF0",
+    vt_symbol="IF0.CFFEX",
+    setting={},
+    enable_rotation_main_loop=True,
+    rotation_stepper=stepper,
+    rotation_portfolio_state=PortfolioState(equity=1_000_000.0),
+    rotation_wire_kwargs={
+        "default_contract_size": 300.0,
+        "only_trade_matching_vt_symbol": True,
+    },
+)
+sim = SimnowSetting(userid="你的SimNow账号", password="你的SimNow密码")
+main_engine = run_sim(cfg, sim)
+from cta.sim.sim_runner import serve_forever
+serve_forever(main_engine)
+PY
+```
+
 `run_sim` 内部自动完成：
 - 在 ``cta_engine.classes`` 注册策略类，再用字符串类名调 ``add_strategy``（与 vnpy
   真实接口一致；之前直接传 class object 在生产会静默失败）
@@ -1322,7 +1499,21 @@ cfg = LiveRunConfig(
     strategy_class=SkillTightRangeBreakoutCta,
     strategy_name="TightRangeRB_live",
     vt_symbol="rb888.SHFE",
-    setting={"lookback": 10, "alpha": 1.5, "min_count": 5, "trade_side_mode": "both"},
+    setting={
+        "lookback": 10,
+        "alpha": 1.5,
+        "min_count": 5,
+        "trade_side_mode": "both",
+        # 盘前 checklist（任一失败则阻断启动）
+        "preopen_checklist": {
+            "predictions_path": "cta/backtest/latest_predictions.csv",
+            "max_prediction_stale_hours": 24.0,
+            "max_model_age_days": 14.0,
+            "kill_switch_active": False,
+            "available_cash": 10_000_000.0,
+            "required_margin": 2_000_000.0,
+        },
+    },
     warmup_days=10,
     warmup_interval="1m",
     portfolio_logic_flags={
@@ -1336,6 +1527,8 @@ cfg = LiveRunConfig(
     # 启用订单幂等 reference（策略侧下单时使用 order_reference_prefix）
     enable_order_idempotency=True,
     order_reference_prefix="TightRangeRB_live",
+    # 下单拆单（iceberg / twap）：每子单最大手数 + 可选 ADV 参与率
+    order_slice_cfg={"max_order_volume": 3, "method": "iceberg", "adv_participation_rate": 0.10},
     # 组合状态快照（重启恢复/核对）
     state_snapshot_path="cta/report/live/TightRangeRB_live_state_snapshot.json",
     # 启动前 broker 持仓核对（不一致直接阻断启动）
@@ -1367,6 +1560,72 @@ serve_live(
 )
 PY
 ```
+
+---
+
+### 7.4 三层一致性检查（OOT = sim = live）
+
+```bash
+python3 -m cta.sim.cfg_consistency_check \
+  --oot-fingerprint cta/backtest/oot_xxx/meta/cfg_fingerprint.json \
+  --sim-fingerprint cta/report/sim_xxx/meta/cfg_fingerprint.json \
+  --live-fingerprint cta/report/live_xxx/meta/cfg_fingerprint.json
+```
+
+### 7.5 实时信号生成（在线推理入口）
+
+`prepare_live_risk_wiring` 在 `setting` 提供 `cluster_registry_path` 时会自动注入：
+- `signal_generator_context["model_registry"]`
+- `signal_generator_context["score_manifest"]`
+- `signal_generator_context["feature_loader"]`
+- `signal_generator_context["generate_fn"]`
+
+最小调用示例：
+
+```python
+ctx = cfg.setting["signal_generator_context"]
+df = ctx["generate_fn"](
+    bars_by_symbol_interval=bars_by_symbol_interval,
+    cfg=ctx["cfg"],
+    as_of=bar_dt,
+    model_registry=ctx["model_registry"],
+    feature_loader=ctx["feature_loader"],
+    score_manifest=ctx["score_manifest"],
+)
+```
+
+### 7.6 基于逐笔日志生成 live 周/月与复盘报告
+
+```bash
+python3 -m cta.live.reporting.build_reports \
+  --live-trades-csv cta/report/live/20260530_live_trades.csv \
+  --oot-trades-csv cta/backtest/oot_20260530_xxx/01_aggregate/trade_details.csv \
+  --out-dir cta/report/live/reports/20260530 \
+  --run-tag sim_plan3 \
+  --initial-capital 10000000
+```
+
+输出：
+- `sim_plan3_live_monthly_metrics.csv`
+- `sim_plan3_live_weekly_metrics.csv`
+- `sim_plan3_live_summary.csv`
+- `sim_plan3_live_vs_oot_review_details.csv`
+- `sim_plan3_live_vs_oot_review_summary.csv`
+
+### 7.7 sim/live 自动接线说明（新）
+
+- `SimRunConfig.trade_recorder_dir` 有值时，`sim_runner` 会自动挂 `oot_trade_logger`（OOT 风格结构化日志）。
+- `cfg.setting` 提供以下对象时，`sim_runner` 会自动挂到策略实例：
+  - `entry_gate_chain`
+  - `position_evaluator`
+  - `state_provider`
+  - `signal_generator_context`
+- `LegacyCtaAdapter` 会按顺序执行：
+  1. `signal_generator_context`（补模型分数列）
+  2. `entry_gate_chain`（trade_filter/HTF/risk_orchestrator）
+  3. `order_filter`（RiskGuard/kill_switch 等）
+  4. `order_slicer`（可选）
+  5. send order
 
 ---
 

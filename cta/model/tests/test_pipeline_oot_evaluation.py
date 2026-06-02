@@ -11,7 +11,7 @@ import pandas as pd
 from cta.config.model_oot_eval_config import OotEvaluationConfig
 from cta.model.oot.block_reasons import CANONICAL_BLOCK_REASONS, BR_LOG_EXECUTED_SENTINEL
 from cta.model.oot.pipeline_oot_evaluation import _evaluate_oot_real_execution
-from cta.portfolio_logic.config import PortfolioLogicConfig, PyramidConfig
+from cta.portfolio_logic.config import CapsConfig, PortfolioLogicConfig, PyramidConfig
 
 
 def test_pipeline_oot_evaluation_empty_input() -> None:
@@ -30,7 +30,7 @@ def _single_day_pred(side: str = "long") -> pd.DataFrame:
             "symbol": ["RB0"],
             "exchange": ["SHFE"],
             "interval": ["day"],
-            "signal_type": ["donchian_breakout"],
+            "signal_type": ["bull_pullback_continuation"],
             "side": [side],
             "pred_regime_label": ["trend_up"],
             "pred_split": ["test"],
@@ -72,7 +72,7 @@ def _trade_filter_gate_pred() -> pd.DataFrame:
             "symbol": ["IF0", "IH0", "RB0", "HC0"],
             "exchange": ["CFFEX", "CFFEX", "SHFE", "SHFE"],
             "interval": ["day", "day", "day", "day"],
-            "signal_type": ["donchian_breakout"] * 4,
+            "signal_type": ["bull_pullback_continuation"] * 4,
             "side": ["long"] * 4,
             "pred_split": ["test"] * 4,
             "window_id": [0] * 4,
@@ -97,6 +97,8 @@ def _trade_filter_only_cfg(**kwargs: object) -> OotEvaluationConfig:
         use_intrabar_stop_tracking=False,
         use_portfolio_constraints=False,
         use_position_sizing=False,
+        trade_filter_raw_threshold_delta_by_signal_type={},
+        trade_filter_percentile_threshold_delta_by_signal_type={},
     )
     defaults.update(kwargs)
     return OotEvaluationConfig(**defaults)
@@ -135,7 +137,7 @@ def _pyramid_runtime_cfg() -> OotEvaluationConfig:
         require_executed_only=True,
         use_intrabar_stop_tracking=False,
         use_position_sizing=False,
-        max_position_scale=0.10,
+        max_position_scale=0.15,
         use_portfolio_constraints=False,
         use_portfolio_logic_runtime=True,
         portfolio_logic=PortfolioLogicConfig(
@@ -178,6 +180,42 @@ def test_trade_filter_gate_can_use_cluster_interval_percentiles() -> None:
     # IH0 raw=0.50 低于旧全局 0.62，但在 index/day 内是高分位，应被放行。
     assert float(executed.loc[executed["symbol"] == "IH0", "trade_filter_prob"].iloc[0]) < 0.62
     assert "trade_filter_prob_pctl" in trades.columns
+
+
+def test_signal_type_blacklist_filters_rows_before_oot_evaluation() -> None:
+    pred = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+            "entry_datetime": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+            "exit_datetime": pd.to_datetime(["2024-01-04", "2024-01-05"]),
+            "symbol": ["RB0", "HC0"],
+            "exchange": ["SHFE", "SHFE"],
+            "interval": ["day", "day"],
+            "signal_type": ["donchian_breakout", "bull_pullback_continuation"],
+            "side": ["long", "long"],
+            "pred_split": ["test", "test"],
+            "window_id": [0, 0],
+            "is_executed": [1, 1],
+            "entry_price": [100.0, 100.0],
+            "future_mfe_atr": [1.0, 1.0],
+            "future_mae_atr": [0.2, 0.2],
+        }
+    )
+    cfg = OotEvaluationConfig(
+        use_stacking_gate=False,
+        use_trade_filter_gate=False,
+        use_regime_gate=False,
+        use_mfe_mae_gate=False,
+        use_test_split_only=True,
+        require_executed_only=True,
+        use_intrabar_stop_tracking=False,
+        use_portfolio_constraints=False,
+        use_position_sizing=False,
+    )
+    _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+    assert int(summary.iloc[0]["oot_rows"]) == 1
+    assert int(summary.iloc[0]["trade_count"]) == 1
+    assert set(trades["signal_type"].astype(str)) == {"bull_pullback_continuation"}
 
 
 def test_oot_trade_details_keep_spread_arbitrage_columns() -> None:
@@ -359,27 +397,30 @@ def test_htf_intervals_narrowed_when_only_day_available(caplog) -> None:
     assert str(trades.iloc[0]["execution_status"]) == "executed"
 
     # 诊断断言：INFO log 必须显式打印窄化前后的 intervals
-    narrow_msgs = [r.message for r in caplog.records if "HTF intervals narrowed" in r.message]
+    narrow_msgs = [
+        r.message
+        for r in caplog.records
+        if ("HTF intervals narrowed" in r.message) or ("HTF intervals adjusted for runtime" in r.message)
+    ]
     assert narrow_msgs, f"expected HTF narrowing log, got records={caplog.records!r}"
     assert "day" in narrow_msgs[0]
     assert "60min" in narrow_msgs[0]
 
 
-def test_htf_gate_disabled_when_reference_has_no_overlap(caplog) -> None:
-    """Fix-A：当 htf_reference 完全没有任何配置 interval 的行时，关闭 HTF gate
-    而不是放行所有候选为 htf_missing。"""
+def test_htf_gate_uses_self_interval_when_reference_has_no_config_overlap(caplog) -> None:
+    """A 方案：无 day/60min 参考时，允许退化到候选自身 interval 的 self-consistency gate。"""
     pred = _single_day_pred(side="long")
     # 把 interval 改成完全不在 htf_intervals 里的值
     pred.loc[:, "interval"] = "5min"
     cfg = _htf_enabled_cfg()
     with caplog.at_level(logging.WARNING, logger="cta.model.oot.pipeline_oot_evaluation"):
-        _m, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+        _m, summary, _trades = _evaluate_oot_real_execution(pred, cfg=cfg)
 
-    # HTF gate 关闭后，候选应被放行（不再被标 blocked_htf_gate）
+    # 退化到 5min 单一 interval gate 后，候选应放行
     assert int(summary.iloc[0]["blocked_htf_rows"]) == 0
-    # warning 提示用户 HTF gate 已被关闭
-    disable_msgs = [r.message for r in caplog.records if "disabling HTF gate" in r.message]
-    assert disable_msgs, f"expected disabling-HTF-gate warning, got {caplog.records!r}"
+    self_consistency_msgs = [r.message for r in caplog.records if "self-consistency gate" in r.message]
+    assert self_consistency_msgs, f"expected self-consistency warning, got {caplog.records!r}"
+    assert "5min" in self_consistency_msgs[0]
 
 
 def test_block_reason_distribution_logged_at_info(caplog) -> None:
@@ -462,18 +503,8 @@ def test_fix_e_day_candidate_drops_lower_rank_htf_when_shared_reference(caplog) 
     assert str(trades.iloc[0]["execution_status"]) == "executed"
     assert str(trades.iloc[0]["block_reason"]) == ""
 
-    # 诊断断言：必须打 Fix-E 过滤日志
-    filter_msgs = [r.message for r in caplog.records if "filtered by rank" in r.message]
-    assert filter_msgs, f"expected Fix-E rank filter log, got {caplog.records!r}"
-    assert "day" in filter_msgs[0]
-    assert "60min" in filter_msgs[0]
-
-
-def test_fix_e_minute_candidate_keeps_day_and_60min_htf(caplog) -> None:
-    """Fix-E 反向验证：30min 候选（rank=0.70）应保留 day(1.0) 与 60min(0.85) 两条 HTF。
-
-    确保 Fix-E 不会把"正经的"sub-hourly 候选场景误过滤掉。
-    """
+def test_fix_e_minute_candidate_keeps_30min_60min_day_htf(caplog) -> None:
+    """30min 候选必须使用自身+更高周期：30min, 60min, day。"""
     pred = pd.DataFrame(
         {
             "datetime": pd.to_datetime(["2020-01-06 09:00:00"]),
@@ -482,7 +513,7 @@ def test_fix_e_minute_candidate_keeps_day_and_60min_htf(caplog) -> None:
             "symbol": ["RB0"],
             "exchange": ["SHFE"],
             "interval": ["30min"],
-            "signal_type": ["donchian_breakout"],
+            "signal_type": ["bull_pullback_continuation"],
             "side": ["long"],
             "pred_regime_label": ["trend_up"],
             "pred_split": ["test"],
@@ -493,27 +524,27 @@ def test_fix_e_minute_candidate_keeps_day_and_60min_htf(caplog) -> None:
             "future_mae_atr": [0.2],
         }
     )
-    # day + 60min HTF 参考（与候选 ts 接近，TTL 内）
+    # day + 60min + 30min HTF 参考（与候选 ts 接近，TTL 内）
     htf_ref = pd.DataFrame(
         {
             "datetime": pd.to_datetime(
-                ["2020-01-06 09:00:00", "2020-01-06 08:30:00"]
+                ["2020-01-06 09:00:00", "2020-01-06 08:30:00", "2020-01-06 08:30:00"]
             ),
             "entry_datetime": pd.to_datetime(
-                ["2020-01-06 09:00:00", "2020-01-06 08:30:00"]
+                ["2020-01-06 09:00:00", "2020-01-06 08:30:00", "2020-01-06 08:30:00"]
             ),
             "exit_datetime": pd.to_datetime(
-                ["2020-01-06 15:00:00", "2020-01-06 09:30:00"]
+                ["2020-01-06 15:00:00", "2020-01-06 09:30:00", "2020-01-06 09:00:00"]
             ),
-            "symbol": ["RB0", "RB0"],
-            "exchange": ["SHFE", "SHFE"],
-            "interval": ["day", "60min"],
-            "signal_type": ["htf_ref", "htf_ref"],
-            "side": ["long", "long"],
-            "pred_regime_label": ["trend_up", "trend_up"],
-            "pred_split": ["test", "test"],
-            "window_id": [0, 0],
-            "is_executed": [0, 0],
+            "symbol": ["RB0", "RB0", "RB0"],
+            "exchange": ["SHFE", "SHFE", "SHFE"],
+            "interval": ["day", "60min", "30min"],
+            "signal_type": ["htf_ref", "htf_ref", "htf_ref"],
+            "side": ["long", "long", "long"],
+            "pred_regime_label": ["trend_up", "trend_up", "trend_up"],
+            "pred_split": ["test", "test", "test"],
+            "window_id": [0, 0, 0],
+            "is_executed": [0, 0, 0],
         }
     )
     cfg = _htf_enabled_cfg()
@@ -522,12 +553,77 @@ def test_fix_e_minute_candidate_keeps_day_and_60min_htf(caplog) -> None:
             pred, cfg=cfg, htf_reference_df=htf_ref
         )
 
-    # Fix-E 不应过滤掉任何 interval（30min < day < 60min 都 ≥ 30min rank=0.70）
-    filter_msgs = [r.message for r in caplog.records if "filtered by rank" in r.message]
-    assert not filter_msgs, f"Fix-E should NOT filter for 30min candidate, got {filter_msgs}"
-    # 业务断言：day + 60min 都看到 trend_up，long 方向通过
+    # 业务断言：30min/60min/day 都看到 trend_up，long 方向通过
     assert int(summary.iloc[0]["trade_count"]) == 1
     assert str(trades.iloc[0]["execution_status"]) == "executed"
+
+
+def test_fix_e_unified_mode_mixed_intervals_day_candidate_uses_day_only() -> None:
+    pred = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-06 09:00:00"]),
+            "entry_datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-06 09:00:00"]),
+            "exit_datetime": pd.to_datetime(["2020-01-06 11:00:00", "2020-01-06 11:00:00"]),
+            "symbol": ["RB0", "HC0"],
+            "exchange": ["SHFE", "SHFE"],
+            "interval": ["day", "30min"],
+            "signal_type": ["bull_pullback_continuation", "bull_pullback_continuation"],
+            "side": ["long", "long"],
+            "pred_regime_label": ["trend_up", "trend_up"],
+            "pred_split": ["test", "test"],
+            "window_id": [0, 0],
+            "is_executed": [1, 1],
+            "entry_price": [100.0, 100.0],
+            "future_mfe_atr": [1.0, 1.0],
+            "future_mae_atr": [0.2, 0.2],
+        }
+    )
+    htf_ref = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(
+                [
+                    "2020-01-06 09:00:00",  # RB0 day: 新鲜
+                    "2020-01-03 14:00:00",  # RB0 60min: 过期（不应影响 day 候选）
+                    "2020-01-06 09:00:00",  # HC0 day
+                    "2020-01-06 08:30:00",  # HC0 60min
+                    "2020-01-06 08:30:00",  # HC0 30min
+                ]
+            ),
+            "entry_datetime": pd.to_datetime(
+                [
+                    "2020-01-06 09:00:00",
+                    "2020-01-03 14:00:00",
+                    "2020-01-06 09:00:00",
+                    "2020-01-06 08:30:00",
+                    "2020-01-06 08:30:00",
+                ]
+            ),
+            "exit_datetime": pd.to_datetime(
+                [
+                    "2020-01-06 15:00:00",
+                    "2020-01-03 15:00:00",
+                    "2020-01-06 15:00:00",
+                    "2020-01-06 09:30:00",
+                    "2020-01-06 09:00:00",
+                ]
+            ),
+            "symbol": ["RB0", "RB0", "HC0", "HC0", "HC0"],
+            "exchange": ["SHFE", "SHFE", "SHFE", "SHFE", "SHFE"],
+            "interval": ["day", "60min", "day", "60min", "30min"],
+            "signal_type": ["htf_ref", "htf_ref", "htf_ref", "htf_ref", "htf_ref"],
+            "side": ["long", "long", "long", "long", "long"],
+            "pred_regime_label": ["trend_up", "trend_up", "trend_up", "trend_up", "trend_up"],
+            "pred_split": ["test", "test", "test", "test", "test"],
+            "window_id": [0, 0, 0, 0, 0],
+            "is_executed": [0, 0, 0, 0, 0],
+        }
+    )
+    cfg = _htf_enabled_cfg()
+    _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg, htf_reference_df=htf_ref)
+    assert int(summary.iloc[0]["trade_count"]) == 2
+    rb = trades.loc[trades["symbol"].astype(str) == "RB0"].iloc[0]
+    assert str(rb["execution_status"]) == "executed"
+    assert str(rb["block_reason"]) == ""
 
 
 # Canonical literals expected to be emitted as block_reason values.
@@ -655,7 +751,7 @@ def test_position_sizing_uses_contract_multiplier_and_lot_rounding() -> None:
         use_portfolio_constraints=False,
         use_position_sizing=True,
         initial_capital=100_000.0,
-        max_position_scale=0.10,
+        max_position_scale=0.15,
         max_single_loss_pct=0.001,
         risk_per_trade_pct=0.002,
         use_portfolio_logic_runtime=False,
@@ -666,6 +762,7 @@ def test_position_sizing_uses_contract_multiplier_and_lot_rounding() -> None:
                 "margin_rate": 0.2,
             }
         },
+        signal_type_size_multiplier={},
         # 此测试聚焦 contract_size/lot_size 取整数学，不依赖 cluster 维度 stop_loss override；
         # 显式空 dict 保留全局 0.01 默认（否则 black|day 4.51% 会让 position_scale 缩小到 lot_size 取整后变 0）。
         intrabar_stop_loss_pct_by_cluster_interval={},
@@ -677,6 +774,285 @@ def test_position_sizing_uses_contract_multiplier_and_lot_rounding() -> None:
     assert np.isclose(float(row["position_qty"]), 9.0)
     assert np.isclose(float(row["position_notional"]), 9_000.0)
     assert np.isclose(float(row["entry_margin"]), 1_800.0)
+
+
+def test_signal_type_size_multiplier_changes_effective_position_scale_cap() -> None:
+    pred = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-06 09:00:00"]),
+            "entry_datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-06 09:00:00"]),
+            "exit_datetime": pd.to_datetime(["2020-01-07 09:00:00", "2020-01-07 09:00:00"]),
+            "symbol": ["RB0", "HC0"],
+            "exchange": ["SHFE", "SHFE"],
+            "interval": ["day", "day"],
+            "signal_type": ["bull_pullback_continuation", "atr_breakout"],
+            "side": ["long", "long"],
+            "pred_regime_label": ["trend_up", "trend_up"],
+            "pred_split": ["test", "test"],
+            "window_id": [0, 0],
+            "is_executed": [1, 1],
+            "entry_price": [100.0, 100.0],
+            "future_mfe_atr": [1.0, 1.0],
+            "future_mae_atr": [0.2, 0.2],
+        }
+    )
+    cfg = OotEvaluationConfig(
+        use_stacking_gate=False,
+        use_trade_filter_gate=False,
+        use_regime_gate=False,
+        use_mfe_mae_gate=False,
+        use_test_split_only=False,
+        require_executed_only=True,
+        use_intrabar_stop_tracking=False,
+        use_portfolio_constraints=False,
+        use_position_sizing=False,
+        use_portfolio_logic_runtime=False,
+        max_position_scale=0.10,
+        signal_type_size_multiplier={
+            "bull_pullback_continuation": 2.0,
+            "atr_breakout": 0.4,
+        },
+        signal_type_blacklist=(),
+    )
+    _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+    assert int(summary.iloc[0]["trade_count"]) == 2
+    by_signal = {
+        str(row["signal_type"]): float(row["position_scale"])
+        for _, row in trades.loc[trades["execution_status"] == "executed"].iterrows()
+    }
+    assert np.isclose(by_signal["bull_pullback_continuation"], 0.20)
+    assert np.isclose(by_signal["atr_breakout"], 0.04)
+    assert by_signal["bull_pullback_continuation"] > by_signal["atr_breakout"]
+
+
+def test_signal_type_max_concurrent_positions_blocks_n_plus_one_entry() -> None:
+    pred = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(
+                [
+                    "2020-01-06 09:00:00",
+                    "2020-01-06 09:00:00",
+                    "2020-01-06 09:00:00",
+                ]
+            ),
+            "entry_datetime": pd.to_datetime(
+                [
+                    "2020-01-06 09:00:00",
+                    "2020-01-06 09:00:00",
+                    "2020-01-06 09:00:00",
+                ]
+            ),
+            "exit_datetime": pd.to_datetime(
+                [
+                    "2020-01-07 09:00:00",
+                    "2020-01-07 09:00:00",
+                    "2020-01-07 09:00:00",
+                ]
+            ),
+            "symbol": ["RB0", "HC0", "CU0"],
+            "exchange": ["SHFE", "SHFE", "SHFE"],
+            "interval": ["day", "day", "day"],
+            "signal_type": ["atr_breakout", "atr_breakout", "atr_breakout"],
+            "side": ["long", "long", "long"],
+            "pred_regime_label": ["trend_up", "trend_up", "trend_up"],
+            "pred_split": ["test", "test", "test"],
+            "window_id": [0, 0, 0],
+            "is_executed": [1, 1, 1],
+            "entry_price": [100.0, 100.0, 100.0],
+            "future_mfe_atr": [1.0, 1.0, 1.0],
+            "future_mae_atr": [0.2, 0.2, 0.2],
+        }
+    )
+    cfg = OotEvaluationConfig(
+        use_stacking_gate=False,
+        use_trade_filter_gate=False,
+        use_regime_gate=False,
+        use_mfe_mae_gate=False,
+        use_test_split_only=False,
+        require_executed_only=True,
+        use_intrabar_stop_tracking=False,
+        use_portfolio_constraints=True,
+        use_position_sizing=False,
+        use_portfolio_logic_runtime=False,
+        initial_capital=100_000.0,
+        max_position_scale=0.10,
+        max_symbol_notional_pct=1.0,
+        max_concurrent_positions_per_symbol=10,
+        max_concurrent_positions_total=10,
+        max_total_leverage=10.0,
+        max_daily_new_notional_pct=10.0,
+        signal_type_max_concurrent_positions={"atr_breakout": 2},
+        signal_type_blacklist=(),
+    )
+    _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+    assert int(summary.iloc[0]["trade_count"]) == 2
+    executed = trades.loc[trades["execution_status"].astype(str) == "executed"]
+    blocked = trades.loc[
+        trades["execution_status"].astype(str) == "blocked_signal_type_concurrent"
+    ]
+    assert len(executed) == 2
+    assert len(blocked) == 1
+    assert set(blocked["block_reason"].astype(str)) == {"blocked_signal_type_concurrent"}
+
+
+def test_ranker_prefilters_signal_type_cap_to_avoid_slot_waste() -> None:
+    """当某 signal_type 已达并发上限时，不应先占 ranker 名额再在后面被挡掉。"""
+    pred = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(
+                [
+                    "2020-01-06 09:00:00",  # 先开一笔 atr
+                    "2020-01-06 10:00:00",  # 同时到达：atr + bull
+                    "2020-01-06 10:00:00",
+                ]
+            ),
+            "entry_datetime": pd.to_datetime(
+                [
+                    "2020-01-06 09:00:00",
+                    "2020-01-06 10:00:00",
+                    "2020-01-06 10:00:00",
+                ]
+            ),
+            "exit_datetime": pd.to_datetime(
+                [
+                    "2020-01-06 12:00:00",
+                    "2020-01-06 13:00:00",
+                    "2020-01-06 13:00:00",
+                ]
+            ),
+            "symbol": ["RB0", "HC0", "BU0"],
+            "exchange": ["SHFE", "SHFE", "SHFE"],
+            "interval": ["60min", "60min", "60min"],
+            "signal_type": [
+                "atr_breakout",
+                "atr_breakout",
+                "bull_pullback_continuation",
+            ],
+            "side": ["long", "long", "long"],
+            "pred_regime_label": ["trend_up", "trend_up", "trend_up"],
+            "pred_split": ["test", "test", "test"],
+            "window_id": [0, 0, 0],
+            "is_executed": [1, 1, 1],
+            "entry_price": [100.0, 100.0, 100.0],
+            "trade_filter_prob": [0.80, 0.95, 0.65],
+            "pred_mfe_atr": [2.0, 2.0, 2.0],
+            "pred_mae_atr": [0.6, 0.6, 0.6],
+            "future_mfe_atr": [1.2, 1.2, 1.2],
+            "future_mae_atr": [0.2, 0.2, 0.2],
+        }
+    )
+    cfg = OotEvaluationConfig(
+        use_stacking_gate=False,
+        use_trade_filter_gate=False,
+        use_regime_gate=False,
+        use_mfe_mae_gate=False,
+        use_test_split_only=False,
+        require_executed_only=True,
+        use_intrabar_stop_tracking=False,
+        use_portfolio_constraints=True,
+        use_position_sizing=False,
+        use_portfolio_logic_runtime=True,
+        initial_capital=100_000.0,
+        max_position_scale=0.10,
+        max_concurrent_positions_total=10,
+        max_concurrent_positions_per_symbol=10,
+        signal_type_size_multiplier={
+            "atr_breakout": 1.0,
+            "bull_pullback_continuation": 1.0,
+        },
+        signal_type_max_concurrent_positions={
+            "atr_breakout": 1,
+            "bull_pullback_continuation": 5,
+        },
+        signal_type_blacklist=(),
+        ranker_prob_pctl_delta_by_signal_type={},
+        portfolio_logic=PortfolioLogicConfig(
+            enable_htf_gate=False,
+            enable_ranker=True,
+            enable_risk_throttle=False,
+            enable_pyramid=False,
+            caps=CapsConfig(
+                max_total_positions=2,
+                max_per_symbol=10,
+                max_total_per_cluster=10,
+                max_symbol_notional_pct=1.0,
+                max_cluster_notional_pct=1.2,
+                max_total_notional_pct=2.0,
+                dedup_same_symbol_same_direction=True,
+            ),
+        ),
+    )
+    _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+    assert int(summary.iloc[0]["trade_count"]) == 2
+    by_symbol = {
+        str(row["symbol"]): str(row["execution_status"])
+        for _, row in trades.iterrows()
+    }
+    assert by_symbol["RB0"] == "executed"
+    assert by_symbol["HC0"] == "blocked_signal_type_concurrent"
+    assert by_symbol["BU0"] == "executed"
+
+
+def test_ranker_prob_pctl_delta_by_signal_type_adjusts_min_prob_filter() -> None:
+    pred = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(["2020-01-06 10:00:00", "2020-01-06 10:00:00"]),
+            "entry_datetime": pd.to_datetime(["2020-01-06 10:00:00", "2020-01-06 10:00:00"]),
+            "exit_datetime": pd.to_datetime(["2020-01-06 13:00:00", "2020-01-06 13:00:00"]),
+            "symbol": ["BU0", "RB0"],
+            "exchange": ["SHFE", "SHFE"],
+            "interval": ["60min", "60min"],
+            "signal_type": ["bull_pullback_continuation", "atr_breakout"],
+            "side": ["long", "long"],
+            "pred_regime_label": ["trend_up", "trend_up"],
+            "pred_split": ["test", "test"],
+            "window_id": [0, 0],
+            "is_executed": [1, 1],
+            "entry_price": [100.0, 100.0],
+            "trade_filter_prob": [0.45, 0.85],  # base pctl=45/85
+            "pred_mfe_atr": [4.0, 4.0],
+            "pred_mae_atr": [1.0, 1.0],
+            "future_mfe_atr": [1.2, 1.2],
+            "future_mae_atr": [0.2, 0.2],
+        }
+    )
+    cfg = OotEvaluationConfig(
+        use_stacking_gate=False,
+        use_trade_filter_gate=False,
+        use_regime_gate=False,
+        use_mfe_mae_gate=False,
+        use_test_split_only=False,
+        require_executed_only=True,
+        use_intrabar_stop_tracking=False,
+        use_portfolio_constraints=True,
+        use_position_sizing=False,
+        use_portfolio_logic_runtime=True,
+        initial_capital=100_000.0,
+        max_position_scale=0.10,
+        signal_type_size_multiplier={
+            "atr_breakout": 1.0,
+            "bull_pullback_continuation": 1.0,
+        },
+        ranker_prob_pctl_delta_by_signal_type={
+            "bull_pullback_continuation": -20.0,  # 放宽：45 -> 65
+            "atr_breakout": 30.0,  # 收紧：85 -> 55
+        },
+        signal_type_blacklist=(),
+        portfolio_logic=PortfolioLogicConfig(
+            enable_htf_gate=False,
+            enable_ranker=True,
+            enable_risk_throttle=True,  # normal: min_prob_pctl=60
+            enable_pyramid=False,
+        ),
+    )
+    _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+    assert int(summary.iloc[0]["trade_count"]) == 1
+    by_symbol = {
+        str(row["symbol"]): str(row["execution_status"])
+        for _, row in trades.iterrows()
+    }
+    assert by_symbol["BU0"] == "executed"
+    assert by_symbol["RB0"] == "blocked_ranker"
 
 
 def test_max_total_leverage_cap_uses_notional_over_equity_semantics() -> None:
@@ -712,12 +1088,16 @@ def test_max_total_leverage_cap_uses_notional_over_equity_semantics() -> None:
         use_position_sizing=False,
         use_portfolio_logic_runtime=False,
         initial_capital=100_000.0,
-        max_position_scale=0.10,  # 每笔目标 10,000
-        max_total_leverage=0.15,  # notional 上限 15,000
+        max_position_scale=0.15,  # 每笔目标 15,000
+        max_total_leverage=0.225,  # notional 上限 22,500（第 2 笔被 leverage cap 部分裁剪）
         margin_rate=0.20,
         max_daily_new_notional_pct=10.0,
         max_symbol_notional_pct=1.0,
         max_concurrent_positions_total=10,
+        signal_type_size_multiplier={},
+        signal_type_max_concurrent_positions={},
+        signal_type_max_notional_pct={},
+        signal_type_blacklist=(),
     )
     _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
     assert int(summary.iloc[0]["trade_count"]) == 2
@@ -725,49 +1105,64 @@ def test_max_total_leverage_cap_uses_notional_over_equity_semantics() -> None:
         str(row["symbol"]): float(row["position_notional"])
         for _, row in trades.loc[trades["execution_status"] == "executed"].iterrows()
     }
-    assert np.isclose(notional_by_symbol["RB0"], 10_000.0)
-    assert np.isclose(notional_by_symbol["HC0"], 5_000.0)
+    assert np.isclose(notional_by_symbol["RB0"], 15_000.0)
+    assert np.isclose(notional_by_symbol["HC0"], 7_500.0)
 
 
-def test_exit_datetime_fixup_logs_warning_and_exposes_counter(caplog) -> None:
-    pred = _single_day_pred("long").copy()
-    pred.loc[:, "entry_datetime"] = pd.to_datetime(["2020-01-06 09:00:00"])
-    pred.loc[:, "exit_datetime"] = pd.to_datetime(["2020-01-06 09:00:00"])  # non-increasing
+def test_mixed_interval_replay_keeps_day_and_minute() -> None:
+    """2026-06-01 回归：day(日期-only datetime) + minute(带时分秒) 混合进同一次回放时,
+    两个 interval 必须都保留。修复前裸 pd.to_datetime 会把其中一种 coerce 成 NaT 并 dropna,
+    导致输出塌成单一 interval（统一组合评估里 day 凭空消失的根因）。
+    """
+    day = pd.DataFrame(
+        {
+            "datetime": ["2024-01-03", "2024-01-04"],          # 日期-only（day 预测真实形态）
+            "signal_datetime": ["2024-01-02", "2024-01-03"],
+            "exit_datetime": ["2024-01-31", "2024-02-01"],
+            "symbol": ["IF0", "IF0"],
+            "exchange": ["CFFEX", "CFFEX"],
+            "interval": ["day", "day"],
+            "signal_type": ["bull_pullback_continuation", "bull_pullback_continuation"],
+            "side": ["long", "long"],
+            "pred_split": ["test", "test"],
+            "window_id": [0, 0],
+            "is_executed": [1, 1],
+            "entry_price": [100.0, 101.0],
+            "future_mfe_atr": [1.0, 1.0],
+            "future_mae_atr": [0.2, 0.2],
+        }
+    )
+    minute = pd.DataFrame(
+        {
+            "datetime": ["2024-01-03 09:30:00", "2024-01-03 10:00:00"],  # 带时分秒
+            "signal_datetime": ["2024-01-03 09:00:00", "2024-01-03 09:30:00"],
+            "exit_datetime": ["2024-01-05 14:00:00", "2024-01-05 14:00:00"],
+            "symbol": ["RB0", "RB0"],
+            "exchange": ["SHFE", "SHFE"],
+            "interval": ["minute30", "minute30"],
+            "signal_type": ["bull_pullback_continuation", "bull_pullback_continuation"],
+            "side": ["long", "long"],
+            "pred_split": ["test", "test"],
+            "window_id": [0, 0],
+            "is_executed": [1, 1],
+            "entry_price": [3000.0, 3010.0],
+            "future_mfe_atr": [1.0, 1.0],
+            "future_mae_atr": [0.2, 0.2],
+        }
+    )
+    pred = pd.concat([day, minute], axis=0, ignore_index=True)
     cfg = OotEvaluationConfig(
-        use_stacking_gate=False,
         use_trade_filter_gate=False,
+        use_stacking_gate=False,
         use_regime_gate=False,
         use_mfe_mae_gate=False,
-        use_test_split_only=False,
-        require_executed_only=True,
         use_intrabar_stop_tracking=False,
-        use_portfolio_constraints=False,
-        use_position_sizing=False,
+        use_portfolio_logic_runtime=False,
+        signal_type_blacklist=(),
     )
-    with caplog.at_level(logging.WARNING, logger="cta.model.oot.pipeline_oot_evaluation"):
-        _m, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
-    assert int(summary.iloc[0]["exit_datetime_fixup_rows"]) == 1
-    assert int(trades["exit_datetime_fixup"].sum()) == 1
-    assert any("exit_datetime fixup applied" in r.message for r in caplog.records)
-
-
-def test_limit_move_gate_prefers_entry_bar_limit_features() -> None:
-    pred = _single_day_pred("long").copy()
-    pred["feature_is_limit_up_close"] = [0]  # signal bar says not limit-up
-    pred["feature_is_limit_down_close"] = [0]
-    pred["entry_feature_is_limit_up_close"] = [1]  # entry bar says limit-up
-    pred["entry_feature_is_limit_down_close"] = [0]
-    cfg = OotEvaluationConfig(
-        use_stacking_gate=False,
-        use_trade_filter_gate=False,
-        use_regime_gate=False,
-        use_mfe_mae_gate=False,
-        use_test_split_only=False,
-        require_executed_only=True,
-        use_intrabar_stop_tracking=False,
-        use_portfolio_constraints=False,
-        use_position_sizing=False,
-    )
-    _m, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
-    assert int(summary.iloc[0]["blocked_limit_move_rows"]) == 1
-    assert str(trades.iloc[0]["execution_status"]) == "blocked_limit_move"
+    _m, _s, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+    intervals = set(trades["interval"].astype(str))
+    assert intervals == {"day", "minute30"}, f"both intervals must survive, got {intervals}"
+    # 两个 interval 的候选行都在（没有被 NaT-drop 整段吞掉）
+    assert int((trades["interval"].astype(str) == "day").sum()) == 2
+    assert int((trades["interval"].astype(str) == "minute30").sum()) == 2

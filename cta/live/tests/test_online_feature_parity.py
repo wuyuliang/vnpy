@@ -37,6 +37,24 @@ def _make_synthetic_feature_df(n: int = 60) -> pd.DataFrame:
     )
 
 
+def _make_wide_feature_df(n: int = 60, n_features: int = 120) -> pd.DataFrame:
+    """合成 100+ 列特征，覆盖 P0-2 验收口径。"""
+    rng = np.random.default_rng(20260524)
+    dt = pd.date_range("2024-12-02 09:00:00", periods=n, freq="60min")
+    data: dict[str, object] = {
+        "datetime": dt,
+        "close": np.linspace(4000.0, 4100.0, n),
+        "regime_label": ["range"] * n,
+    }
+    for i in range(n_features):
+        col = f"feature_{i:03d}"
+        arr = rng.normal(0.0, 1.0, size=n).astype(float)
+        if i % 11 == 0:
+            arr[:3] = np.nan  # warmup NaN
+        data[col] = arr
+    return pd.DataFrame(data)
+
+
 def _setup_feature_parquet(root: Path, symbol: str, interval: str, df: pd.DataFrame) -> None:
     """模拟 cta/data/feature/{interval}/{prefix}/{date}.parquet 布局，按日切分。"""
     prefix = "".join(ch for ch in symbol if ch.isalpha()).upper()
@@ -49,6 +67,27 @@ def _setup_feature_parquet(root: Path, symbol: str, interval: str, df: pd.DataFr
 
 
 class TestFeatureParity(unittest.TestCase):
+    def test_100plus_columns_pass_under_1e6_tolerance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            df = _make_wide_feature_df(n=80, n_features=120)
+            _setup_feature_parquet(tmp, "RB0", "60min", df)
+
+            loader = OnlineFeatureLoader(feature_root=tmp)
+            dates = pd.to_datetime(df["datetime"]).tolist()
+            report = compare_online_vs_offline(
+                symbol="RB0",
+                interval="60min",
+                dates=dates,
+                online_loader=lambda s, i, d: loader.load_at(symbol=s, interval=i, dt=d),
+                offline_loader=lambda s, i, d: loader.load_at(symbol=s, interval=i, dt=d),
+                tolerance=1e-6,
+            )
+            self.assertTrue(report.overall_pass)
+            self.assertGreaterEqual(report.n_columns, 100)
+            for row in report.column_results:
+                self.assertLessEqual(float(row.max_abs_diff), 1e-6)
+
     def test_identical_data_max_diff_zero(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)

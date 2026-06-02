@@ -11,6 +11,105 @@ from cta.model.oot.block_reasons import BR_LOG_EXECUTED_SENTINEL
 
 from cta.model.reporting.group_pool_aggregate import AggregateConfig, build_aggregate_reports
 
+_DAILY_DIST_COLUMNS = (
+    "date",
+    "trade_count",
+    "position_notional_mean_pct",
+    "position_notional_p50_pct",
+    "position_notional_p90_pct",
+    "position_notional_max_pct",
+    "margin_used_after_trade_mean_pct",
+    "margin_used_after_trade_p50_pct",
+    "margin_used_after_trade_p90_pct",
+    "margin_used_after_trade_max_pct",
+    "eod_position_notional_pct",
+    "eod_margin_used_after_trade_pct",
+    "day_net_pnl",
+)
+_MONTHLY_DIST_COLUMNS = (
+    "month",
+    "trading_days",
+    "total_trade_count",
+    "avg_trade_count_per_day",
+    "p50_trade_count_per_day",
+    "p90_trade_count_per_day",
+    "avg_eod_position_notional_pct",
+    "p90_eod_position_notional_pct",
+    "max_eod_position_notional_pct",
+    "avg_eod_margin_used_pct",
+    "max_eod_margin_used_pct",
+    "month_net_pnl",
+)
+_WEEKDAY_DIST_COLUMNS = (
+    "weekday_num",
+    "weekday",
+    "days",
+    "avg_trade_count",
+    "p90_trade_count",
+    "avg_eod_position_notional_pct",
+    "p90_eod_position_notional_pct",
+    "avg_eod_margin_used_pct",
+    "avg_day_net_pnl",
+)
+
+
+def _annualized_return(total_return_pct: float, start_ts: pd.Timestamp | None, end_ts: pd.Timestamp | None) -> float:
+    if start_ts is None or end_ts is None or not np.isfinite(float(total_return_pct)):
+        return float("nan")
+    days = max(1, int((end_ts.normalize() - start_ts.normalize()).days))
+    base = 1.0 + float(total_return_pct)
+    if base <= 0.0:
+        return float("nan")
+    return float(base ** (365.0 / float(days)) - 1.0)
+
+
+def _signal_exit_datetime(df: pd.DataFrame) -> pd.Series:
+    idx = df.index
+    for col in ("final_exit_datetime", "exit_datetime", "entry_fill_datetime", "datetime"):
+        ts = pd.to_datetime(df.get(col, pd.Series(pd.NaT, index=idx)), errors="coerce")
+        if ts.notna().any():
+            return ts
+    return pd.Series(pd.NaT, index=idx)
+
+
+def _signal_max_drawdown_pct(pnl: pd.Series, capital: float) -> float:
+    p = pd.to_numeric(pnl, errors="coerce").fillna(0.0)
+    if p.empty or capital <= 0:
+        return float("nan")
+    equity = float(capital) + p.cumsum()
+    peak = equity.cummax().replace(0, np.nan)
+    dd = (equity - peak) / peak
+    return float(dd.min()) if len(dd) else float("nan")
+
+
+def _signal_monthly_sharpe(pnl: pd.Series, exit_dt: pd.Series, capital: float, rf_annual: float) -> float:
+    p = pd.to_numeric(pnl, errors="coerce").fillna(0.0)
+    dt = pd.to_datetime(exit_dt, errors="coerce")
+    if p.empty or capital <= 0:
+        return float("nan")
+    work = pd.DataFrame({"pnl": p, "dt": dt}).dropna(subset=["dt"])
+    if work.empty:
+        return float("nan")
+    work["month"] = work["dt"].dt.to_period("M").dt.to_timestamp()
+    monthly = work.groupby("month", as_index=False)["pnl"].sum()
+    ret = pd.to_numeric(monthly["pnl"], errors="coerce").fillna(0.0) / float(capital)
+    if len(ret) < 2:
+        return float("nan")
+    excess = ret - float(rf_annual) / 12.0
+    std = float(excess.std(ddof=1))
+    if not np.isfinite(std) or std <= 1e-9:
+        return float("nan")
+    return float(excess.mean() / std * np.sqrt(12.0))
+
+
+def _top_positive_share(values: pd.Series, top_n: int) -> float:
+    v = pd.to_numeric(values, errors="coerce").fillna(0.0)
+    pos = v[v > 0.0]
+    total = float(pos.sum())
+    if total <= 0.0:
+        return float("nan")
+    return float(pos.nlargest(int(top_n)).sum() / total)
+
 
 def _executed_mask(df: pd.DataFrame) -> pd.Series:
     if df.empty:
@@ -23,6 +122,174 @@ def _executed_mask(df: pd.DataFrame) -> pd.Series:
     if "net_pnl" in df.columns:
         return pd.to_numeric(df["net_pnl"], errors="coerce").notna()
     return pd.Series([False] * len(df), index=df.index)
+
+
+def _safe_pct(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
+    num = pd.to_numeric(numerator, errors="coerce")
+    den = pd.to_numeric(denominator, errors="coerce")
+    out = pd.Series(np.nan, index=num.index, dtype=float)
+    mask = den > 0
+    out.loc[mask] = (num.loc[mask] / den.loc[mask]) * 100.0
+    return out
+
+
+def _trade_datetime_series(df: pd.DataFrame) -> pd.Series:
+    idx = df.index
+    ts = pd.to_datetime(df.get("entry_fill_datetime", pd.Series(pd.NaT, index=idx)), errors="coerce")
+    for col in ("datetime", "entry_datetime", "signal_datetime"):
+        ts = ts.fillna(pd.to_datetime(df.get(col, pd.Series(pd.NaT, index=idx)), errors="coerce"))
+    return ts
+
+
+def _write_empty_time_distributions(report_dir: Path) -> None:
+    ddir = report_dir / "09_diagnostics"
+    pd.DataFrame(columns=_DAILY_DIST_COLUMNS).to_csv(
+        ddir / "daily_trade_position_distribution.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
+    pd.DataFrame(columns=_MONTHLY_DIST_COLUMNS).to_csv(
+        ddir / "monthly_trade_position_distribution.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
+    pd.DataFrame(columns=_WEEKDAY_DIST_COLUMNS).to_csv(
+        ddir / "weekday_trade_position_distribution.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
+
+
+def write_trade_position_time_distributions(report_dir: Path, trades: pd.DataFrame) -> None:
+    """Write daily/monthly/weekday time distributions for executed trades.
+
+    统计口径：
+    - 仅统计 execution_status=executed 的记录；
+    - trade time 使用 entry_fill_datetime，缺失时回退 datetime/entry_datetime/signal_datetime；
+    - 仓位字段统一输出为占当时权益百分比（*_pct）。
+    """
+    if trades.empty:
+        _write_empty_time_distributions(report_dir)
+        return
+
+    ex = trades.loc[_executed_mask(trades)].copy()
+    if ex.empty:
+        _write_empty_time_distributions(report_dir)
+        return
+
+    ex["_trade_dt"] = _trade_datetime_series(ex)
+    ex = ex.loc[ex["_trade_dt"].notna()].copy()
+    if ex.empty:
+        _write_empty_time_distributions(report_dir)
+        return
+
+    ex["_trade_dt"] = pd.to_datetime(ex["_trade_dt"], errors="coerce")
+    ex["_date"] = ex["_trade_dt"].dt.normalize()
+    ex["_equity_before"] = pd.to_numeric(ex.get("equity_before", pd.Series(np.nan, index=ex.index)), errors="coerce")
+    ex["_equity_after"] = pd.to_numeric(ex.get("equity_after", pd.Series(np.nan, index=ex.index)), errors="coerce")
+    ex["_net_pnl"] = pd.to_numeric(ex.get("net_pnl", pd.Series(0.0, index=ex.index)), errors="coerce").fillna(0.0)
+    pos_after = pd.to_numeric(
+        ex.get("position_notional_after_trade", pd.Series(np.nan, index=ex.index)),
+        errors="coerce",
+    )
+    if pos_after.notna().sum() == 0:
+        pos_after = pd.to_numeric(ex.get("position_notional", pd.Series(np.nan, index=ex.index)), errors="coerce")
+    ex["_position_notional_after"] = pos_after
+
+    margin_before = pd.to_numeric(
+        ex.get("margin_used_before_entry", pd.Series(np.nan, index=ex.index)),
+        errors="coerce",
+    )
+    entry_margin = pd.to_numeric(ex.get("entry_margin", pd.Series(np.nan, index=ex.index)), errors="coerce")
+    margin_after = margin_before.fillna(0.0) + entry_margin.fillna(0.0)
+    margin_after.loc[~(margin_before.notna() | entry_margin.notna())] = np.nan
+    ex["_margin_used_after_trade"] = margin_after
+
+    ex["_position_notional_pct"] = _safe_pct(ex["_position_notional_after"], ex["_equity_before"])
+    ex["_margin_used_after_trade_pct"] = _safe_pct(ex["_margin_used_after_trade"], ex["_equity_before"])
+    ex = ex.sort_values("_trade_dt").reset_index(drop=True)
+
+    daily_rows: list[dict[str, Any]] = []
+    for date, group in ex.groupby("_date", sort=True):
+        g = group.sort_values("_trade_dt")
+        pos = pd.to_numeric(g["_position_notional_pct"], errors="coerce").dropna()
+        mar = pd.to_numeric(g["_margin_used_after_trade_pct"], errors="coerce").dropna()
+        eod = g.iloc[-1]
+        eq_after = pd.to_numeric(pd.Series([eod.get("_equity_after", np.nan)]), errors="coerce").iloc[0]
+        eq_before = pd.to_numeric(pd.Series([eod.get("_equity_before", np.nan)]), errors="coerce").iloc[0]
+        eod_equity = eq_after if np.isfinite(eq_after) and eq_after > 0 else eq_before
+        eod_pos = pd.to_numeric(pd.Series([eod.get("_position_notional_after", np.nan)]), errors="coerce").iloc[0]
+        eod_mar = pd.to_numeric(pd.Series([eod.get("_margin_used_after_trade", np.nan)]), errors="coerce").iloc[0]
+        eod_pos_pct = float(eod_pos / eod_equity * 100.0) if np.isfinite(eod_pos) and np.isfinite(eod_equity) and eod_equity > 0 else float("nan")
+        eod_mar_pct = float(eod_mar / eod_equity * 100.0) if np.isfinite(eod_mar) and np.isfinite(eod_equity) and eod_equity > 0 else float("nan")
+        daily_rows.append(
+            {
+                "date": date,
+                "trade_count": int(len(g)),
+                "position_notional_mean_pct": float(pos.mean()) if len(pos) else float("nan"),
+                "position_notional_p50_pct": float(pos.quantile(0.5)) if len(pos) else float("nan"),
+                "position_notional_p90_pct": float(pos.quantile(0.9)) if len(pos) else float("nan"),
+                "position_notional_max_pct": float(pos.max()) if len(pos) else float("nan"),
+                "margin_used_after_trade_mean_pct": float(mar.mean()) if len(mar) else float("nan"),
+                "margin_used_after_trade_p50_pct": float(mar.quantile(0.5)) if len(mar) else float("nan"),
+                "margin_used_after_trade_p90_pct": float(mar.quantile(0.9)) if len(mar) else float("nan"),
+                "margin_used_after_trade_max_pct": float(mar.max()) if len(mar) else float("nan"),
+                "eod_position_notional_pct": eod_pos_pct,
+                "eod_margin_used_after_trade_pct": eod_mar_pct,
+                "day_net_pnl": float(pd.to_numeric(g["_net_pnl"], errors="coerce").fillna(0.0).sum()),
+            }
+        )
+
+    daily = pd.DataFrame(daily_rows, columns=_DAILY_DIST_COLUMNS).sort_values("date").reset_index(drop=True)
+    ddir = report_dir / "09_diagnostics"
+    daily.to_csv(ddir / "daily_trade_position_distribution.csv", index=False, encoding="utf-8-sig")
+
+    if daily.empty:
+        _write_empty_time_distributions(report_dir)
+        return
+
+    daily["_month"] = pd.to_datetime(daily["date"], errors="coerce").dt.to_period("M").dt.to_timestamp()
+    monthly = (
+        daily.groupby("_month", as_index=False)
+        .agg(
+            trading_days=("date", "count"),
+            total_trade_count=("trade_count", "sum"),
+            avg_trade_count_per_day=("trade_count", "mean"),
+            p50_trade_count_per_day=("trade_count", lambda s: float(pd.Series(s).quantile(0.5))),
+            p90_trade_count_per_day=("trade_count", lambda s: float(pd.Series(s).quantile(0.9))),
+            avg_eod_position_notional_pct=("eod_position_notional_pct", "mean"),
+            p90_eod_position_notional_pct=("eod_position_notional_pct", lambda s: float(pd.Series(s).quantile(0.9))),
+            max_eod_position_notional_pct=("eod_position_notional_pct", "max"),
+            avg_eod_margin_used_pct=("eod_margin_used_after_trade_pct", "mean"),
+            max_eod_margin_used_pct=("eod_margin_used_after_trade_pct", "max"),
+            month_net_pnl=("day_net_pnl", "sum"),
+        )
+        .rename(columns={"_month": "month"})
+        .sort_values("month")
+        .reset_index(drop=True)
+    )
+    monthly = monthly.loc[:, list(_MONTHLY_DIST_COLUMNS)]
+    monthly.to_csv(ddir / "monthly_trade_position_distribution.csv", index=False, encoding="utf-8-sig")
+
+    weekday = daily.copy()
+    weekday["weekday"] = pd.to_datetime(weekday["date"], errors="coerce").dt.day_name()
+    weekday["weekday_num"] = pd.to_datetime(weekday["date"], errors="coerce").dt.weekday
+    weekday_out = (
+        weekday.groupby(["weekday_num", "weekday"], as_index=False)
+        .agg(
+            days=("date", "count"),
+            avg_trade_count=("trade_count", "mean"),
+            p90_trade_count=("trade_count", lambda s: float(pd.Series(s).quantile(0.9))),
+            avg_eod_position_notional_pct=("eod_position_notional_pct", "mean"),
+            p90_eod_position_notional_pct=("eod_position_notional_pct", lambda s: float(pd.Series(s).quantile(0.9))),
+            avg_eod_margin_used_pct=("eod_margin_used_after_trade_pct", "mean"),
+            avg_day_net_pnl=("day_net_pnl", "mean"),
+        )
+        .sort_values("weekday_num")
+        .reset_index(drop=True)
+    )
+    weekday_out = weekday_out.loc[:, list(_WEEKDAY_DIST_COLUMNS)]
+    weekday_out.to_csv(ddir / "weekday_trade_position_distribution.csv", index=False, encoding="utf-8-sig")
 
 
 def write_cluster_symbol_interval_signal_views(report_dir: Path, trades: pd.DataFrame, cfg: AggregateConfig) -> None:
@@ -98,16 +365,74 @@ def write_cluster_symbol_interval_signal_views(report_dir: Path, trades: pd.Data
     )
     by_interval.to_csv(report_dir / "04_by_interval" / "_comparison.csv", index=False, encoding="utf-8-sig")
 
-    by_signal = (
-        executed.groupby("signal_type", as_index=False)
-        .agg(
-            trade_count=("net_pnl", "size"),
-            win_rate=("net_pnl", lambda s: float((pd.Series(s) > 0).mean())),
-            net_pnl=("net_pnl", "sum"),
+    signal_rows: list[dict[str, Any]] = []
+    for signal_type, sub in executed.groupby("signal_type", dropna=False):
+        s = sub.copy()
+        s["net_pnl"] = pd.to_numeric(s.get("net_pnl", pd.Series(0.0, index=s.index)), errors="coerce").fillna(0.0)
+        s["symbol"] = s.get("symbol", pd.Series([""] * len(s), index=s.index)).astype(str)
+        exit_dt = _signal_exit_datetime(s)
+        s = s.assign(_exit_dt=exit_dt).sort_values("_exit_dt")
+        pnl = pd.to_numeric(s["net_pnl"], errors="coerce").fillna(0.0)
+        trade_count = int(len(s))
+        net_pnl = float(pnl.sum()) if trade_count else 0.0
+        avg_pnl = float(pnl.mean()) if trade_count else float("nan")
+        win_rate = float((pnl > 0).mean()) if trade_count else float("nan")
+        max_dd = _signal_max_drawdown_pct(pnl, float(cfg.initial_capital))
+        start_ts = pd.to_datetime(s["_exit_dt"], errors="coerce").min()
+        end_ts = pd.to_datetime(s["_exit_dt"], errors="coerce").max()
+        total_return_pct = net_pnl / float(cfg.initial_capital) if float(cfg.initial_capital) > 0 else float("nan")
+        ann_ret = _annualized_return(
+            total_return_pct,
+            None if pd.isna(start_ts) else pd.Timestamp(start_ts),
+            None if pd.isna(end_ts) else pd.Timestamp(end_ts),
         )
-        .sort_values(["net_pnl", "signal_type"], ascending=[False, True])
-        .reset_index(drop=True)
-    )
+        calmar = float(ann_ret / abs(max_dd)) if np.isfinite(ann_ret) and np.isfinite(max_dd) and max_dd < 0 else float("nan")
+        monthly_sharpe = _signal_monthly_sharpe(
+            pnl,
+            s["_exit_dt"],
+            float(cfg.initial_capital),
+            float(cfg.risk_free_annual_return),
+        )
+        top5_trade_pct = _top_positive_share(pnl, top_n=5)
+        by_symbol_pnl = pnl.groupby(s["symbol"], dropna=False).sum()
+        top5_symbol_pct = _top_positive_share(by_symbol_pnl, top_n=5)
+        signal_rows.append(
+            {
+                "signal_type": str(signal_type),
+                "trade_count": trade_count,
+                "win_rate": win_rate,
+                "net_pnl": net_pnl,
+                "avg_net_pnl_per_trade": avg_pnl,
+                "max_drawdown_pct": max_dd,
+                "monthly_sharpe": monthly_sharpe,
+                "annualized_return_pct": ann_ret,
+                "calmar_like": calmar,
+                "top5_trade_pnl_pct": top5_trade_pct,
+                "top5_symbol_pnl_pct": top5_symbol_pct,
+            }
+        )
+    if signal_rows:
+        by_signal = (
+            pd.DataFrame(signal_rows)
+            .sort_values(["net_pnl", "signal_type"], ascending=[False, True])
+            .reset_index(drop=True)
+        )
+    else:
+        by_signal = pd.DataFrame(
+            columns=[
+                "signal_type",
+                "trade_count",
+                "win_rate",
+                "net_pnl",
+                "avg_net_pnl_per_trade",
+                "max_drawdown_pct",
+                "monthly_sharpe",
+                "annualized_return_pct",
+                "calmar_like",
+                "top5_trade_pnl_pct",
+                "top5_symbol_pnl_pct",
+            ]
+        )
     by_signal.to_csv(report_dir / "05_by_signal_type" / "_comparison.csv", index=False, encoding="utf-8-sig")
 
 
@@ -189,4 +514,4 @@ def write_drilldown(report_dir: Path, trades: pd.DataFrame) -> None:
         episodes.to_csv(ddir / "drawdown_episodes.csv", index=False, encoding="utf-8-sig")
 
 
-__all__ = ["write_cluster_symbol_interval_signal_views", "write_drilldown"]
+__all__ = ["write_cluster_symbol_interval_signal_views", "write_drilldown", "write_trade_position_time_distributions"]

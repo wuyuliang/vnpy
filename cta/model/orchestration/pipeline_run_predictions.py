@@ -1,6 +1,9 @@
 """Prediction-frame assembly for ``run_model_pipeline``."""
 from __future__ import annotations
 
+import json
+import logging
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -9,6 +12,9 @@ import pandas as pd
 from cta.config.baseline_skill_suite_config import LABEL_MAE_PENALTY
 from cta.model.dataset.pipeline_meta_features import _build_final_decision_features
 from cta.model.orchestration.pipeline_run_final_models import predict_dual_side_final_scores
+from cta.risk.state.score_quantile_manifest import build_from_predictions
+
+logger = logging.getLogger(__name__)
 
 _PREDICTION_BASE_COLUMNS: tuple[str, ...] = (
     "symbol",
@@ -136,4 +142,109 @@ def build_test_prediction_frame(
     return pred_df
 
 
-__all__ = ["build_test_prediction_frame"]
+def write_score_quantile_manifest_from_scored_rows(
+    *,
+    scored_rows: pd.DataFrame,
+    manifests_dir: Path,
+    run_tag: str,
+    meta: dict | None = None,
+    timestamp: str | None = None,
+) -> Path:
+    """Write risk quantile manifest from scored train/valid rows.
+
+    The input frame should include:
+      ``cluster_name``, ``symbol``, ``interval``, ``trade_filter_prob``, ``split``.
+    """
+    manifests_dir = Path(manifests_dir)
+    manifests_dir.mkdir(parents=True, exist_ok=True)
+    ts = str(timestamp or pd.Timestamp.now().strftime("%Y%m%d_%H%M%S"))
+    out_path = manifests_dir / f"score_quantile_manifest_{ts}_{str(run_tag).lower()}.json"
+    source_csv = manifests_dir / f"score_quantile_source_{ts}_{str(run_tag).lower()}.csv"
+    frame = scored_rows.copy()
+    if "split" not in frame.columns:
+        if "pred_split" in frame.columns:
+            frame["split"] = frame["pred_split"]
+        else:
+            frame["split"] = "train"
+    frame.to_csv(source_csv, index=False, encoding="utf-8-sig")
+    build_from_predictions(
+        predictions_paths=[source_csv],
+        out_path=out_path,
+        exclude_splits=("test", "oot"),
+        prob_column="trade_filter_prob",
+        cluster_column="cluster_name",
+        symbol_column="symbol",
+        interval_column="interval",
+        split_column="split",
+        meta=dict(meta or {}),
+    )
+    logger.info("risk quantile manifest written: %s", out_path)
+    return out_path
+
+
+def write_score_distribution_baseline_from_scored_rows(
+    *,
+    scored_rows: pd.DataFrame,
+    manifests_dir: Path,
+    run_tag: str,
+    timestamp: str | None = None,
+    score_column: str = "trade_filter_prob",
+    bins: int = 20,
+) -> Path:
+    """Write train/valid score distribution baseline for drift monitoring.
+
+    The output json is consumed by ``ScoreDistributionDriftMonitor`` and includes
+    both raw ``scores`` and histogram summary fields.
+    """
+    manifests_dir = Path(manifests_dir)
+    manifests_dir.mkdir(parents=True, exist_ok=True)
+    ts = str(timestamp or pd.Timestamp.now().strftime("%Y%m%d_%H%M%S"))
+    out_path = manifests_dir / f"score_distribution_train_{ts}_{str(run_tag).lower()}.json"
+    latest_path = manifests_dir / "score_distribution_train_latest.json"
+
+    frame = scored_rows.copy()
+    if "split" not in frame.columns:
+        if "pred_split" in frame.columns:
+            frame["split"] = frame["pred_split"]
+        else:
+            frame["split"] = "train"
+    split_series = frame["split"].astype(str).str.lower()
+    train_valid = frame.loc[~split_series.isin({"test", "oot"})].copy()
+    score_series = pd.to_numeric(train_valid.get(score_column), errors="coerce")
+    score_series = score_series.where(score_series <= 1.0, score_series / 100.0)
+    score_series = score_series.clip(lower=0.0, upper=1.0).dropna()
+    scores = score_series.astype(float).tolist()
+
+    n_bins = int(max(5, bins))
+    if scores:
+        hist, edges = np.histogram(scores, bins=n_bins, range=(0.0, 1.0), density=False)
+        total = float(hist.sum())
+        hist_probs = (hist.astype(float) / total).tolist() if total > 0 else [0.0] * n_bins
+        edge_list = edges.astype(float).tolist()
+    else:
+        hist_probs = [0.0] * n_bins
+        edge_list = np.linspace(0.0, 1.0, n_bins + 1).astype(float).tolist()
+
+    payload = {
+        "schema_version": 1,
+        "run_tag": str(run_tag),
+        "generated_at": pd.Timestamp.now().isoformat(),
+        "score_column": str(score_column),
+        "sample_count": int(len(scores)),
+        "scores": scores,
+        "reference_scores": scores,
+        "histogram_bins": int(n_bins),
+        "histogram_edges": edge_list,
+        "histogram_probs": hist_probs,
+    }
+    out_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    latest_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    logger.info("score distribution baseline written: %s", out_path)
+    return out_path
+
+
+__all__ = [
+    "build_test_prediction_frame",
+    "write_score_distribution_baseline_from_scored_rows",
+    "write_score_quantile_manifest_from_scored_rows",
+]

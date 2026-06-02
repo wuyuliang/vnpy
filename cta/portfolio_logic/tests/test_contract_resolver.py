@@ -8,6 +8,7 @@ import pandas as pd
 from cta.portfolio_logic.contract_resolver import (
     ActiveContractInfo,
     ContractResolver,
+    build_vnpy_contract_query_fn,
     load_default_resolver,
 )
 
@@ -134,6 +135,51 @@ class TestContractResolver(unittest.TestCase):
         r = from_fut_mapping(mapping_df, months_ahead=1)
         info = r.resolve_active_contract("RB0", "2024-11-20")
         self.assertEqual(info.active_contract, "RB2412.SHF")
+
+    def test_build_vnpy_contract_query_fn_filters_prefix(self) -> None:
+        class _Exchange:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+        class _Contract:
+            def __init__(self, symbol: str, exchange: str) -> None:
+                self.symbol = symbol
+                self.exchange = _Exchange(exchange)
+
+        class _MainEngine:
+            def get_all_contracts(self):
+                return [
+                    _Contract("RB2412", "SHFE"),
+                    _Contract("RB2501", "SHFE"),
+                    _Contract("AU2412", "SHFE"),
+                    _Contract("", "SHFE"),
+                ]
+
+        query = build_vnpy_contract_query_fn(_MainEngine())
+        self.assertEqual(query("RB"), ["RB2412.SHFE", "RB2501.SHFE"])
+
+    def test_resolver_vnpy_hook_prefers_nearest_future_month(self) -> None:
+        class _Exchange:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+        class _Contract:
+            def __init__(self, symbol: str, exchange: str) -> None:
+                self.symbol = symbol
+                self.exchange = _Exchange(exchange)
+
+        class _MainEngine:
+            def get_all_contracts(self):
+                return [
+                    _Contract("RB2412", "SHFE"),
+                    _Contract("RB2505", "SHFE"),
+                    _Contract("RB2510", "SHFE"),
+                ]
+
+        query = build_vnpy_contract_query_fn(_MainEngine())
+        resolver = ContractResolver(calendar_df=None, vnpy_query_fn=query)
+        info = resolver.resolve_active_contract("RB0", "2024-12-25")
+        self.assertEqual(info.active_contract, "RB2505.SHFE")
 
 
 if __name__ == "__main__":

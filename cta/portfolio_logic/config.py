@@ -20,6 +20,21 @@ def _default_interval_rank() -> dict[str, float]:
     }
 
 
+def _default_fallback_when_htf_missing_by_cluster_interval() -> dict[str, str]:
+    """Default per-cell HTF fallback map (Action 3 default-on, 2026-05-24).
+
+    在 minute60 / minute30 路径上 HTF reference 普遍稀疏（cross-symbol 覆盖差），
+    将这些 cell 切到 "both"（neutral 放行），day 路径继续严格 "skip"。
+    2026-05-28：bond minute60/minute30 追加放宽（修复 bond 在 OOT 中被 `htf_missing`
+    系统性清空导致 0 成交）；precious 仍留给全局 fallback 决定（继续保守观察）。
+    """
+    cells: dict[str, str] = {}
+    for cluster in ("other", "agri", "chemical", "metal", "black", "index", "bond"):
+        for interval in ("60min", "30min"):
+            cells[f"{cluster}|{interval}"] = "both"
+    return cells
+
+
 def _default_cooldown_bars_per_interval() -> dict[str, int]:
     """Recommended cooldown in bar units by base interval."""
     return {
@@ -85,6 +100,14 @@ class IntervalGateConfig:
     htf_intervals: tuple[str, ...] = ("day", "60min")
     require_consensus: bool = True
     fallback_when_htf_missing: str = "skip"  # 'skip' | 'both'
+    # 按 (cluster, interval) override 全局 fallback。key 形如 "bond|60min"，value "skip" | "both"。
+    # 2026-05-24：OOT 诊断发现 htf_missing 占候选 21%，单一全局开关无法兼顾 day（严格）和
+    # minute60（HTF 稀疏需放宽）。
+    # 默认翻为「minute60 / minute30 路径上放宽（"both"）；day / precious 保持全局 fallback」。
+    # 显式传 `fallback_when_htf_missing_by_cluster_interval={}` 可回退到旧行为（全部走全局 fallback）。
+    fallback_when_htf_missing_by_cluster_interval: dict[str, str] = field(
+        default_factory=_default_fallback_when_htf_missing_by_cluster_interval
+    )
     state_ttl_seconds: dict[str, int] = field(default_factory=lambda: {"day": 86400, "60min": 3600})
     interval_rank: dict[str, float] = field(default_factory=_default_interval_rank)
 
@@ -98,8 +121,31 @@ class IntervalGateConfig:
                 raise ValueError(f"invalid interval_rank[{k}]={v}, should be in (0, 1]")
             norm_rank[normalize_portfolio_interval(k)] = fv
         norm_ttl = {normalize_portfolio_interval(k): int(v) for k, v in self.state_ttl_seconds.items()}
+        # 校验 + 归一化 fallback override 字典
+        norm_fallback: dict[str, str] = {}
+        for raw_key, raw_val in dict(self.fallback_when_htf_missing_by_cluster_interval).items():
+            parts = str(raw_key).strip().lower().split("|")
+            if len(parts) != 2 or not parts[0] or not parts[1]:
+                raise ValueError(
+                    f"fallback_when_htf_missing_by_cluster_interval key must be "
+                    f"'cluster|interval', got {raw_key!r}"
+                )
+            cluster = parts[0]
+            interval_norm = normalize_portfolio_interval(parts[1])
+            value = str(raw_val).strip().lower()
+            if value not in {"skip", "both"}:
+                raise ValueError(
+                    f"fallback_when_htf_missing_by_cluster_interval[{raw_key}] must be "
+                    f"'skip' or 'both', got {raw_val!r}"
+                )
+            norm_fallback[f"{cluster}|{interval_norm}"] = value
         object.__setattr__(self, "interval_rank", MappingProxyType(norm_rank))
         object.__setattr__(self, "state_ttl_seconds", MappingProxyType(norm_ttl))
+        object.__setattr__(
+            self,
+            "fallback_when_htf_missing_by_cluster_interval",
+            MappingProxyType(norm_fallback),
+        )
 
 
 @dataclass(frozen=True)
@@ -108,7 +154,7 @@ class CapsConfig:
 
     max_total_positions: int = 10
     max_per_symbol: int = 1
-    max_total_per_cluster: int = 4
+    max_total_per_cluster: int = 8
     max_symbol_notional_pct: float = 0.30
     max_cluster_notional_pct: float = 0.50
     max_total_notional_pct: float = 1.5
@@ -133,6 +179,9 @@ class OpportunityRankerConfig:
     dedup_same_symbol: bool = True
     edge_clip: tuple[float, float] = (-2.0, 4.0)
     base_notional_pct: float = 0.10
+    # 按 signal_type 给抢占名额的排序加优先级（不改 score_threshold 准入）。
+    # 仅影响同分候选的占坑顺序；默认空 = 不改变排序行为。
+    signal_type_rank_bonus: dict[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         total = float(self.w_prob + self.w_edge + self.w_rank + self.w_align)
@@ -140,6 +189,13 @@ class OpportunityRankerConfig:
             raise ValueError(f"weights must sum to 1.0, got {total}")
         if not (0.0 < float(self.base_notional_pct) <= 1.0):
             raise ValueError(f"base_notional_pct must be in (0,1], got {self.base_notional_pct}")
+        norm_bonus: dict[str, float] = {}
+        for key, value in dict(self.signal_type_rank_bonus).items():
+            st = str(key).strip().lower()
+            if not st:
+                continue
+            norm_bonus[st] = float(value)
+        object.__setattr__(self, "signal_type_rank_bonus", norm_bonus)
 
 
 @dataclass(frozen=True)

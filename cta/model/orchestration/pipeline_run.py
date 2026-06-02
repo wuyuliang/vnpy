@@ -7,7 +7,11 @@ from cta.model.reporting.pipeline_diagnostics import _build_symbol_cluster_sampl
 from cta.model.dataset.pipeline_feature_curation import _filter_model_leakage_features, _list_unaudited_features
 from cta.model.dataset.pipeline_meta_features import _build_final_decision_features, _build_oof_mfe_mae_pred, _build_oof_regime_pred, _build_oof_trade_prob, _build_split_span, _compute_feature_ic_stats, _compute_feature_null_stats
 from cta.model.orchestration.pipeline_run_final_models import fit_side_final_model, predict_dual_side_final_scores
-from cta.model.orchestration.pipeline_run_predictions import build_test_prediction_frame
+from cta.model.orchestration.pipeline_run_predictions import (
+    build_test_prediction_frame,
+    write_score_distribution_baseline_from_scored_rows,
+    write_score_quantile_manifest_from_scored_rows,
+)
 from cta.model.reporting.pipeline_outputs import _build_last_oot_decile_table, _write_provenance
 from cta.model.training.pipeline_param_grids import _safe_float, _tune_mfe_mae_model, _tune_regime_classifier_model, _tune_trade_filter_model
 
@@ -88,7 +92,34 @@ def run_model_pipeline(symbol: str='RB0', exchange: str | None='SHFE', interval:
     metrics_parts: list[pd.DataFrame] = []
     prediction_parts: list[pd.DataFrame] = []
     top_feature_parts: list[pd.DataFrame] = []
+    risk_manifest_parts: list[pd.DataFrame] = []
     model_root = out_dir / 'models'
+
+    def _append_risk_manifest_rows(
+        frame: pd.DataFrame,
+        probs: np.ndarray,
+        *,
+        split_name: str,
+        signal_type_key: str,
+        window_id: int,
+    ) -> None:
+        if frame.empty:
+            return
+        part = pd.DataFrame(
+            {
+                "symbol": frame.get("symbol", pd.Series([""] * len(frame), index=frame.index)).astype(str).str.upper(),
+                "interval": frame.get("interval", pd.Series([""] * len(frame), index=frame.index)).astype(str),
+                "trade_filter_prob": pd.to_numeric(pd.Series(probs, index=frame.index), errors="coerce"),
+                "split": split_name,
+                "signal_type": signal_type_key,
+                "window_id": int(window_id),
+            },
+            index=frame.index,
+        )
+        part["cluster_name"] = part["symbol"].map(lambda s: infer_symbol_cluster(str(s).upper()))
+        part = part.dropna(subset=["trade_filter_prob"]).copy()
+        if not part.empty:
+            risk_manifest_parts.append(part.reset_index(drop=True))
     for signal_type_key, sig_df in signal_frames:
         sig_df = sig_df.sort_values('datetime').reset_index(drop=True)
         sig_df, feature_columns = _select_feature_columns(sig_df)
@@ -136,6 +167,20 @@ def run_model_pipeline(symbol: str='RB0', exchange: str | None='SHFE', interval:
             train_trade_prob = _build_oof_trade_prob(train_df, feature_columns=trade_feature_columns, random_state=rng_seed, model_params=dict(trade_selected.get('params', {})), sample_weight=cluster_sample_weight)
             valid_trade_prob = trade_model.predict_proba(valid_df, feature_columns=trade_feature_columns)
             test_trade_prob = trade_model.predict_proba(test_df, feature_columns=trade_feature_columns)
+            _append_risk_manifest_rows(
+                train_df,
+                np.asarray(train_trade_prob, dtype=float),
+                split_name="train",
+                signal_type_key=signal_type_key,
+                window_id=int(win.window_id),
+            )
+            _append_risk_manifest_rows(
+                valid_df,
+                np.asarray(valid_trade_prob, dtype=float),
+                split_name="valid",
+                signal_type_key=signal_type_key,
+                window_id=int(win.window_id),
+            )
             train_regime_pred = _build_oof_regime_pred(train_df, feature_columns=regime_feature_columns, random_state=rng_seed, model_params=dict(regime_selected.get('params', {})), sample_weight=cluster_sample_weight)
             valid_regime_pred = regime_model.predict(valid_df, feature_columns=regime_feature_columns)
             test_regime_pred = regime_model.predict(test_df, feature_columns=regime_feature_columns)
@@ -403,6 +448,35 @@ def run_model_pipeline(symbol: str='RB0', exchange: str | None='SHFE', interval:
     metrics_df.to_csv(metrics_path, index=False, encoding='utf-8-sig')
     prediction_df.to_csv(prediction_path, index=False, encoding='utf-8-sig')
     top_feature_df.to_csv(top_feature_importance_path, index=False, encoding='utf-8-sig')
+    risk_manifest_path: Path | None = None
+    score_distribution_path: Path | None = None
+    if risk_manifest_parts:
+        risk_scored_df = pd.concat(risk_manifest_parts, axis=0, ignore_index=True)
+        cta_root = Path(__file__).resolve().parents[2]
+        manifests_dir = cta_root / "model" / "manifests"
+        risk_manifest_path = write_score_quantile_manifest_from_scored_rows(
+            scored_rows=risk_scored_df,
+            manifests_dir=manifests_dir,
+            run_tag=f"{run_date}_{sym}_{interval_norm}_{trade_side_mode}",
+            meta={
+                "run_tag": run_date,
+                "symbol": sym,
+                "interval": interval_norm,
+                "trade_side_mode": trade_side_mode,
+            },
+        )
+        score_distribution_path = write_score_distribution_baseline_from_scored_rows(
+            scored_rows=risk_scored_df,
+            manifests_dir=manifests_dir,
+            run_tag=f"{run_date}_{sym}_{interval_norm}_{trade_side_mode}",
+            score_column="trade_filter_prob",
+        )
+        process_steps.append(
+            f"- risk_quantile_manifest={risk_manifest_path.name}, scored_rows={len(risk_scored_df)}"
+        )
+        process_steps.append(
+            f"- score_distribution_train={score_distribution_path.name}, scored_rows={len(risk_scored_df)}"
+        )
     _write_provenance(out_dir=out_dir, run_tag=run_date, candidate_path=candidate_path, feature_table_path=feature_table_path, prediction_path=prediction_path, metrics_path=metrics_path, top_feature_importance_path=top_feature_importance_path)
     auc_gap_alerts_path = out_dir / f'{run_date}_{sym}_{interval_norm}_{trade_side_mode}_auc_gap_alerts.csv'
     auc_gap_alert_df = _build_valid_test_gap_alerts(metrics_df, max_gap=float(max_valid_test_gap))

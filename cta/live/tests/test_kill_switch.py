@@ -4,6 +4,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -53,6 +54,26 @@ class TestKillSwitch(unittest.TestCase):
             self.assertTrue(s.is_active()[0])
             sig.unlink()
             self.assertFalse(s.is_active()[0])
+
+    def test_signal_file_cache_avoids_repeated_read(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sig = Path(tmp) / "kill.signal"
+            sig.write_text("cached", encoding="utf-8")
+            s = KillSwitch(signal_file=sig)
+            calls = {"n": 0}
+            _orig = Path.read_text
+
+            def _spy(self, *args, **kwargs):  # noqa: ANN001
+                calls["n"] += 1
+                return _orig(self, *args, **kwargs)
+
+            with patch("pathlib.Path.read_text", new=_spy):
+                active1, reason1 = s.is_active()
+                active2, reason2 = s.is_active()
+            self.assertTrue(active1 and active2)
+            self.assertEqual(reason1, "cached")
+            self.assertEqual(reason2, "cached")
+            self.assertEqual(calls["n"], 1)
 
 
 class TestKillSwitchRule(unittest.TestCase):

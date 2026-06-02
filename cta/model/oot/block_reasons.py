@@ -17,9 +17,11 @@ BR_BLOCKED_PYRAMID_RULE = "blocked_pyramid_rule"
 BR_BLOCKED_MONTHLY_DRAWDOWN = "blocked_monthly_drawdown"
 BR_BLOCKED_WEEKLY_DRAWDOWN = "blocked_weekly_drawdown"
 BR_BLOCKED_TOTAL_CONCURRENT = "blocked_total_concurrent"
+BR_BLOCKED_SIGNAL_TYPE_CONCURRENT = "blocked_signal_type_concurrent"
 BR_BLOCKED_SYMBOL_CONCURRENT = "blocked_symbol_concurrent"
 BR_BLOCKED_SYMBOL_CAP = "blocked_symbol_cap"
 BR_BLOCKED_CLUSTER_CAP = "blocked_cluster_cap"
+BR_BLOCKED_TOTAL_NOTIONAL = "blocked_total_notional"
 BR_BLOCKED_WEEKLY_BUDGET = "blocked_weekly_budget"
 BR_BLOCKED_DAILY_POSITION = "blocked_daily_position"
 BR_BLOCKED_MARGIN_CASH = "blocked_margin_cash"
@@ -30,10 +32,6 @@ BR_BLOCKED_TRADE_FILTER = "blocked_trade_filter"
 BR_BLOCKED_REGIME_GATE = "blocked_regime_gate"
 BR_BLOCKED_MFE_MAE_GATE = "blocked_mfe_mae_gate"
 BR_BLOCKED_FINAL_DECISION_GATE = "blocked_final_decision_gate"
-# MA-cross + regime-aware short filter（默认 off，按 (cluster, interval) 灰度启用）。
-# 设计文档：cta/docs/ma_cross_regime_aware_design.md
-BR_BLOCKED_MA_CROSS_TREND = "blocked_ma_cross_trend"
-BR_BLOCKED_REGIME_SHORT_FILTER = "blocked_regime_short_filter"
 
 # Candidate fallback reasons.
 BR_FILTERED_BY_RULE = "filtered_by_rule"
@@ -59,9 +57,11 @@ BlockReason = Literal[
     "blocked_monthly_drawdown",
     "blocked_weekly_drawdown",
     "blocked_total_concurrent",
+    "blocked_signal_type_concurrent",
     "blocked_symbol_concurrent",
     "blocked_symbol_cap",
     "blocked_cluster_cap",
+    "blocked_total_notional",
     "blocked_weekly_budget",
     "blocked_daily_position",
     "blocked_margin_cash",
@@ -95,9 +95,11 @@ CANONICAL_BLOCK_REASONS: tuple[BlockReason, ...] = (
     BR_BLOCKED_MONTHLY_DRAWDOWN,
     BR_BLOCKED_WEEKLY_DRAWDOWN,
     BR_BLOCKED_TOTAL_CONCURRENT,
+    BR_BLOCKED_SIGNAL_TYPE_CONCURRENT,
     BR_BLOCKED_SYMBOL_CONCURRENT,
     BR_BLOCKED_SYMBOL_CAP,
     BR_BLOCKED_CLUSTER_CAP,
+    BR_BLOCKED_TOTAL_NOTIONAL,
     BR_BLOCKED_WEEKLY_BUDGET,
     BR_BLOCKED_DAILY_POSITION,
     BR_BLOCKED_MARGIN_CASH,
@@ -108,8 +110,6 @@ CANONICAL_BLOCK_REASONS: tuple[BlockReason, ...] = (
     BR_BLOCKED_REGIME_GATE,
     BR_BLOCKED_MFE_MAE_GATE,
     BR_BLOCKED_FINAL_DECISION_GATE,
-    BR_BLOCKED_MA_CROSS_TREND,
-    BR_BLOCKED_REGIME_SHORT_FILTER,
     BR_FILTERED_BY_RULE,
     BR_RISK_RULE_BLOCKED,
     BR_CAPACITY_BLOCKED,
@@ -127,8 +127,10 @@ __all__ = [
     "BR_BLOCKED_MONTHLY_DRAWDOWN",
     "BR_BLOCKED_PORTFOLIO_CONSTRAINT",
     "BR_BLOCKED_PYRAMID_RULE",
+    "BR_BLOCKED_SIGNAL_TYPE_CONCURRENT",
     "BR_BLOCKED_SYMBOL_CAP",
     "BR_BLOCKED_SYMBOL_CONCURRENT",
+    "BR_BLOCKED_TOTAL_NOTIONAL",
     "BR_BLOCKED_THROTTLE_HALT",
     "BR_BLOCKED_TOTAL_CONCURRENT",
     "BR_BLOCKED_WEEKLY_BUDGET",
@@ -137,8 +139,6 @@ __all__ = [
     "BR_BLOCKED_REGIME_GATE",
     "BR_BLOCKED_MFE_MAE_GATE",
     "BR_BLOCKED_FINAL_DECISION_GATE",
-    "BR_BLOCKED_MA_CROSS_TREND",
-    "BR_BLOCKED_REGIME_SHORT_FILTER",
     "BR_CAPACITY_BLOCKED",
     "BR_EXECUTION_RULE_BLOCKED",
     "BR_FILTERED_BY_RULE",

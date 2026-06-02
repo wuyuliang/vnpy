@@ -77,6 +77,30 @@ class TestOpportunityRanker(unittest.TestCase):
         self.assertAlmostEqual(float(out.iloc[0]["score_components"]["rank_weight"]), 0.33, places=6)
         self.assertAlmostEqual(float(out.iloc[0]["score"]), 0.33, places=6)
 
+    def test_score_never_falls_back_to_future_edge_columns(self) -> None:
+        ranker = OpportunityRanker(
+            OpportunityRankerConfig(w_prob=0.0, w_edge=1.0, w_rank=0.0, w_align=0.0),
+            edge_stats={("black", "60min"): (0.0, 1.0)},
+        )
+        df = pd.DataFrame(
+            {
+                "symbol": ["RB0"],
+                "exchange": ["SHFE"],
+                "interval": ["60min"],
+                "direction": ["long"],
+                "cluster_name": ["black"],
+                "trade_filter_prob_pctl": [50.0],
+                "pred_mfe_atr": [float("nan")],
+                "pred_mae_atr": [float("nan")],
+                "future_mfe_atr": [9.0],
+                "future_mae_atr": [0.0],
+                "htf_alignment": ["neutral"],
+            }
+        )
+        base = ranker.score(df.drop(columns=["future_mfe_atr", "future_mae_atr"]), htf_state={})
+        out = ranker.score(df, htf_state={})
+        self.assertAlmostEqual(float(out.iloc[0]["score"]), float(base.iloc[0]["score"]), places=6)
+
     def test_allocate_respects_cluster_and_total_caps(self) -> None:
         ranker = OpportunityRanker(OpportunityRankerConfig())
         state = PortfolioState(equity=1_000_000.0)
@@ -161,6 +185,33 @@ class TestOpportunityRanker(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             ranker.allocate(scored, state=state, caps=caps, score_threshold=0.0)
+
+    def test_allocate_prefers_signal_type_bonus_under_same_score(self) -> None:
+        ranker = OpportunityRanker(
+            OpportunityRankerConfig(
+                signal_type_rank_bonus={
+                    "bull_pullback_continuation": 0.02,
+                    "atr_breakout": 0.0,
+                }
+            )
+        )
+        state = PortfolioState(equity=1_000_000.0)
+        caps = CapsConfig(max_total_positions=1, max_total_per_cluster=1, max_per_symbol=1)
+        scored = pd.DataFrame(
+            {
+                "symbol": ["RB0", "HC0"],
+                "exchange": ["SHFE", "SHFE"],
+                "interval": ["60min", "60min"],
+                "direction": ["long", "long"],
+                "cluster_name": ["black", "black"],
+                "score": [0.90, 0.90],
+                "signal_type": ["bull_pullback_continuation", "atr_breakout"],
+                "base_notional": [100_000.0, 100_000.0],
+            }
+        )
+        picks = ranker.allocate(scored, state=state, caps=caps, score_threshold=0.01)
+        self.assertEqual(len(picks), 1)
+        self.assertEqual(str(picks.iloc[0]["signal_type"]), "bull_pullback_continuation")
 
 
 if __name__ == "__main__":

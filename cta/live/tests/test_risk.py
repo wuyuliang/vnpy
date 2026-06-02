@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+import threading
 import unittest
 
 import pandas as pd
@@ -15,6 +16,7 @@ from cta.live.risk import (
     RiskContext,
     RiskDecision,
     RiskGuard,
+    make_risk_filter,
 )
 from cta.portfolio_logic.config import CapsConfig, RiskThrottleConfig
 
@@ -111,6 +113,26 @@ class TestOrderRateLimit(unittest.TestCase):
             self.assertTrue(rule.check(_order(), _ctx()).allowed)
         time.sleep(1.1)
         self.assertTrue(rule.check(_order(), _ctx()).allowed)
+
+    def test_concurrent_checks_respect_single_slot_when_time_is_frozen(self) -> None:
+        rule = OrderRateLimit(max_per_second=1)
+        # 固定时间戳，所有线程命中同一秒窗口
+        rule._time_fn = lambda: 100.0  # type: ignore[attr-defined]
+        allowed_flags: list[bool] = []
+        lock = threading.Lock()
+
+        def _worker() -> None:
+            d = rule.check(_order(), _ctx())
+            with lock:
+                allowed_flags.append(bool(d.allowed))
+
+        threads = [threading.Thread(target=_worker) for _ in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(sum(1 for x in allowed_flags if x), 1)
 
 
 class TestRiskGuard(unittest.TestCase):
@@ -212,6 +234,28 @@ class TestPortfolioThrottleRule(unittest.TestCase):
         )
         self.assertFalse(d_cluster.allowed)
         self.assertIn("throttle_cluster", d_cluster.reason)
+
+
+class TestMakeRiskFilter(unittest.TestCase):
+    def test_flat_with_zero_position_is_noop(self) -> None:
+        # 即使 guard 会拒绝任意订单，flat+pos=0 也应短路为 True（不进 guard）。
+        class _AlwaysBlock:
+            def check(self, order, ctx):  # noqa: ANN001
+                return RiskDecision(False, "blocked")
+
+        guard = RiskGuard(rules=[_AlwaysBlock()])
+        f = make_risk_filter(guard, capital=1_000_000.0, daily_pnl_provider=lambda: 0.0)
+        adapter = type(
+            "A",
+            (),
+            {
+                "pos": 0.0,
+                "vt_symbol": "rb888.SHFE",
+                "write_log": lambda self, msg: None,  # noqa: ARG005
+            },
+        )()
+        order = {"side": "flat", "lots": 1, "price": 100.0, "order_type": "market"}
+        self.assertTrue(f(order, adapter))
 
 
 if __name__ == "__main__":

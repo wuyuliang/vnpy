@@ -33,9 +33,10 @@ def write_pipeline_oot_html_report(
         return None
 
     n = len(trades)
-    gross_pnl = pd.to_numeric(trades.get("gross_pnl", 0.0), errors="coerce").fillna(0.0)
-    net_pnl = pd.to_numeric(trades.get("net_pnl", 0.0), errors="coerce").fillna(0.0)
-    gross_ret_pct = pd.to_numeric(trades.get("gross_return_pct", 0.0), errors="coerce").fillna(0.0)
+    _zero = pd.Series(0.0, index=trades.index)
+    gross_pnl = pd.to_numeric(trades.get("gross_pnl", _zero), errors="coerce").fillna(0.0)
+    net_pnl = pd.to_numeric(trades.get("net_pnl", _zero), errors="coerce").fillna(0.0)
+    gross_ret_pct = pd.to_numeric(trades.get("gross_return_pct", _zero), errors="coerce").fillna(0.0)
 
     entry_price = np.ones(n, dtype=float)
     exit_price = entry_price * (1.0 + gross_ret_pct.to_numpy())

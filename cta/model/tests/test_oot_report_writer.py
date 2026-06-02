@@ -17,6 +17,48 @@ def _touch(path: Path, text: str = "x") -> Path:
 
 
 class TestOotReportWriter(unittest.TestCase):
+    def test_summary_includes_reproducibility_info_when_provided(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="cta_oot_report_repro_") as td:
+            bundle = Path(td) / "bundle"
+            bundle.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(
+                {
+                    "datetime": pd.to_datetime(["2025-01-02"]),
+                    "exit_datetime": pd.to_datetime(["2025-01-02"]),
+                    "symbol": ["RB0"],
+                    "interval": ["day"],
+                    "signal_type": ["donchian_breakout"],
+                    "execution_status": ["executed"],
+                    "group_name": ["cluster_black"],
+                    "net_pnl": [1000.0],
+                    "gross_pnl": [1100.0],
+                    "cost_pct": [0.0001],
+                }
+            ).to_csv(
+                bundle / "unit_all_symbol_group_oot_trade_details.csv",
+                index=False,
+                encoding="utf-8-sig",
+            )
+
+            report_dir = write_oot_evaluation_report(
+                bundle_dir=bundle,
+                run_records=[],
+                run_tag="repro",
+                reproducibility_info={
+                    "argv": ["--from-root", "cta/backtest", "--note", "strict quality check"],
+                    "generated_at": "2026-05-30T10:00:00+08:00",
+                    "note": "strict quality check",
+                    "key_cfg": {"use_impact_cost": True, "impact_cost_k": 0.1},
+                },
+            )
+
+            text = (report_dir / "00_overview" / "executive_summary.md").read_text(encoding="utf-8")
+            self.assertIn("## 复现信息", text)
+            self.assertIn("--from-root cta/backtest --note 'strict quality check'", text)
+            self.assertIn("2026-05-30T10:00:00+08:00", text)
+            self.assertIn("strict quality check", text)
+            self.assertIn("use_impact_cost=True", text)
+
     def test_write_oot_evaluation_report_creates_layout_and_core_outputs(self) -> None:
         with tempfile.TemporaryDirectory(prefix="cta_oot_report_writer_") as td:
             root = Path(td)
@@ -194,6 +236,32 @@ class TestOotReportWriter(unittest.TestCase):
             pnl = pd.to_numeric(ranking["net_pnl"], errors="coerce").fillna(0.0).to_list()
             self.assertGreaterEqual(pnl[0], pnl[-1])
 
+            by_signal = pd.read_csv(
+                report_dir / "05_by_signal_type" / "_comparison.csv",
+                encoding="utf-8-sig",
+            )
+            self.assertIn("avg_net_pnl_per_trade", by_signal.columns)
+            for col in (
+                "max_drawdown_pct",
+                "monthly_sharpe",
+                "annualized_return_pct",
+                "calmar_like",
+                "top5_trade_pnl_pct",
+                "top5_symbol_pnl_pct",
+            ):
+                self.assertIn(col, by_signal.columns)
+            avg = pd.to_numeric(by_signal["avg_net_pnl_per_trade"], errors="coerce")
+            net = pd.to_numeric(by_signal["net_pnl"], errors="coerce")
+            cnt = pd.to_numeric(by_signal["trade_count"], errors="coerce")
+            check = (avg * cnt - net).abs().fillna(0.0)
+            self.assertLessEqual(float(check.max()), 1e-9)
+            top5_trade = pd.to_numeric(by_signal["top5_trade_pnl_pct"], errors="coerce")
+            top5_symbol = pd.to_numeric(by_signal["top5_symbol_pnl_pct"], errors="coerce")
+            if top5_trade.notna().any():
+                self.assertTrue(bool(((top5_trade >= 0.0) & (top5_trade <= 1.0)).all()))
+            if top5_symbol.notna().any():
+                self.assertTrue(bool(((top5_symbol >= 0.0) & (top5_symbol <= 1.0)).all()))
+
             funnel = pd.read_csv(report_dir / "06_drilldown" / "gate_funnel.csv", encoding="utf-8-sig")
             counts = pd.to_numeric(funnel["count"], errors="coerce").fillna(0).astype(int).to_list()
             self.assertTrue(all(counts[i] >= counts[i + 1] for i in range(len(counts) - 1)))
@@ -202,7 +270,86 @@ class TestOotReportWriter(unittest.TestCase):
             self.assertTrue((report_dir / "reports" / "executive.html").exists())
             self.assertTrue((report_dir / "reports" / "analyst.html").exists())
 
+    def test_write_oot_evaluation_report_writes_daily_position_time_distributions(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="cta_oot_report_dist_") as td:
+            root = Path(td)
+            bundle = root / "bundle"
+            bundle.mkdir(parents=True, exist_ok=True)
+
+            pd.DataFrame(
+                {
+                    "datetime": pd.to_datetime(
+                        [
+                            "2025-01-06 09:00:00",
+                            "2025-01-07 09:00:00",
+                            "2025-01-08 09:00:00",
+                        ]
+                    ),
+                    "entry_datetime": pd.to_datetime(
+                        [
+                            "2025-01-06 09:00:00",
+                            "2025-01-07 09:00:00",
+                            "2025-01-08 09:00:00",
+                        ]
+                    ),
+                    "exit_datetime": pd.to_datetime(
+                        [
+                            "2025-01-06 10:00:00",
+                            "2025-01-07 10:00:00",
+                            "2025-01-08 10:00:00",
+                        ]
+                    ),
+                    "symbol": ["RB0", "CU0", "RB0"],
+                    "interval": ["day", "day", "day"],
+                    "signal_type": ["donchian_breakout", "atr_breakout", "atr_breakout"],
+                    "group_name": ["cluster_black", "cluster_metal", "cluster_black"],
+                    "execution_status": ["executed", "executed", "blocked_trade_filter"],
+                    "block_reason": ["", "", "blocked_trade_filter"],
+                    "net_pnl": [1200.0, -400.0, 0.0],
+                    "gross_pnl": [1300.0, -350.0, 0.0],
+                }
+            ).to_csv(
+                bundle / "unit_all_symbol_group_oot_trade_details.csv",
+                index=False,
+                encoding="utf-8-sig",
+            )
+
+            report_dir = write_oot_evaluation_report(bundle_dir=bundle, run_records=[], run_tag="dist")
+            diag = report_dir / "09_diagnostics"
+
+            daily = pd.read_csv(diag / "daily_trade_position_distribution.csv", encoding="utf-8-sig")
+            monthly = pd.read_csv(diag / "monthly_trade_position_distribution.csv", encoding="utf-8-sig")
+            weekday = pd.read_csv(diag / "weekday_trade_position_distribution.csv", encoding="utf-8-sig")
+
+            self.assertEqual(int(daily["trade_count"].sum()), 2)
+            self.assertEqual(int(monthly["total_trade_count"].sum()), 2)
+            self.assertEqual(int(weekday["days"].sum()), len(daily))
+
+            for col in (
+                "position_notional_mean_pct",
+                "margin_used_after_trade_mean_pct",
+                "eod_position_notional_pct",
+                "eod_margin_used_after_trade_pct",
+                "day_net_pnl",
+            ):
+                self.assertIn(col, daily.columns)
+
+            for col in (
+                "avg_eod_position_notional_pct",
+                "max_eod_position_notional_pct",
+                "avg_eod_margin_used_pct",
+                "month_net_pnl",
+            ):
+                self.assertIn(col, monthly.columns)
+
+            for col in (
+                "weekday_num",
+                "weekday",
+                "avg_eod_position_notional_pct",
+                "avg_eod_margin_used_pct",
+            ):
+                self.assertIn(col, weekday.columns)
+
 
 if __name__ == "__main__":
     unittest.main()
-

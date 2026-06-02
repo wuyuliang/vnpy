@@ -5,90 +5,12 @@ import unittest
 
 import pandas as pd
 
-from cta.config.profit_aware_horizon_config import ProfitAwareHorizonConfig
-from cta.config.trailing_take_profit_config import TrailingTakeProfitConfig
 from cta.portfolio_logic.config import HorizonExtendConfig, IntervalTrailingParams, PyramidConfig, TrailingExitConfig
 from cta.portfolio_logic.pyramid_manager import PyramidManager
 from cta.portfolio_logic.trailing_exit import TrailingExitSimulator, simulate_trailing_exit
 
 
 class TestTrailingExit(unittest.TestCase):
-    def test_trailing_take_profit_exits_with_its_own_reason(self) -> None:
-        bars = pd.DataFrame(
-            {
-                "datetime": pd.to_datetime(
-                    [
-                        "2024-01-02 09:00:00",
-                        "2024-01-02 10:00:00",
-                        "2024-01-02 11:00:00",
-                    ]
-                ),
-                "open": [100.0, 112.0, 101.5],
-                "high": [100.0, 112.0, 102.0],
-                "low": [100.0, 110.0, 101.0],
-                "close": [100.0, 111.0, 101.2],
-            }
-        )
-        sim = simulate_trailing_exit(
-            side="long",
-            entry_ts=pd.Timestamp("2024-01-02 09:00:00"),
-            planned_exit_ts=pd.Timestamp("2024-01-02 12:00:00"),
-            entry_price_hint=100.0,
-            stop_loss_pct=0.20,
-            bars=bars,
-            interval="day",
-            atr_pct_at_entry=0.01,
-            regime_label="trend_up",
-            cfg=TrailingExitConfig(enabled=False),
-            trailing_take_profit_cfg=TrailingTakeProfitConfig(
-                use_trailing_take_profit=True,
-                enabled_by_cluster_interval={"other|day": True},
-                activation_pnl_pct=0.10,
-                tiers=((0.10, 0.08),),
-            ),
-            symbol_cluster="other",
-        )
-        self.assertEqual(str(sim["exit_reason"]), "trailing_take_profit")
-        self.assertEqual(int(sim["trailing_tp_active"]), 1)
-
-    def test_profit_aware_horizon_outputs_extended_limit(self) -> None:
-        bars = pd.DataFrame(
-            {
-                "datetime": pd.to_datetime(
-                    [
-                        "2024-01-02 09:00:00",
-                        "2024-01-03 09:00:00",
-                        "2024-01-04 09:00:00",
-                    ]
-                ),
-                "open": [100.0, 102.0, 103.0],
-                "high": [100.0, 103.0, 104.0],
-                "low": [100.0, 101.0, 102.0],
-                "close": [100.0, 102.5, 103.5],
-            }
-        )
-        sim = simulate_trailing_exit(
-            side="long",
-            entry_ts=pd.Timestamp("2024-01-02 09:00:00"),
-            planned_exit_ts=pd.Timestamp("2024-01-03 09:00:00"),
-            entry_price_hint=100.0,
-            stop_loss_pct=0.20,
-            bars=bars,
-            interval="day",
-            atr_pct_at_entry=None,
-            regime_label="trend_up",
-            cfg=TrailingExitConfig(enabled=False),
-            profit_aware_horizon_cfg=ProfitAwareHorizonConfig(
-                use_profit_aware_horizon=True,
-                enabled_by_cluster_interval={"other|day": True},
-                base_max_holding_bars_by_interval={"day": 1},
-                extended_max_holding_bars_by_interval={"day": 2},
-                activation_pnl_pct=0.01,
-            ),
-            symbol_cluster="other",
-        )
-        self.assertEqual(int(sim["horizon_extended_to"]), 2)
-
     def test_trailing_activates_and_exits_before_horizon(self) -> None:
         bars = pd.DataFrame(
             {

@@ -5,12 +5,41 @@ import inspect
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
-from cta.config.profit_aware_horizon_config import ProfitAwareHorizonConfig
-from cta.config.trailing_take_profit_config import TrailingTakeProfitConfig
+from cta.config.cluster_bond_filter_manifest import (
+    STRICT_BOND_PERCENTILE_THRESHOLDS,
+    STRICT_BOND_RAW_THRESHOLDS,
+)
+from cta.config.cost_manifest import build_cluster_interval_cost_dict
 from cta.config.baseline_skill_suite_config import LABEL_MAE_PENALTY
 from cta.config.symbol_cluster_config import SYMBOL_CLUSTER_BY_PREFIX
-from cta.feature.regime import REGIME_LABELS
 from cta.portfolio_logic.config import PortfolioLogicConfig, normalize_portfolio_interval
+from cta.risk.config import RiskSystemConfig
+from cta.risk.guards.config import (
+    ConsecutiveLossGuardConfig,
+    LiquidityFloorGuardConfig,
+    ScoreDistributionDriftConfig,
+    SignalConcentrationGuardConfig,
+)
+
+
+def _default_commission_pct_by_cluster_interval() -> dict[str, float]:
+    """Default real-cost commission table (Action 1 default-on, 2026-05-24)."""
+    return build_cluster_interval_cost_dict(kind="commission")
+
+
+def _default_slippage_pct_by_cluster_interval() -> dict[str, float]:
+    """Default real-cost slippage table (Action 1 default-on, 2026-05-24)."""
+    return build_cluster_interval_cost_dict(kind="slippage")
+
+
+def _default_trade_filter_percentile_threshold_by_cluster_interval() -> dict[str, float]:
+    """Default cluster_bond strict trade_filter percentile thresholds (Action 2 default-on, 2026-05-24)."""
+    return dict(STRICT_BOND_PERCENTILE_THRESHOLDS)
+
+
+def _default_trade_filter_raw_threshold_by_cluster_interval() -> dict[str, float]:
+    """Default cluster_bond strict trade_filter raw thresholds (Action 2 default-on, 2026-05-24)."""
+    return dict(STRICT_BOND_RAW_THRESHOLDS)
 
 _KNOWN_INTERVALS = frozenset({"day", "60min", "30min", "15min", "5min", "min"})
 _KNOWN_CLUSTERS = frozenset({"other", *{str(v).lower() for v in SYMBOL_CLUSTER_BY_PREFIX.values()}})
@@ -69,8 +98,57 @@ class OotEvaluationConfig:
     # 总 commission/slip 同步下降，net_pnl 转正。
     trade_filter_threshold: float = 0.62
     trade_filter_percentile_threshold: float = 70.0
-    trade_filter_raw_threshold_by_cluster_interval: dict[str, float] = field(default_factory=dict)
-    trade_filter_percentile_threshold_by_cluster_interval: dict[str, float] = field(default_factory=dict)
+    # 2026-05-24：默认从空 dict 翻为 cluster_bond 严格阈值（见 cluster_bond_filter_manifest.py）。
+    # 通过显式 `trade_filter_*_threshold_by_cluster_interval={}` 可回退到全局阈值，
+    # 也可显式塞入自定义 cluster 的阈值（dict 整体替换，不 merge）。
+    trade_filter_raw_threshold_by_cluster_interval: dict[str, float] = field(
+        default_factory=_default_trade_filter_raw_threshold_by_cluster_interval
+    )
+    trade_filter_percentile_threshold_by_cluster_interval: dict[str, float] = field(
+        default_factory=_default_trade_filter_percentile_threshold_by_cluster_interval
+    )
+    # 按 signal_type 调整 trade_filter 阈值（用于“增/减某类机会笔数”）。
+    # 百分位模式下：threshold += delta（单位=百分点）；raw 模式下：threshold += delta（单位=概率值）。
+    # 2026-05-31 目标配比版：pullback 强放量，atr/低质量类型强缩量。
+    # 口径：先用 trade_filter 阈值做粗分流，再用并发/名义上限做二次限流。
+    trade_filter_raw_threshold_delta_by_signal_type: dict[str, float] = field(
+        default_factory=lambda: {
+            "bull_pullback_continuation": -0.08,
+            "breakout_pullback_continuation": -0.06,
+            "cross_sectional_momentum": 0.03,
+            "trend_acceleration_breakout": 0.08,
+            "atr_breakout": 0.15,
+            "donchian_breakout": 0.12,
+            "tight_range_breakout": 0.18,
+        }
+    )
+    trade_filter_percentile_threshold_delta_by_signal_type: dict[str, float] = field(
+        default_factory=lambda: {
+            "bull_pullback_continuation": -20.0,
+            "breakout_pullback_continuation": -16.0,
+            "cross_sectional_momentum": 6.0,
+            "trend_acceleration_breakout": 15.0,
+            "atr_breakout": 30.0,
+            "donchian_breakout": 25.0,
+            "tight_range_breakout": 35.0,
+        }
+    )
+    # ranker 阶段的最小分位数门槛偏置（score/min_prob 侧二次分流）。
+    # 作用：trade_filter 放宽后，避免核心 alpha 在 ranker 再次被统一 min_prob=60 误杀；
+    # 同时可对低质量类型抬高 ranker 侧准入门槛，减少其占用有限名额。
+    # 口径：effective_min_prob_pctl = base_min_prob_pctl + delta（负值=放宽，正值=收紧）。
+    # 代码上等价为：effective_prob_pctl = clip(raw_prob_pctl - delta, 0, 100)。
+    ranker_prob_pctl_delta_by_signal_type: dict[str, float] = field(
+        default_factory=lambda: {
+            "bull_pullback_continuation": -20.0,
+            "breakout_pullback_continuation": -10.0,
+            "cross_sectional_momentum": 8.0,
+            "trend_acceleration_breakout": 15.0,
+            "atr_breakout": 30.0,
+            "donchian_breakout": 20.0,
+            "tight_range_breakout": 30.0,
+        }
+    )
     # 场景阈值：cluster|interval|side|bull_mode（如 "index|day|long|attack": 65）
     trade_filter_raw_threshold_by_cluster_interval_side_bull_mode: dict[str, float] = field(default_factory=dict)
     trade_filter_percentile_threshold_by_cluster_interval_side_bull_mode: dict[str, float] = field(default_factory=dict)
@@ -83,15 +161,13 @@ class OotEvaluationConfig:
     # 保证 rotation off 时无任何 bypass 副作用；rotation on 时调用方传
     # ("cross_sectional_momentum",) 显式启用）。
     trade_filter_bypass_signal_types: tuple[str, ...] = ()
-    # Trend-aware threshold relaxation（默认 off）
-    use_trend_aware_trade_filter: bool = False
-    require_ma_alignment_magnitude: int = 2
-    require_regime_labels: tuple[str, ...] = ("trend_up", "trend_down", "expansion")
-    require_vol_rank_above: float = 0.50
-    trend_threshold_delta_pctl: float = -10.0
-    trend_threshold_delta_raw: float = -0.05
-    max_consecutive_relaxed_bars: int = 60
-    trend_aware_trade_filter_enabled_by_cluster_interval: dict[str, bool] = field(default_factory=dict)
+    # 全链路 signal_type 黑名单（OOT/eval/sim/live 一致）：命中即直接过滤，不参与后续 gate。
+    signal_type_blacklist: tuple[str, ...] = (
+        "atr_breakout",
+        "donchian_breakout",
+        "trend_acceleration_breakout",
+        "bull_volatility_contraction_breakout",
+    )
     # bull_mode 识别配置（score 优先用 bull_strength_score 列，不存在时回退到 trade_filter_prob_pctl）
     bull_strength_score_column: str = "bull_strength_score"
     bull_attack_percentile_threshold: float = 70.0
@@ -101,42 +177,76 @@ class OotEvaluationConfig:
     # long: block trend_down; short: block trend_up
     allow_range_in_regime_gate: bool = True
 
-    # MA-cross 趋势过滤（默认 off，按 (cluster, interval) 灰度启用）。
-    # 设计文档：cta/docs/ma_cross_regime_aware_design.md
-    # 规则：ma_alignment >= 1（多头排列）拦 short；<= -1（空头排列）拦 long。
-    # 列源：优先 generic_ma_alignment（候选+通用特征拼接后的列名），缺失时回退 ma_alignment。
-    use_ma_cross_gate: bool = False
-    # 预留：未来若需要在 gate 内现算 MA 用（当前 gate 不现算）。
-    ma_cross_fast_window: int = 5
-    ma_cross_slow_window: int = 20
-    ma_cross_alignment_column: str = "generic_ma_alignment"
-    # {"index|day": True, "black|day": True, ...}；未列出/value=False 的 (cluster, interval) 不启用本 gate。
-    ma_cross_enabled_by_cluster_interval: dict[str, bool] = field(default_factory=dict)
-
-    # Regime-aware short filter（默认 off，按 (cluster, interval) 灰度启用）。
-    # 用真实历史 regime_label（cta/strategy/baseline_setup_detection._infer_regime_label），
-    # 不依赖模型预测的 pred_regime_label。规则：side=short AND label ∈ block_labels → 拦截。
-    use_regime_short_filter: bool = False
-    regime_short_filter_label_column: str = "regime_label"
-    regime_short_block_labels: tuple[str, ...] = ("trend_up",)
-    regime_short_filter_enabled_by_cluster_interval: dict[str, bool] = field(default_factory=dict)
-
     use_mfe_mae_gate: bool = True
     mae_penalty: float = LABEL_MAE_PENALTY
     min_pred_edge_atr: float = 0.0
 
     # 资金与交易成本参数（净值口径）
-    initial_capital: float = 1_000_000.0
+    initial_capital: float = 10_000_000.0
     risk_per_trade_pct: float = 0.002
-    max_single_loss_pct: float = 0.001
+    max_single_loss_pct: float = 0.002
     commission_pct_per_trade: float = 0.0002
     slippage_pct_per_trade: float = 0.0001
+    # 按 (cluster, interval) 真实费率覆盖。
+    # 2026-05-24：默认从空 dict 翻为按品种分层真实费率（见 cost_manifest.py）。
+    # 历史：2026-05-24 OOT 诊断发现 cost_pct 全是 3bp 硬编码，被严重低估的成本是 bond
+    # 单簇亏损主因（cost/|gross|=152%）。引入此 override 后可分簇贴近真实费率，
+    # 同时让 cluster_precious 等保证金大的簇免于不当高成本扣减。
+    # 显式传 `commission_pct_by_cluster_interval={}` 可回退到 commission_pct_per_trade 全局值。
+    commission_pct_by_cluster_interval: dict[str, float] = field(
+        default_factory=_default_commission_pct_by_cluster_interval
+    )
+    slippage_pct_by_cluster_interval: dict[str, float] = field(
+        default_factory=_default_slippage_pct_by_cluster_interval
+    )
+    # symbol 级真实费率 override；key 使用合约前缀（如 "EC0"），优先级高于 cluster|interval。
+    commission_pct_by_symbol: dict[str, float] = field(default_factory=dict)
+    slippage_pct_by_symbol: dict[str, float] = field(default_factory=dict)
+    # 冲击成本：impact_cost_pct = impact_cost_k * sqrt(order_lots / adv_lots)。
+    use_impact_cost: bool = False
+    impact_cost_k: float = 0.10
+    impact_adv_lots_column: str = "adv_lots"
     # 仓位 sizing：按“每笔最大可亏损金额”反推仓位
     use_position_sizing: bool = True
     min_pred_mae_atr_for_sizing: float = 0.5
     # 单笔仓位名义金额相对当时权益的上限。
-    # 0.10 = 单笔最多吃 10% 权益，避免反推 sizing 在 pred_mae 较小时打满整笔。
+    # 0.10 = 单笔最多吃 10% 权益；signal_type 系数在此基准上乘。
     max_position_scale: float = 0.10
+    # 按 signal_type 调整单笔仓位上限：effective_cap = max_position_scale * multiplier。
+    # 例如 pullback 类可放大，atr_breakout 可缩小。
+    signal_type_size_multiplier: dict[str, float] = field(
+        default_factory=lambda: {
+            "bull_pullback_continuation": 4.0,
+            "breakout_pullback_continuation": 3.0,
+            "cross_sectional_momentum": 0.8,
+            "trend_acceleration_breakout": 0.5,
+            "atr_breakout": 0.2,
+            "donchian_breakout": 0.25,
+            "tight_range_breakout": 0.15,
+        }
+    )
+    # 按 signal_type 限制同时在仓笔数，用于压高回撤类型的并发暴露。
+    signal_type_max_concurrent_positions: dict[str, int] = field(
+        default_factory=lambda: {
+            "bull_pullback_continuation": 10,
+            "breakout_pullback_continuation": 8,
+            "cross_sectional_momentum": 2,
+            "trend_acceleration_breakout": 1,
+            "atr_breakout": 1,
+            "donchian_breakout": 1,
+            "tight_range_breakout": 1,
+        }
+    )
+    # 按 signal_type 限"未平仓累计名义 / 当时权益"份额。未配置的类型不额外限制（None）。
+    signal_type_max_notional_pct: dict[str, float] = field(
+        default_factory=lambda: {
+            "cross_sectional_momentum": 0.10,
+            "atr_breakout": 0.08,
+            "donchian_breakout": 0.06,
+            "trend_acceleration_breakout": 0.05,
+            "tight_range_breakout": 0.04,
+        }
+    )
     # 单品种"未平仓累计名义金额 / 当时权益"上限，避免同 symbol 连续触发信号把组合堆爆。
     max_symbol_notional_pct: float = 0.30
     # 单品种同时在仓笔数上限。
@@ -170,6 +280,11 @@ class OotEvaluationConfig:
     #     "metal|day":    0.0313,   "other|day":    0.0371,
     #     "precious|day": 0.0232,
     intrabar_stop_loss_pct_by_cluster_interval: dict[str, float] = field(default_factory=dict)
+    # intrabar 成交量参与率约束：单次开/平仓手数不超过当根 bar 成交量的该比例。
+    # 超过时，执行时间顺延到后续满足容量的 bar（仅在 bar 含 volume 列时生效）。
+    enforce_intrabar_bar_volume_cap: bool = True
+    intrabar_max_bar_volume_participation_pct: float = 0.01
+    intrabar_volume_column: str = "volume"
 
     # 换月/展期成本建模（默认关闭，因为我们的回测用的是"连续主连价格序列"
     # cta/data/origin/，价格本身已经过 back/ratio adjust 处理，PnL 已隐含展期价差）。
@@ -197,10 +312,13 @@ class OotEvaluationConfig:
     max_total_leverage: float = 2.0
     # 单日累计新开仓名义金额上限（相对当日开盘权益）
     max_daily_new_notional_pct: float = 1.0
-    # 周回撤约束（按周内权益峰值计，默认 0.03=3%）。
-    # 已从 0.04 收敛到 0.03；触发后靠 weekly_dd_position_scale_after_breach 缩仓
-    # 而非完全停手，避免反复触发→停手→错过反弹的死循环。常用范围 2%-5%。
-    weekly_max_drawdown_pct: float = 0.03
+    # 周回撤约束（按周内权益峰值计，默认 0.025=2.5%）。
+    # 0.04 → 0.03 → 0.025 渐进收紧；2026-05-27 进一步从 3% 收紧到 2.5%：
+    # 上一轮 OOT (oot_20260526_233900) Action 1/2/3 default-on 后笔数 4x，MDD 从 -4.6%
+    # 加深到 -6.9%；笔均波动收敛后单笔回撤风险已分散，可在不损 Sharpe 的前提下
+    # 进一步收紧周回撤预算。触发后靠 weekly_dd_position_scale_after_breach 缩仓
+    # 而非完全停手，避免反复触发→停手→错过反弹的死循环。常用范围 1.5%-5%。
+    weekly_max_drawdown_pct: float = 0.025
     # 周回撤触发后的缩仓系数（0.5=半仓），用于“缩仓不停手”。
     weekly_dd_position_scale_after_breach: float = 0.5
     # 若周回撤触达阈值，是否暂停该周后续新开仓
@@ -225,8 +343,24 @@ class OotEvaluationConfig:
     # 仅当某 interval 数据**应当存在但偶发缺失**时才考虑切到 "both"。
     # 详见 cta/docs/block_reason.md §4-§6。
     portfolio_logic: PortfolioLogicConfig = field(default_factory=PortfolioLogicConfig)
-    trailing_take_profit: TrailingTakeProfitConfig = field(default_factory=TrailingTakeProfitConfig)
-    profit_aware_horizon: ProfitAwareHorizonConfig = field(default_factory=ProfitAwareHorizonConfig)
+    # 风控编排（quantile/bucket/linear_dd/dynamic_bump）。None=关闭整个 risk orchestrator。
+    risk_system: RiskSystemConfig | None = None
+    # OOT 侧规则链回放（C4）：按时间顺序逐条回放候选并追加 risk_block_reason。
+    use_oot_guard_chain: bool = False
+    use_oot_consecutive_loss_guard: bool = False
+    use_oot_signal_concentration_guard: bool = False
+    use_oot_score_distribution_guard: bool = False
+    oot_consecutive_loss_guard: ConsecutiveLossGuardConfig = field(
+        default_factory=ConsecutiveLossGuardConfig
+    )
+    oot_signal_concentration_guard: SignalConcentrationGuardConfig = field(
+        default_factory=SignalConcentrationGuardConfig
+    )
+    oot_score_distribution_guard: ScoreDistributionDriftConfig = field(
+        default_factory=ScoreDistributionDriftConfig
+    )
+    use_liquidity_floor_guard: bool = True
+    liquidity_floor_guard: LiquidityFloorGuardConfig = field(default_factory=LiquidityFloorGuardConfig)
     stop_loss_consistency_tolerance: float = 0.005
     # 默认强制训练 label 与 OOT 执行止损口径一致，避免漂移。
     # 研究/单测若需要临时放开，可显式传 enforce_stop_loss_consistency=False。
@@ -243,17 +377,41 @@ class OotEvaluationConfig:
             raise ValueError(f"unsupported trade_filter_gate_mode={self.trade_filter_gate_mode}")
         _check("trade_filter_threshold", self.trade_filter_threshold, 0.0, 1.0)
         _check("trade_filter_percentile_threshold", self.trade_filter_percentile_threshold, 0.0, 100.0)
-        _check("require_vol_rank_above", self.require_vol_rank_above, 0.0, 1.0)
-        if int(self.require_ma_alignment_magnitude) < 0:
-            raise ValueError("require_ma_alignment_magnitude must be >= 0")
-        if int(self.max_consecutive_relaxed_bars) <= 0:
-            raise ValueError("max_consecutive_relaxed_bars must be > 0")
-        if not self.require_regime_labels:
-            raise ValueError("require_regime_labels must be non-empty")
         for key, value in self.trade_filter_raw_threshold_by_cluster_interval.items():
             _check(f"trade_filter_raw_threshold_by_cluster_interval[{key}]", float(value), 0.0, 1.0)
         for key, value in self.trade_filter_percentile_threshold_by_cluster_interval.items():
             _check(f"trade_filter_percentile_threshold_by_cluster_interval[{key}]", float(value), 0.0, 100.0)
+        norm_trade_filter_raw_delta_by_signal_type: dict[str, float] = {}
+        for key, value in dict(self.trade_filter_raw_threshold_delta_by_signal_type).items():
+            signal_type = str(key).strip().lower()
+            if not signal_type:
+                continue
+            _check(f"trade_filter_raw_threshold_delta_by_signal_type[{key}]", float(value), -1.0, 1.0)
+            norm_trade_filter_raw_delta_by_signal_type[signal_type] = float(value)
+        norm_trade_filter_percentile_delta_by_signal_type: dict[str, float] = {}
+        for key, value in dict(self.trade_filter_percentile_threshold_delta_by_signal_type).items():
+            signal_type = str(key).strip().lower()
+            if not signal_type:
+                continue
+            _check(
+                f"trade_filter_percentile_threshold_delta_by_signal_type[{key}]",
+                float(value),
+                -100.0,
+                100.0,
+            )
+            norm_trade_filter_percentile_delta_by_signal_type[signal_type] = float(value)
+        norm_ranker_prob_pctl_delta_by_signal_type: dict[str, float] = {}
+        for key, value in dict(self.ranker_prob_pctl_delta_by_signal_type).items():
+            signal_type = str(key).strip().lower()
+            if not signal_type:
+                continue
+            _check(
+                f"ranker_prob_pctl_delta_by_signal_type[{key}]",
+                float(value),
+                -100.0,
+                100.0,
+            )
+            norm_ranker_prob_pctl_delta_by_signal_type[signal_type] = float(value)
         for key, value in self.trade_filter_raw_threshold_by_cluster_interval_side_bull_mode.items():
             _check(f"trade_filter_raw_threshold_by_cluster_interval_side_bull_mode[{key}]", float(value), 0.0, 1.0)
         for key, value in self.trade_filter_percentile_threshold_by_cluster_interval_side_bull_mode.items():
@@ -269,7 +427,78 @@ class OotEvaluationConfig:
         _check("max_single_loss_pct", self.max_single_loss_pct, 0.0, 1.0)
         _check("commission_pct_per_trade", self.commission_pct_per_trade, 0.0, 0.02)
         _check("slippage_pct_per_trade", self.slippage_pct_per_trade, 0.0, 0.02)
+        # 按 (cluster, interval) 真实费率 override：key 形式 + 数值区间校验
+        norm_commission_overrides: dict[str, float] = {}
+        for key, value in dict(self.commission_pct_by_cluster_interval).items():
+            _cluster, _interval, norm_key = _normalize_cluster_interval_key(
+                "commission_pct_by_cluster_interval", key
+            )
+            _check(
+                f"commission_pct_by_cluster_interval[{key}]",
+                float(value),
+                0.0,
+                0.02,
+            )
+            norm_commission_overrides[norm_key] = float(value)
+        norm_slippage_overrides: dict[str, float] = {}
+        for key, value in dict(self.slippage_pct_by_cluster_interval).items():
+            _cluster, _interval, norm_key = _normalize_cluster_interval_key(
+                "slippage_pct_by_cluster_interval", key
+            )
+            _check(
+                f"slippage_pct_by_cluster_interval[{key}]",
+                float(value),
+                0.0,
+                0.02,
+            )
+            norm_slippage_overrides[norm_key] = float(value)
+        norm_commission_symbol: dict[str, float] = {}
+        for key, value in dict(self.commission_pct_by_symbol).items():
+            sym = str(key).strip().upper()
+            if not sym:
+                continue
+            _check(f"commission_pct_by_symbol[{key}]", float(value), 0.0, 0.02)
+            norm_commission_symbol[sym] = float(value)
+        norm_slippage_symbol: dict[str, float] = {}
+        for key, value in dict(self.slippage_pct_by_symbol).items():
+            sym = str(key).strip().upper()
+            if not sym:
+                continue
+            _check(f"slippage_pct_by_symbol[{key}]", float(value), 0.0, 0.02)
+            norm_slippage_symbol[sym] = float(value)
+        _check("impact_cost_k", self.impact_cost_k, 0.0, 1.0)
         _check("max_position_scale", self.max_position_scale, 0.0, 1.0)
+        norm_signal_type_size_multiplier: dict[str, float] = {}
+        for key, value in dict(self.signal_type_size_multiplier).items():
+            signal_type = str(key).strip().lower()
+            if not signal_type:
+                continue
+            _check(f"signal_type_size_multiplier[{key}]", float(value), 0.0, 5.0)
+            if float(value) <= 0.0:
+                raise ValueError(f"signal_type_size_multiplier[{key}] must be > 0")
+            norm_signal_type_size_multiplier[signal_type] = float(value)
+        norm_signal_type_max_concurrent: dict[str, int] = {}
+        for key, value in dict(self.signal_type_max_concurrent_positions).items():
+            signal_type = str(key).strip().lower()
+            if not signal_type:
+                continue
+            count = int(value)
+            if count < 1:
+                raise ValueError(
+                    f"signal_type_max_concurrent_positions[{key}] must be >= 1, got {value!r}"
+                )
+            norm_signal_type_max_concurrent[signal_type] = count
+        norm_signal_type_max_notional: dict[str, float] = {}
+        for key, value in dict(self.signal_type_max_notional_pct).items():
+            signal_type = str(key).strip().lower()
+            if not signal_type:
+                continue
+            _check(f"signal_type_max_notional_pct[{key}]", float(value), 0.0, 1.0)
+            if not 0.0 < float(value) <= 1.0:
+                raise ValueError(
+                    f"signal_type_max_notional_pct[{key}] must be in (0, 1], got {value!r}"
+                )
+            norm_signal_type_max_notional[signal_type] = float(value)
         # 止损率合理区间：CTA 60min 上 0.5%-5%（小于 0.5% 必被噪音打掉，大于 5% 太松）
         _check("intrabar_stop_loss_pct", self.intrabar_stop_loss_pct, 0.001, 0.10)
         norm_intrabar_stop_overrides: dict[str, float] = {}
@@ -284,59 +513,29 @@ class OotEvaluationConfig:
                 0.10,
             )
             norm_intrabar_stop_overrides[norm_key] = float(value)
-        # MA-cross + regime-short-filter override 校验（key 形如 "cluster|interval"，value 为 bool）。
-        norm_ma_cross_enabled: dict[str, bool] = {}
-        norm_regime_short_enabled: dict[str, bool] = {}
-        norm_trend_aware_enabled: dict[str, bool] = {}
-        for field_name, mapping in (
-            (
-                "trend_aware_trade_filter_enabled_by_cluster_interval",
-                self.trend_aware_trade_filter_enabled_by_cluster_interval,
-            ),
-            ("ma_cross_enabled_by_cluster_interval", self.ma_cross_enabled_by_cluster_interval),
-            (
-                "regime_short_filter_enabled_by_cluster_interval",
-                self.regime_short_filter_enabled_by_cluster_interval,
-            ),
-        ):
-            for key, value in dict(mapping).items():
-                _cluster, _interval, norm_key = _normalize_cluster_interval_key(field_name, key)
-                if not isinstance(value, bool):
-                    raise ValueError(
-                        f"{field_name}[{key}] must be bool, got {type(value).__name__}"
-                    )
-                if field_name == "trend_aware_trade_filter_enabled_by_cluster_interval":
-                    norm_trend_aware_enabled[norm_key] = bool(value)
-                elif field_name == "ma_cross_enabled_by_cluster_interval":
-                    norm_ma_cross_enabled[norm_key] = bool(value)
-                else:
-                    norm_regime_short_enabled[norm_key] = bool(value)
-        # MA-cross 窗口校验：fast < slow，且都为正整数。
-        if int(self.ma_cross_fast_window) <= 0 or int(self.ma_cross_slow_window) <= 0:
-            raise ValueError(
-                f"ma_cross_fast_window/slow_window must be positive: "
-                f"{self.ma_cross_fast_window}/{self.ma_cross_slow_window}"
-            )
-        if int(self.ma_cross_fast_window) >= int(self.ma_cross_slow_window):
-            raise ValueError(
-                f"ma_cross_fast_window ({self.ma_cross_fast_window}) must be < "
-                f"slow_window ({self.ma_cross_slow_window})"
-            )
-        # regime_short_block_labels 不能为空且必须是合法 regime 标签子集。
-        if not self.regime_short_block_labels:
-            raise ValueError("regime_short_block_labels must be non-empty when use_regime_short_filter=True")
-        _allowed_regimes = set(REGIME_LABELS)
-        for label in self.regime_short_block_labels:
-            if str(label).lower() not in _allowed_regimes:
-                raise ValueError(
-                    f"regime_short_block_labels contains unknown label {label!r}; "
-                    f"allowed = {sorted(_allowed_regimes)}"
-                )
+        _check(
+            "intrabar_max_bar_volume_participation_pct",
+            self.intrabar_max_bar_volume_participation_pct,
+            0.0,
+            1.0,
+        )
+        if not str(self.intrabar_volume_column).strip():
+            raise ValueError("intrabar_volume_column must be non-empty")
         _check("stop_loss_consistency_tolerance", self.stop_loss_consistency_tolerance, 0.0, 0.05)
         _check("weekly_max_drawdown_pct", self.weekly_max_drawdown_pct, 0.0, 1.0)
         _check("weekly_dd_position_scale_after_breach", self.weekly_dd_position_scale_after_breach, 0.0, 1.0)
         _check("monthly_max_drawdown_pct", self.monthly_max_drawdown_pct, 0.0, 1.0)
         _check("max_total_leverage", self.max_total_leverage, 0.0, 10.0)
+        if self.risk_system is not None and not isinstance(self.risk_system, RiskSystemConfig):
+            raise ValueError("risk_system must be RiskSystemConfig or None")
+        if not isinstance(self.oot_consecutive_loss_guard, ConsecutiveLossGuardConfig):
+            raise ValueError("oot_consecutive_loss_guard must be ConsecutiveLossGuardConfig")
+        if not isinstance(self.oot_signal_concentration_guard, SignalConcentrationGuardConfig):
+            raise ValueError("oot_signal_concentration_guard must be SignalConcentrationGuardConfig")
+        if not isinstance(self.oot_score_distribution_guard, ScoreDistributionDriftConfig):
+            raise ValueError("oot_score_distribution_guard must be ScoreDistributionDriftConfig")
+        if not isinstance(self.liquidity_floor_guard, LiquidityFloorGuardConfig):
+            raise ValueError("liquidity_floor_guard must be LiquidityFloorGuardConfig")
         object.__setattr__(
             self,
             "trade_filter_raw_threshold_by_cluster_interval",
@@ -346,6 +545,21 @@ class OotEvaluationConfig:
             self,
             "trade_filter_percentile_threshold_by_cluster_interval",
             MappingProxyType(dict(self.trade_filter_percentile_threshold_by_cluster_interval)),
+        )
+        object.__setattr__(
+            self,
+            "trade_filter_raw_threshold_delta_by_signal_type",
+            MappingProxyType(norm_trade_filter_raw_delta_by_signal_type),
+        )
+        object.__setattr__(
+            self,
+            "trade_filter_percentile_threshold_delta_by_signal_type",
+            MappingProxyType(norm_trade_filter_percentile_delta_by_signal_type),
+        )
+        object.__setattr__(
+            self,
+            "ranker_prob_pctl_delta_by_signal_type",
+            MappingProxyType(norm_ranker_prob_pctl_delta_by_signal_type),
         )
         object.__setattr__(
             self,
@@ -370,8 +584,29 @@ class OotEvaluationConfig:
         )
         object.__setattr__(
             self,
-            "trend_aware_trade_filter_enabled_by_cluster_interval",
-            MappingProxyType(norm_trend_aware_enabled),
+            "signal_type_blacklist",
+            tuple(
+                dict.fromkeys(
+                    self.normalize_signal_type(signal_type)
+                    for signal_type in self.signal_type_blacklist
+                    if self.normalize_signal_type(signal_type)
+                )
+            ),
+        )
+        object.__setattr__(
+            self,
+            "signal_type_size_multiplier",
+            MappingProxyType(norm_signal_type_size_multiplier),
+        )
+        object.__setattr__(
+            self,
+            "signal_type_max_concurrent_positions",
+            MappingProxyType(norm_signal_type_max_concurrent),
+        )
+        object.__setattr__(
+            self,
+            "signal_type_max_notional_pct",
+            MappingProxyType(norm_signal_type_max_notional),
         )
         object.__setattr__(
             self,
@@ -380,17 +615,68 @@ class OotEvaluationConfig:
         )
         object.__setattr__(
             self,
-            "ma_cross_enabled_by_cluster_interval",
-            MappingProxyType(norm_ma_cross_enabled),
+            "commission_pct_by_cluster_interval",
+            MappingProxyType(norm_commission_overrides),
         )
         object.__setattr__(
             self,
-            "regime_short_filter_enabled_by_cluster_interval",
-            MappingProxyType(norm_regime_short_enabled),
+            "slippage_pct_by_cluster_interval",
+            MappingProxyType(norm_slippage_overrides),
+        )
+        object.__setattr__(
+            self,
+            "commission_pct_by_symbol",
+            MappingProxyType(norm_commission_symbol),
+        )
+        object.__setattr__(
+            self,
+            "slippage_pct_by_symbol",
+            MappingProxyType(norm_slippage_symbol),
         )
         object.__setattr__(self, "symbol_contract_specs", MappingProxyType(dict(self.symbol_contract_specs)))
         if bool(self.use_intrabar_stop_tracking) and bool(self.enforce_stop_loss_consistency):
             self._validate_stop_loss_pct_consistency()
+
+    @staticmethod
+    def normalize_signal_type(signal_type: object) -> str:
+        """Normalize signal type key for config lookup."""
+        return str(signal_type or "").strip().lower()
+
+    def is_signal_type_blacklisted(self, signal_type: object) -> bool:
+        """Return whether signal_type is blocked by config blacklist."""
+        key = self.normalize_signal_type(signal_type)
+        return bool(key) and key in self.signal_type_blacklist
+
+    def resolve_signal_type_size_multiplier(self, signal_type: object) -> float:
+        """Resolve sizing multiplier by signal type, defaulting to 1.0."""
+        key = self.normalize_signal_type(signal_type)
+        return float(self.signal_type_size_multiplier.get(key, 1.0))
+
+    def resolve_effective_position_scale_cap(self, signal_type: object) -> float:
+        """Resolve effective position-scale cap after signal_type multiplier."""
+        cap = float(self.max_position_scale) * float(self.resolve_signal_type_size_multiplier(signal_type))
+        return float(min(max(cap, 0.0), 1.0))
+
+    def resolve_signal_type_max_concurrent(self, signal_type: object) -> int | None:
+        """Resolve optional concurrent-position cap by signal type."""
+        key = self.normalize_signal_type(signal_type)
+        raw = self.signal_type_max_concurrent_positions.get(key)
+        if raw is None:
+            return None
+        return int(raw)
+
+    def resolve_signal_type_max_notional_pct(self, signal_type: object) -> float | None:
+        """Resolve optional per-signal_type notional-share cap (fraction of equity)."""
+        key = self.normalize_signal_type(signal_type)
+        raw = self.signal_type_max_notional_pct.get(key)
+        if raw is None:
+            return None
+        return float(raw)
+
+    def resolve_ranker_prob_pctl_delta(self, signal_type: object) -> float:
+        """Resolve ranker min_prob percentile delta by signal type."""
+        key = self.normalize_signal_type(signal_type)
+        return float(self.ranker_prob_pctl_delta_by_signal_type.get(key, 0.0))
 
     @staticmethod
     def _default_label_stop_loss_pct() -> float:

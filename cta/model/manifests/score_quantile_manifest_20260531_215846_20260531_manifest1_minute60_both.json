@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-31T21:58:46",
+  "run_tag": "20260531",
+  "symbol": "MANIFEST1",
+  "interval": "minute60",
+  "trade_side_mode": "both",
+  "source_predictions_paths": [
+    "/Users/wuyuliang/code/vnpy/cta/model/manifests/score_quantile_source_20260531_215846_20260531_manifest1_minute60_both.csv"
+  ],
+  "exclude_splits": [
+    "test",
+    "oot"
+  ],
+  "entries": [
+    {
+      "cluster": "chemical",
+      "symbol": "MANIFEST1",
+      "interval": "60min",
+      "p50": 0.3802119661930159,
+      "p60": 0.4462008085265086,
+      "p70": 0.5152796206113748,
+      "p80": 0.6083133198424159,
+      "p90": 0.7152452127558641,
+      "p95": 0.7684266556640998,
+      "sample_count": 815
+    },
+    {
+      "cluster": "chemical",
+      "symbol": "*",
+      "interval": "60min",
+      "p50": 0.3802119661930159,
+      "p60": 0.4462008085265086,
+      "p70": 0.5152796206113748,
+      "p80": 0.6083133198424159,
+      "p90": 0.7152452127558641,
+      "p95": 0.7684266556640998,
+      "sample_count": 815
+    }
+  ]
+}

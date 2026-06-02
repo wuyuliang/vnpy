@@ -89,8 +89,14 @@ def _existing_dates(symbol: str, interval: str) -> Set[str]:
     return {p.stem for p in d.glob("*.parquet")}
 
 
-def process_day(dl: FuturesDownloader, symbol: str, exchange: str) -> DownloadResult:
-    return dl.download_day(symbol, exchange, out_dir=DAY_DIR)
+def process_day(
+    dl: FuturesDownloader,
+    symbol: str,
+    exchange: str,
+    *,
+    overwrite: bool = False,
+) -> DownloadResult:
+    return dl.download_day(symbol, exchange, out_dir=DAY_DIR, overwrite=overwrite)
 
 
 def process_minute_symbol(

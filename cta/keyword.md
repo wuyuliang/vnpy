@@ -277,9 +277,22 @@
 | `--rolling-test-years` | `rolling` 模式 test 窗口长度（年）。 |
 | `--rolling-step-years` | `rolling` 模式窗口前滚步长（年）。 |
 | `--top-feature-alert-pct` | 单特征重要度占比告警阈值，超阈值进入可疑特征报告。 |
+| `--strict-fail-fast` | 批量 group/interval 任务任一子任务失败时立即退出（严格模式）。 |
+| `--no-strict-fail-fast` | 关闭严格模式，允许批量任务在局部失败后继续执行其它子任务。 |
 | `--enable-cross-sectional-rotation` | 启用截面动量轮动候选并入（默认关闭）。 |
 | `--cross-sectional-enabled-cells` | 指定允许并入的 `cluster|interval` 单元（可多值）。 |
 | `--cross-sectional-long-only` | 截面轮动候选仅保留多头方向（默认 long+short）。 |
+| `--enable-risk-system` | 启用 risk orchestrator（quantile threshold + sizing 链路）。 |
+| `--risk-quantile-field` | risk quantile 阈值档位（`p50~p95`，默认 `p70`）。 |
+| `--risk-manifest-path` | 指定 quantile manifest 路径（默认可空，按配置 fallback）。 |
+| `--risk-enable-bucket-scaling` | 打开 bucket PnL 缩仓（默认关闭，需 state 预热）。 |
+| `--risk-disable-linear-dd-scaler` | 关闭 linear DD 缩仓（默认开启）。 |
+| `--risk-disable-dynamic-bump` | 关闭 DD 驱动的阈值抬升（默认开启）。 |
+| `--risk-disable-quantile-threshold` | 关闭 quantile threshold adjuster（默认开启）。 |
+| `--enable-impact-cost` | OOT / train 评估启用 ADV 参与率冲击成本，适合容量压力测试。 |
+| `--impact-cost-k` | 冲击成本系数 `k`，公式为 `k * sqrt(order_lots / adv_lots)`。 |
+| `--disable-liquidity-floor` | 关闭 OOT 流动性下限 guard；默认开启且缺指标 fail-open。 |
+| `--note` | eval-only 报告备注，写入 `executive_summary.md` 与 `meta/cfg_fingerprint.json`。 |
 
 ---
 

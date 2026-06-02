@@ -20,10 +20,10 @@ import pandas as pd
 
 from cta.config.cross_sectional_rotation_config import CrossSectionalRotationConfig
 from cta.config.model_oot_eval_config import OotEvaluationConfig
-from cta.config.profit_aware_horizon_config import ProfitAwareHorizonConfig
-from cta.config.trailing_take_profit_config import TrailingTakeProfitConfig
+from cta.risk.guards.config import ScoreDistributionDriftConfig
 from cta.live.online_feature import OnlineFeatureLoader
 from cta.portfolio_logic.portfolio_state import PortfolioState
+from cta.risk.config import RiskSystemConfig
 from cta.sim.adapters import (
     EntryGateChain,
     FeatureBasedStateProvider,
@@ -153,85 +153,6 @@ class TestPositionEvaluator(unittest.TestCase):
         # -4% < -5% → 不触发
         self.assertFalse(decision.should_exit)
 
-    def test_trailing_tp_locks_profit(self) -> None:
-        # P1-8: 浮盈 10%+ 后 trailing TP 锁盈
-        tp_cfg = TrailingTakeProfitConfig(
-            use_trailing_take_profit=True,
-            activation_pnl_pct=0.10,
-            enabled_by_cluster_interval={"black|day": True},
-        )
-        ev = PositionEvaluator(
-            trailing_tp_cfg=tp_cfg, state_provider=self._state_provider(),
-        )
-        # entry 100, highwater 115 (浮盈 15%, 处于 0.10-0.20 tier → trail=8%)
-        # trigger = 115 * (1 - 0.08) = 105.8；current 105 ≤ 105.8 → 触发
-        decision = ev.evaluate(
-            position={"symbol": "RB0", "side": "long", "entry_price": 100.0, "bars_held": 5},
-            bar={"close": 105.0, "datetime": pd.Timestamp("2024-03-25")},
-            highwater_price=115.0, cluster="black", interval="day",
-        )
-        self.assertTrue(decision.should_exit)
-        self.assertEqual(decision.exit_reason, "trailing_take_profit")
-
-    def test_trailing_tp_skipped_when_not_enabled_for_cluster(self) -> None:
-        tp_cfg = TrailingTakeProfitConfig(
-            use_trailing_take_profit=True,
-            enabled_by_cluster_interval={"index|day": True},  # 只对 index 启用
-        )
-        ev = PositionEvaluator(
-            trailing_tp_cfg=tp_cfg, state_provider=self._state_provider(),
-        )
-        decision = ev.evaluate(
-            position={"symbol": "RB0", "side": "long", "entry_price": 100.0, "bars_held": 5},
-            bar={"close": 108.0, "datetime": pd.Timestamp("2024-03-25")},
-            highwater_price=115.0, cluster="black", interval="day",  # black 不在启用
-        )
-        self.assertFalse(decision.should_exit)
-
-    def test_horizon_exit_uses_base_when_no_profit(self) -> None:
-        # P1-9: 浮盈 < activation_pnl → 用 base horizon
-        horizon_cfg = ProfitAwareHorizonConfig(
-            use_profit_aware_horizon=True,
-            activation_pnl_pct=0.05,
-            base_max_holding_bars_by_interval={"day": 30},
-            extended_max_holding_bars_by_interval={"day": 90},
-            enabled_by_cluster_interval={"black|day": True},
-        )
-        ev = PositionEvaluator(
-            profit_horizon_cfg=horizon_cfg, state_provider=self._state_provider(),
-        )
-        # 持仓 35 天 + 浮盈仅 1% → 应触发 base horizon (30)
-        decision = ev.evaluate(
-            position={"symbol": "RB0", "side": "long", "entry_price": 100.0, "bars_held": 35},
-            bar={"close": 101.0, "datetime": pd.Timestamp("2024-03-25")},
-            highwater_price=102.0, cluster="black", interval="day",
-        )
-        self.assertTrue(decision.should_exit)
-        self.assertEqual(decision.exit_reason, "horizon_exit")
-        self.assertEqual(decision.extra["max_holding_bars"], 30)
-
-    def test_horizon_extended_when_profit_and_trend(self) -> None:
-        # P1-9: 浮盈 + 趋势确认 → 延长到 extended
-        horizon_cfg = ProfitAwareHorizonConfig(
-            use_profit_aware_horizon=True,
-            activation_pnl_pct=0.05,
-            base_max_holding_bars_by_interval={"day": 30},
-            extended_max_holding_bars_by_interval={"day": 90},
-            require_trend_confirmed=True,
-            enabled_by_cluster_interval={"black|day": True},
-        )
-        ev = PositionEvaluator(
-            profit_horizon_cfg=horizon_cfg, state_provider=self._state_provider(ma_align=2, regime="trend_up"),
-        )
-        # 持仓 35 天 + 浮盈 10% + 趋势 → 不触发（base=30 → ext=90）
-        decision = ev.evaluate(
-            position={"symbol": "RB0", "side": "long", "entry_price": 100.0, "bars_held": 35},
-            bar={"close": 110.0, "datetime": pd.Timestamp("2024-03-25")},
-            highwater_price=111.0, cluster="black", interval="day",
-        )
-        # 35 < 90 → 不应触发
-        self.assertFalse(decision.should_exit)
-
 
 # ─── P1-10/11/12: EntryGateChain ─────────────────────────────────────────
 
@@ -241,47 +162,29 @@ class TestEntryGateChain(unittest.TestCase):
         cfg = OotEvaluationConfig(use_trade_filter_gate=False)
         chain = EntryGateChain(cfg)
         decision = chain.evaluate({
-            "symbol": "IF0", "side": "long", "signal_type": "donchian_breakout",
+            "symbol": "IF0", "side": "long", "signal_type": "cross_sectional_momentum",
             "cluster": "index", "interval": "day",
         })
         self.assertTrue(decision.passed)
 
-    def test_ma_cross_blocks_short_when_uptrend(self) -> None:
-        # P1-10
+    def test_signal_type_blacklist_blocks_before_other_gates(self) -> None:
         cfg = OotEvaluationConfig(
             use_trade_filter_gate=False,
-            use_ma_cross_gate=True,
-            ma_cross_enabled_by_cluster_interval={"index|day": True},
-            # 让 day stop 的 effective_keys 通过：stop > 0.01
-            intrabar_stop_loss_pct_by_cluster_interval={"index|day": 0.02},
+            signal_type_blacklist=("donchian_breakout",),
         )
         chain = EntryGateChain(cfg)
-        # ma_alignment=2 (强多头) + short → 应拦截
-        decision = chain.evaluate({
-            "symbol": "IF0", "side": "short", "signal_type": "donchian_breakout",
-            "cluster": "index", "interval": "day",
-            "generic_ma_alignment": 2,
-        })
-        self.assertFalse(decision.passed)
-        self.assertEqual(decision.block_stage, "ma_cross")
-        self.assertIn("ma_cross", decision.block_reason)
-
-    def test_regime_short_filter_blocks_short_in_trend_up(self) -> None:
-        # P1-10
-        cfg = OotEvaluationConfig(
-            use_trade_filter_gate=False,
-            use_regime_short_filter=True,
-            regime_short_filter_enabled_by_cluster_interval={"index|day": True},
-            intrabar_stop_loss_pct_by_cluster_interval={"index|day": 0.02},
+        decision = chain.evaluate(
+            {
+                "symbol": "IF0",
+                "side": "long",
+                "signal_type": "donchian_breakout",
+                "cluster": "index",
+                "interval": "day",
+            }
         )
-        chain = EntryGateChain(cfg)
-        decision = chain.evaluate({
-            "symbol": "IF0", "side": "short", "signal_type": "donchian_breakout",
-            "cluster": "index", "interval": "day",
-            "regime_label": "trend_up",
-        })
         self.assertFalse(decision.passed)
-        self.assertEqual(decision.block_stage, "regime_short")
+        self.assertEqual(decision.block_stage, "signal_type_blacklist")
+        self.assertEqual(decision.block_reason, "blocked_signal_type_blacklist")
 
     def _candidate(self, **overrides) -> dict:
         base = {
@@ -323,6 +226,107 @@ class TestEntryGateChain(unittest.TestCase):
         ))
         self.assertFalse(decision.passed)
         self.assertEqual(decision.block_stage, "trade_filter")
+
+    def test_risk_stage_blocks_below_threshold(self) -> None:
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            risk_system=RiskSystemConfig(
+                enable_quantile_threshold=False,
+                enable_bucket_scaling=False,
+                enable_linear_dd_scaler=False,
+                enable_dynamic_bump=False,
+            ),
+            trade_filter_percentile_threshold=70.0,
+            trade_filter_percentile_threshold_by_cluster_interval={},
+        )
+        chain = EntryGateChain(cfg)
+        decision = chain.evaluate(
+            {
+                "symbol": "IF0",
+                "exchange": "CFFEX",
+                "side": "long",
+                "signal_type": "cross_sectional_momentum",
+                "interval": "day",
+                "trade_filter_prob_pctl": 60.0,
+            },
+            dt=pd.Timestamp("2026-01-02"),
+            original_lots=5,
+        )
+        self.assertFalse(decision.passed)
+        self.assertEqual(decision.block_stage, "risk_threshold")
+        self.assertIn("below_threshold", decision.block_reason)
+
+    def test_risk_stage_scales_lots_with_drawdown(self) -> None:
+        class _Provider:
+            def lookup_ma_alignment(self, symbol, dt): return 1
+            def lookup_regime_label(self, symbol, dt): return "trend_up"
+            def lookup_realized_vol(self, symbol, dt): return 0.02
+            def portfolio_snapshot(self, dt):  # noqa: D401
+                return {"effective_dd_pct": 0.03}
+
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            risk_system=RiskSystemConfig(
+                enable_quantile_threshold=False,
+                enable_bucket_scaling=False,
+                enable_linear_dd_scaler=True,
+                enable_dynamic_bump=False,
+                linear_dd_trigger_pct=0.01,
+                linear_dd_step_pct=0.01,
+                linear_dd_step_mult=0.5,
+                linear_dd_floor_mult=0.2,
+            ),
+            trade_filter_percentile_threshold=50.0,
+            trade_filter_percentile_threshold_by_cluster_interval={},
+        )
+        chain = EntryGateChain(cfg)
+        decision = chain.evaluate(
+            {
+                "symbol": "IF0",
+                "exchange": "CFFEX",
+                "side": "long",
+                "signal_type": "cross_sectional_momentum",
+                "interval": "day",
+                "trade_filter_prob_pctl": 90.0,
+            },
+            dt=pd.Timestamp("2026-01-02"),
+            state_provider=_Provider(),
+            original_lots=10,
+        )
+        self.assertTrue(decision.passed)
+        self.assertEqual(int(decision.adjusted_lots), 2)
+
+    def test_score_drift_guard_blocks_when_distribution_critically_shifted(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            ref_path = Path(td) / "score_distribution_train_latest.json"
+            ref_path.write_text(
+                '{"scores":[0.1,0.1,0.1,0.1,0.1], "reference_scores":[0.1,0.1,0.1,0.1,0.1]}',
+                encoding="utf-8",
+            )
+            cfg = OotEvaluationConfig(
+                use_trade_filter_gate=False,
+                use_oot_score_distribution_guard=True,
+                oot_score_distribution_guard=ScoreDistributionDriftConfig(
+                    train_distribution_path=str(ref_path),
+                    drift_metric="kl",
+                    warning_threshold=0.01,
+                    critical_threshold=0.02,
+                    emergency_threshold=1.0,
+                    min_samples_for_assessment=3,
+                    rolling_window_hours=8,
+                ),
+                risk_system=None,
+            )
+            chain = EntryGateChain(cfg)
+            # 前两条因样本不足仍放行；第三条开始触发 critical 阻断。
+            d1 = chain.evaluate(self._candidate(trade_filter_prob=0.95, trade_filter_prob_pctl=95.0), dt=pd.Timestamp("2026-01-02 09:00:00"))
+            d2 = chain.evaluate(self._candidate(trade_filter_prob=0.94, trade_filter_prob_pctl=94.0), dt=pd.Timestamp("2026-01-02 10:00:00"))
+            d3 = chain.evaluate(self._candidate(trade_filter_prob=0.93, trade_filter_prob_pctl=93.0), dt=pd.Timestamp("2026-01-02 11:00:00"))
+            self.assertTrue(d1.passed)
+            self.assertTrue(d2.passed)
+            self.assertFalse(d3.passed)
+            self.assertEqual(d3.block_stage, "score_drift")
+            self.assertIn("score_distribution_drift", d3.block_reason)
 
 
 # ─── StateProvider ───────────────────────────────────────────────────────

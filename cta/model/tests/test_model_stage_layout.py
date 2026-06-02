@@ -6,7 +6,15 @@ from pathlib import Path
 
 def test_model_root_only_keeps_public_entrypoints() -> None:
     root_py = {p.name for p in Path("cta/model").glob("*.py")}
-    assert root_py <= {"__init__.py", "model_pipeline.py"}
+    # 2026-05-25 起 train/eval 拆分新增 train.py / eval.py / eval_only_{cli,run}.py 入口。
+    assert root_py <= {
+        "__init__.py",
+        "model_pipeline.py",
+        "train.py",
+        "eval.py",
+        "eval_only_cli.py",
+        "eval_only_run.py",
+    }
 
 def test_stage_modules_do_not_keep_legacy_pipeline_orchestrator_prefix() -> None:
     stage_roots = [

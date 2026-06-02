@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -16,7 +17,16 @@ import numpy as np
 import pandas as pd
 
 from cta.model.reporting.group_pool_aggregate import AggregateConfig
-from cta.model.reporting.oot_report_views import write_cluster_symbol_interval_signal_views, write_drilldown
+from cta.model.reporting.oot_concentration import (
+    compute_concentration_diagnostics,
+    compute_deployable_capital_metrics,
+)
+from cta.model.reporting.oot_report_views import (
+    write_cluster_symbol_interval_signal_views,
+    write_drilldown,
+    write_trade_position_time_distributions,
+)
+from cta.model.reporting.walk_forward_diagnostics import build_walk_forward_summary
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +189,30 @@ def _monthly_sharpe(executed: pd.DataFrame, capital: float, rf_annual: float) ->
     return float(excess.mean() / std * np.sqrt(12.0))
 
 
+def _format_reproducibility_section(info: dict[str, Any] | None, *, run_tag: str, git_sha: str) -> str:
+    """Render a fail-open reproducibility section for executive_summary.md."""
+    if not info:
+        return ""
+    argv = info.get("argv")
+    if isinstance(argv, (list, tuple)):
+        cmd = " ".join(shlex.quote(str(part)) for part in argv)
+    else:
+        cmd = str(argv or "")
+    generated_at = str(info.get("generated_at") or "")
+    note = str(info.get("note") or "")
+    key_cfg = info.get("key_cfg") if isinstance(info.get("key_cfg"), dict) else {}
+    cfg_text = "，".join(f"{key}={value}" for key, value in key_cfg.items()) if key_cfg else "见 meta/cfg_fingerprint.json"
+    return (
+        "\n## 复现信息\n"
+        f"- 运行命令：`{cmd or '见 meta/cfg_fingerprint.json'}`\n"
+        f"- 启动时间：{generated_at or '见 meta/cfg_fingerprint.json'}\n"
+        f"- git_sha：{str(info.get('git_sha') or git_sha or '')}\n"
+        f"- run_tag：{str(info.get('run_tag') or run_tag)}\n"
+        f"- 关键 cfg：{cfg_text}\n"
+        f"- 主要测试方向：{note or '默认 cfg，cluster_both 全量 OOT'}\n"
+    )
+
+
 def _write_headline_and_summary(
     report_dir: Path,
     trades: pd.DataFrame,
@@ -186,6 +220,7 @@ def _write_headline_and_summary(
     run_tag: str,
     initial_capital: float,
     risk_free_annual: float,
+    reproducibility_info: dict[str, Any] | None = None,
 ) -> None:
     overview = report_dir / "00_overview"
     overview.mkdir(parents=True, exist_ok=True)
@@ -225,10 +260,14 @@ def _write_headline_and_summary(
     symbol_count = int(trades.get("symbol", pd.Series([], dtype=object)).astype(str).nunique()) if not trades.empty and "symbol" in trades.columns else 0
     interval_count = int(trades.get("interval", pd.Series([], dtype=object)).astype(str).nunique()) if not trades.empty and "interval" in trades.columns else 0
     commission_pct_of_gross = float(cost.sum() / abs(gross.sum())) if abs(float(gross.sum())) > 1e-12 else float("nan")
+    concentration = compute_concentration_diagnostics(
+        trades,
+        initial_capital=float(initial_capital),
+    )
+    deployable = compute_deployable_capital_metrics(trades, risk_capital_multiplier=2.0)
 
-    headline = pd.DataFrame(
-        [
-            {
+    git_sha = _git_sha()
+    headline_row = {
                 "run_tag": str(run_tag),
                 "start_date": "" if pd.isna(start_ts) else str(pd.Timestamp(start_ts).date()),
                 "end_date": "" if pd.isna(end_ts) else str(pd.Timestamp(end_ts).date()),
@@ -246,11 +285,22 @@ def _write_headline_and_summary(
                 "interval_count": interval_count,
                 "commission_pct_of_gross": commission_pct_of_gross,
                 "slippage_pct_of_gross": float("nan"),
-                "git_sha": _git_sha(),
-            }
-        ]
-    )
+                "git_sha": git_sha,
+    }
+    headline_row.update(concentration)
+    headline_row.update(deployable)
+    headline = pd.DataFrame([headline_row])
     headline.to_csv(overview / "headline_metrics.csv", index=False, encoding="utf-8-sig")
+    pd.DataFrame([concentration]).to_csv(
+        report_dir / "09_diagnostics" / "concentration_diagnostics.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
+    build_walk_forward_summary(
+        trades,
+        n_windows=4,
+        initial_capital=float(initial_capital),
+    ).to_csv(report_dir / "09_diagnostics" / "walk_forward_summary.csv", index=False, encoding="utf-8-sig")
 
     best_cluster = ""
     worst_cluster = ""
@@ -260,11 +310,17 @@ def _write_headline_and_summary(
             best_cluster = str(gp.sort_values(ascending=False).index[0])
             worst_cluster = str(gp.sort_values(ascending=True).index[0])
 
+    warning_line = ""
+    if bool(concentration.get("concentration_warning", False)):
+        warning_line = "\n⚠️ 收益集中度偏高：请优先查看 09_diagnostics/concentration_diagnostics.csv。\n"
+
     summary_md = (
         f"# OOT 评估摘要 — {run_tag}\n\n"
         f"期间：{headline.iloc[0]['start_date']} → {headline.iloc[0]['end_date']}\n\n"
         f"总收益率 {total_ret:.4f}，年化 {ann_ret:.4f}，最大回撤 {max_dd:.4f}，月度夏普 {monthly_sharpe:.4f}。\n"
         f"最强板块：{best_cluster or 'N/A'}；最弱板块：{worst_cluster or 'N/A'}。\n"
+        f"{warning_line}"
+        f"{_format_reproducibility_section(reproducibility_info, run_tag=run_tag, git_sha=git_sha)}"
     )
     (overview / "executive_summary.md").write_text(summary_md, encoding="utf-8")
 
@@ -366,6 +422,7 @@ def write_oot_evaluation_report(
     *,
     run_tag: str = "prod",
     cfg: AggregateConfig | None = None,
+    reproducibility_info: dict[str, Any] | None = None,
 ) -> Path:
     """Build one timestamped OOT report directory from one runtime bundle."""
     bundle_dir = Path(bundle_dir).resolve()
@@ -387,9 +444,11 @@ def write_oot_evaluation_report(
         run_tag=run_tag,
         initial_capital=float(cfg.initial_capital),
         risk_free_annual=float(cfg.risk_free_annual_return),
+        reproducibility_info=reproducibility_info,
     )
     write_cluster_symbol_interval_signal_views(report_dir, trades, cfg=cfg)
     write_drilldown(report_dir, trades)
+    write_trade_position_time_distributions(report_dir, trades)
     _write_diagnostics(report_dir, run_records)
     _write_meta(report_dir, run_tag=run_tag, cfg=cfg)
     _write_stub_html_reports(report_dir, run_tag=run_tag)

@@ -9,7 +9,8 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from cta.live.live_runner import LiveCtpSetting, LiveRunConfig, run_live, serve_live
+from cta.config.model_oot_eval_config import OotEvaluationConfig
+from cta.live.live_runner import LiveCtpSetting, LiveRunConfig, prepare_live_risk_wiring, run_live, serve_live
 from cta.portfolio_logic.portfolio_state import PortfolioState
 from cta.sim.sim_runner import SimnowSetting
 
@@ -42,6 +43,69 @@ class TestLiveCtpSetting(unittest.TestCase):
 
 
 class TestRunLive(unittest.TestCase):
+    def test_prepare_live_risk_wiring_injects_entry_gate_chain_from_same_oot_cfg(self) -> None:
+        live_cfg = LiveRunConfig(
+            strategy_class=_DummyStrategyClass,
+            strategy_name="rb_live",
+            vt_symbol="rb888.SHFE",
+            setting={"oot_cfg": OotEvaluationConfig()},
+        )
+
+        prepared = prepare_live_risk_wiring(live_cfg)
+
+        self.assertIs(prepared, live_cfg)
+        self.assertIn("entry_gate_chain", prepared.setting)
+        self.assertIn("position_evaluator", prepared.setting)
+
+    def test_prepare_live_risk_wiring_injects_signal_generator_context_when_registry_given(self) -> None:
+        with TemporaryDirectory(prefix="live_signal_ctx_") as td:
+            root = Path(td)
+            model_dir = root / "model_black_day"
+            model_dir.mkdir(parents=True, exist_ok=True)
+            (model_dir / "provenance.json").write_text("{}", encoding="utf-8")
+            registry_path = root / "cluster_registry.json"
+            registry_path.write_text(
+                json.dumps(
+                    {
+                        "run_tag": "20260530",
+                        "group_by": "cluster",
+                        "trade_side_mode": "both",
+                        "intervals": ["day"],
+                        "entries": [
+                            {
+                                "interval": "day",
+                                "group_name": "cluster_black",
+                                "pool_name": "GRP_CLUSTER_BLACK",
+                                "model_dir": str(model_dir),
+                                "members": [{"symbol": "RB0", "exchange": "SHFE"}],
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            manifest_path = root / "score_quantile_manifest_latest.json"
+            manifest_path.write_text(json.dumps({"entries": []}), encoding="utf-8")
+            live_cfg = LiveRunConfig(
+                strategy_class=_DummyStrategyClass,
+                strategy_name="rb_live",
+                vt_symbol="rb888.SHFE",
+                setting={
+                    "oot_cfg": OotEvaluationConfig(),
+                    "cluster_registry_path": str(registry_path),
+                    "score_manifest_path": str(manifest_path),
+                },
+            )
+
+            prepared = prepare_live_risk_wiring(live_cfg)
+
+            self.assertIn("signal_generator_context", prepared.setting)
+            ctx = prepared.setting["signal_generator_context"]
+            self.assertIn("model_registry", ctx)
+            self.assertIn("score_manifest", ctx)
+            self.assertIn("generate_fn", ctx)
+
     def test_run_live_delegates_to_run_sim(self) -> None:
         live_cfg = LiveRunConfig(
             strategy_class=_DummyStrategyClass,
@@ -82,6 +146,34 @@ class TestRunLive(unittest.TestCase):
         self.assertEqual(kwargs["cta_engine_name"], "CtaStrategyLive")
         self.assertTrue(callable(kwargs["main_engine_factory"]))
 
+    def test_run_live_blocks_when_preopen_checklist_fails(self) -> None:
+        with TemporaryDirectory(prefix="live_preopen_fail_") as td:
+            pred = Path(td) / "predictions.csv"
+            pred.write_text("x", encoding="utf-8")
+            live_cfg = LiveRunConfig(
+                strategy_class=_DummyStrategyClass,
+                strategy_name="rb_live",
+                vt_symbol="rb888.SHFE",
+                setting={
+                    "lookback": 20,
+                    "preopen_checklist": {
+                        "predictions_path": str(pred),
+                        "kill_switch_active": True,
+                        "available_cash": 1_000_000.0,
+                        "required_margin": 100_000.0,
+                    },
+                },
+            )
+            ctp = LiveCtpSetting(
+                userid="u1",
+                password="p1",
+                brokerid="9999",
+                td_address="tcp://td:1",
+                md_address="tcp://md:2",
+            )
+            with self.assertRaises(RuntimeError):
+                run_live(live_cfg, ctp, main_engine_factory=lambda: SimpleNamespace())
+
     def test_run_live_reconciliation_blocks_on_mismatch(self) -> None:
         live_cfg = LiveRunConfig(
             strategy_class=_DummyStrategyClass,
@@ -115,6 +207,82 @@ class TestRunLive(unittest.TestCase):
             live_cfg.broker_positions_provider = lambda: []
             with self.assertRaises(RuntimeError):
                 run_live(live_cfg, ctp, main_engine_factory=lambda: SimpleNamespace())
+
+    def test_run_live_reconciliation_blocks_when_volume_mismatch_with_same_key(self) -> None:
+        live_cfg = LiveRunConfig(
+            strategy_class=_DummyStrategyClass,
+            strategy_name="rb_live",
+            vt_symbol="rb888.SHFE",
+            setting={"lookback": 20},
+        )
+        ctp = LiveCtpSetting(
+            userid="u1",
+            password="p1",
+            brokerid="9999",
+            td_address="tcp://td:1",
+            md_address="tcp://md:2",
+        )
+        with TemporaryDirectory(prefix="live_reconcile_vol_") as td:
+            snap_path = Path(td) / "state_snapshot.json"
+            state = PortfolioState(equity=1_000_000.0)
+            state.add_position(
+                {
+                    "pos_id": "p1",
+                    "symbol": "RB0",
+                    "exchange": "SHFE",
+                    "cluster": "black",
+                    "direction": "long",
+                    "notional": 100_000.0,
+                    "volume": 1.0,
+                }
+            )
+            snap_path.write_text(json.dumps(state.to_dict(), ensure_ascii=False), encoding="utf-8")
+            live_cfg.state_snapshot_path = str(snap_path)
+            live_cfg.enable_broker_reconciliation = True
+            live_cfg.broker_positions_provider = lambda: [
+                {"symbol": "RB0", "exchange": "SHFE", "direction": "long", "volume": 2.0}
+            ]
+            with self.assertRaises(RuntimeError):
+                run_live(live_cfg, ctp, main_engine_factory=lambda: SimpleNamespace())
+
+    def test_run_live_reconciliation_passes_when_volume_matches(self) -> None:
+        live_cfg = LiveRunConfig(
+            strategy_class=_DummyStrategyClass,
+            strategy_name="rb_live",
+            vt_symbol="rb888.SHFE",
+            setting={"lookback": 20},
+        )
+        ctp = LiveCtpSetting(
+            userid="u1",
+            password="p1",
+            brokerid="9999",
+            td_address="tcp://td:1",
+            md_address="tcp://md:2",
+        )
+        with TemporaryDirectory(prefix="live_reconcile_pass_") as td:
+            snap_path = Path(td) / "state_snapshot.json"
+            state = PortfolioState(equity=1_000_000.0)
+            state.add_position(
+                {
+                    "pos_id": "p1",
+                    "symbol": "RB0",
+                    "exchange": "SHFE",
+                    "cluster": "black",
+                    "direction": "long",
+                    "notional": 100_000.0,
+                    "volume": 1.0,
+                }
+            )
+            snap_path.write_text(json.dumps(state.to_dict(), ensure_ascii=False), encoding="utf-8")
+            live_cfg.state_snapshot_path = str(snap_path)
+            live_cfg.enable_broker_reconciliation = True
+            live_cfg.broker_positions_provider = lambda: [
+                {"symbol": "RB0", "exchange": "SHFE", "direction": "long", "volume": 1.0}
+            ]
+            with patch("cta.live.live_runner.run_sim", return_value=SimpleNamespace()) as mock_run_sim:
+                ret = run_live(live_cfg, ctp, main_engine_factory=lambda: SimpleNamespace())
+            self.assertIsNotNone(ret)
+            mock_run_sim.assert_called_once()
 
 
 class TestServeLive(unittest.TestCase):

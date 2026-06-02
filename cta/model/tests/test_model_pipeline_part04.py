@@ -74,6 +74,11 @@ class TestModelPipelinePart04(unittest.TestCase):
         )
         cfg = OotEvaluationConfig(
             use_trade_filter_gate=False,
+            signal_type_size_multiplier={},
+            signal_type_max_concurrent_positions={},
+            signal_type_max_notional_pct={},
+            trade_filter_percentile_threshold_delta_by_signal_type={},
+            trade_filter_raw_threshold_delta_by_signal_type={},
             use_regime_gate=False,
             use_mfe_mae_gate=False,
             mae_penalty=1.0,
@@ -82,8 +87,10 @@ class TestModelPipelinePart04(unittest.TestCase):
             max_single_loss_pct=0.001,
             commission_pct_per_trade=0.0,
             slippage_pct_per_trade=0.0,
+            commission_pct_by_cluster_interval={},
+            slippage_pct_by_cluster_interval={},
             use_position_sizing=False,
-            max_position_scale=0.10,
+            max_position_scale=0.15,
             max_symbol_notional_pct=1.0,
             max_concurrent_positions_per_symbol=3,
             max_concurrent_positions_total=10,
@@ -103,6 +110,73 @@ class TestModelPipelinePart04(unittest.TestCase):
         self.assertEqual(int(summary.iloc[0]["blocked_symbol_concurrent_rows"]), 1)
         statuses = trades["execution_status"].astype(str).tolist()
         self.assertEqual(statuses.count("blocked_symbol_concurrent"), 1)
+
+    def test_evaluate_oot_real_execution_signal_type_notional_cap_limits_footprint(self) -> None:
+        """方案A：signal_type_max_notional_pct 限同类累计在仓名义份额。
+        4 笔同 signal_type、不同 symbol、同时在仓，单笔 15% 名义；atr cap=25% →
+        前 2 笔吃满后续被压到 0，累计 atr 名义 ≤ 25% 权益。"""
+        starts = pd.to_datetime([
+            "2020-01-06 09:00:00", "2020-01-06 10:00:00",
+            "2020-01-06 11:00:00", "2020-01-06 12:00:00",
+        ])
+        exits = pd.to_datetime(["2020-01-10 09:00:00"] * 4)
+        pred = pd.DataFrame(
+            {
+                "datetime": starts,
+                "exit_datetime": exits,
+                "symbol": ["RB0", "HC0", "I0", "J0"],
+                "exchange": ["SHFE", "SHFE", "DCE", "DCE"],
+                "interval": ["60min"] * 4,
+                "signal_type": ["atr_breakout"] * 4,
+                "side": ["long"] * 4,
+                "pred_split": ["test"] * 4,
+                "window_id": [0] * 4,
+                "is_executed": [1] * 4,
+                "entry_price": [100.0] * 4,
+                "future_mfe_atr": [1.0] * 4,
+                "future_mae_atr": [0.0] * 4,
+            }
+        )
+        cfg = OotEvaluationConfig(
+            use_trade_filter_gate=False,
+            use_regime_gate=False,
+            use_mfe_mae_gate=False,
+            mae_penalty=1.0,
+            initial_capital=1_000_000.0,
+            risk_per_trade_pct=0.002,
+            max_single_loss_pct=0.001,
+            commission_pct_per_trade=0.0,
+            slippage_pct_per_trade=0.0,
+            commission_pct_by_cluster_interval={},
+            slippage_pct_by_cluster_interval={},
+            use_position_sizing=False,
+            max_position_scale=0.15,
+            signal_type_size_multiplier={},
+            signal_type_max_concurrent_positions={},
+            signal_type_max_notional_pct={"atr_breakout": 0.25},
+            trade_filter_percentile_threshold_delta_by_signal_type={},
+            trade_filter_raw_threshold_delta_by_signal_type={},
+            max_symbol_notional_pct=1.0,
+            max_concurrent_positions_per_symbol=3,
+            max_concurrent_positions_total=10,
+            use_portfolio_constraints=True,
+            margin_rate=0.10,
+            max_total_leverage=10.0,
+            max_daily_new_notional_pct=10.0,
+            weekly_max_drawdown_pct=1.0,
+            enforce_weekly_dd_budget_on_entry=False,
+            block_new_entries_on_weekly_dd_breach=False,
+            benchmark_annual_return=0.0,
+            risk_free_annual_return=0.0,
+            annualization_factor=12.0,
+            use_intrabar_stop_tracking=False,
+        )
+        _monthly, _summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+        notional = pd.to_numeric(trades["position_notional"], errors="coerce").fillna(0.0)
+        # 同时在仓的 atr 累计名义 ≤ 25% × 100 万 = 25 万（+ 容差）
+        self.assertLessEqual(float(notional.sum()), 250_000.0 + 1.0)
+        # cap 生效：至少有一笔被压到 0（未吃满 4 × 15%）
+        self.assertLess(int((notional > 0).sum()), 4)
 
     def test_evaluate_oot_real_execution_applies_roll_cost(self) -> None:
         """P0.3: OOT 评估应扣减换月/展期成本。"""
@@ -126,6 +200,11 @@ class TestModelPipelinePart04(unittest.TestCase):
         )
         cfg = OotEvaluationConfig(
             use_trade_filter_gate=False,
+            signal_type_size_multiplier={},
+            signal_type_max_concurrent_positions={},
+            signal_type_max_notional_pct={},
+            trade_filter_percentile_threshold_delta_by_signal_type={},
+            trade_filter_raw_threshold_delta_by_signal_type={},
             use_regime_gate=False,
             use_mfe_mae_gate=False,
             use_intrabar_stop_tracking=False,
@@ -139,6 +218,8 @@ class TestModelPipelinePart04(unittest.TestCase):
             max_position_scale=1.0,
             commission_pct_per_trade=0.0,
             slippage_pct_per_trade=0.0,
+            commission_pct_by_cluster_interval={},
+            slippage_pct_by_cluster_interval={},
             benchmark_annual_return=0.0,
             risk_free_annual_return=0.0,
             annualization_factor=12.0,
@@ -218,6 +299,24 @@ class TestModelPipelinePart04(unittest.TestCase):
         self.assertNotIn("feature_trend_dir", out)
         self.assertNotIn("generic_auto_trend", out)
         self.assertNotIn("generic_model_regime_state", out)
+        self.assertIn("feature_breakout_score", out)
+        self.assertIn("generic_auto_vol_ratio", out)
+
+    def test_filter_model_leakage_features_for_regime_classifier_blocks_side_and_mfe_proxies(self) -> None:
+        """P1: regime 标签同源代理特征必须拦截，避免抬高 regime AUC。"""
+        cols = [
+            "generic_auto_side_code",
+            "generic_model_mfe_side_interaction",
+            "generic_model_mfe_edge",
+            "generic_model_trade_breakout_trend",
+            "feature_breakout_score",
+            "generic_auto_vol_ratio",
+        ]
+        out = _filter_model_leakage_features(cols, model_name="regime_classifier")
+        self.assertNotIn("generic_auto_side_code", out)
+        self.assertNotIn("generic_model_mfe_side_interaction", out)
+        self.assertNotIn("generic_model_mfe_edge", out)
+        self.assertNotIn("generic_model_trade_breakout_trend", out)
         self.assertIn("feature_breakout_score", out)
         self.assertIn("generic_auto_vol_ratio", out)
 

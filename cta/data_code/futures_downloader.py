@@ -7,7 +7,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, Optional, Tuple
 
 import pandas as pd
 
@@ -16,6 +16,13 @@ from cta.data_code.tushare_client import (
     _safe_retry,
     alpha_prefix,
     tushare_exchange_variants,
+)
+from cta.data_code.futures_downloader_utils import (
+    normalize_contract_filename,
+    normalize_daily_df,
+    normalize_ftmins_df,
+    normalize_mapping_df,
+    resample_minute_bars,
 )
 
 logger = logging.getLogger(__name__)
@@ -145,7 +152,7 @@ class FuturesDownloader:
                 status="error", detail=f"akshare fetch 失败: {e}",
             )
 
-        df = _normalize_daily_df(raw, symbol, exchange)
+        df = normalize_daily_df(raw, symbol, exchange)
         if df.empty:
             return DownloadResult(
                 symbol=symbol, exchange=exchange, interval="day",
@@ -190,7 +197,7 @@ class FuturesDownloader:
                 if df is None or df.empty:
                     logger.info(f"    fut_mapping {ts_code} 返回空")
                     continue
-                out = _normalize_mapping_df(df)
+                out = normalize_mapping_df(df)
                 if out.empty:
                     continue
                 logger.info(f"    fut_mapping OK: {ts_code} -> {len(out)} rows")
@@ -238,62 +245,15 @@ class FuturesDownloader:
         if df is None or df.empty:
             return pd.DataFrame()
 
-        return _normalize_ftmins_df(df, contract_code)
+        return normalize_ftmins_df(df, contract_code)
 
     # =========================================================
     # 本地重采样
     # =========================================================
     @staticmethod
     def resample_minute(df_1min: pd.DataFrame, freq: str) -> pd.DataFrame:
-        """
-        把 1min DataFrame 聚合到 {freq}。
-        期货跨夜盘（21:00-02:30 & 09:00-15:00），直接整天 resample 会产生大量空 bar；
-        这里按自然日分组，日内做 resample 后拼接。
-
-        freq 例: '5min' / '15min' / '30min' / '60min'
-        聚合 bar 的 datetime 取该 bar 的起始时间（label='left', closed='left'）
-        元信息列（ts_code 等）按日取 first 回填。
-        """
-        if df_1min is None or df_1min.empty:
-            return pd.DataFrame()
-
-        df = df_1min.copy()
-        df["datetime"] = pd.to_datetime(df["datetime"])
-        df = df.sort_values("datetime").reset_index(drop=True)
-
-        agg_full = {
-            "open":          "first",
-            "high":          "max",
-            "low":           "min",
-            "close":         "last",
-            "volume":        "sum",
-            "turnover":      "sum",
-            "open_interest": "last",
-        }
-        agg = {k: v for k, v in agg_full.items() if k in df.columns}
-        meta_cols = [c for c in df.columns
-                     if c not in agg and c != "datetime"]
-
-        df["__date__"] = df["datetime"].dt.normalize()
-        parts: List[pd.DataFrame] = []
-        for _, g in df.groupby("__date__", sort=True):
-            idx = g.set_index("datetime")
-            ohlc = idx[list(agg.keys())].resample(freq, label="left", closed="left").agg(agg)
-            ohlc = ohlc.dropna(subset=["open"])  # 去掉空 bar（无成交的时段）
-            if ohlc.empty:
-                continue
-            ohlc = ohlc.reset_index()
-            # 元信息（单日同一合约，取 first）
-            if meta_cols:
-                meta = {c: g[c].iloc[0] for c in meta_cols}
-                for c, v in meta.items():
-                    ohlc[c] = v
-            parts.append(ohlc)
-
-        if not parts:
-            return pd.DataFrame()
-        out = pd.concat(parts, ignore_index=True).sort_values("datetime").reset_index(drop=True)
-        return out
+        """把 1min DataFrame 聚合到更高频率。"""
+        return resample_minute_bars(df_1min, freq)
 
     # =========================================================
     # 单日多频率下载 + 落盘（在线/离线共用）
@@ -429,7 +389,7 @@ class FuturesDownloader:
                 time.sleep(self.sleep_after_call)
         if raw is None or raw.empty:
             return pd.DataFrame()
-        return _normalize_ftmins_df(raw, str(contract_code))
+        return normalize_ftmins_df(raw, str(contract_code))
 
     def download_explicit_contract(
         self,
@@ -456,7 +416,7 @@ class FuturesDownloader:
         if not intervals_norm:
             return {}
 
-        contract_name = _normalize_contract_filename(contract_code)
+        contract_name = normalize_contract_filename(contract_code)
         symbol_u = str(symbol).strip().upper()
         exchange_u = str(exchange).strip().upper()
         date_start = pd.Timestamp(start_date).strftime("%Y-%m-%d")
@@ -538,111 +498,3 @@ class FuturesDownloader:
                 detail=f"path={out_path}",
             )
         return results
-
-
-def _normalize_daily_df(raw_df: pd.DataFrame, symbol: str, exchange: str) -> pd.DataFrame:
-    """akshare futures_main_sina 结果 -> 统一 CSV 格式"""
-    if raw_df is None or raw_df.empty:
-        return pd.DataFrame(columns=[
-            "symbol", "exchange", "interval", "datetime",
-            "open", "high", "low", "close",
-            "volume", "open_interest", "turnover",
-        ])
-
-    col_map = {
-        "日期": "datetime",
-        "开盘价": "open",
-        "最高价": "high",
-        "最低价": "low",
-        "收盘价": "close",
-        "成交量": "volume",
-        "持仓量": "open_interest",
-        "动态结算价": "settlement",
-    }
-    df = raw_df.rename(columns=col_map).copy()
-
-    keep = [c for c in ["datetime", "open", "high", "low", "close",
-                        "volume", "open_interest"] if c in df.columns]
-    df = df[keep].copy()
-
-    df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
-    df = df[df["datetime"].notna()].copy()
-    df["datetime"] = df["datetime"].dt.strftime("%Y-%m-%d 00:00:00")
-
-    for c in ["open", "high", "low", "close", "volume", "open_interest"]:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
-
-    df = df.drop_duplicates(subset=["datetime"]).sort_values("datetime").reset_index(drop=True)
-    df.insert(0, "symbol", symbol)
-    df.insert(1, "exchange", exchange)
-    df.insert(2, "interval", "d")
-    df["turnover"] = 0.0
-
-    if "open_interest" not in df.columns:
-        df["open_interest"] = 0.0
-    if "volume" not in df.columns:
-        df["volume"] = 0.0
-
-    cols = ["symbol", "exchange", "interval", "datetime",
-            "open", "high", "low", "close",
-            "volume", "open_interest", "turnover"]
-    for c in cols:
-        if c not in df.columns:
-            df[c] = None
-    return df[cols]
-
-
-def _normalize_mapping_df(df: pd.DataFrame) -> pd.DataFrame:
-    """fut_mapping 规范化: -> [trade_date(YYYY-MM-DD), mapping_ts_code]"""
-    if df is None or df.empty:
-        return pd.DataFrame(columns=["trade_date", "mapping_ts_code"])
-
-    out = df.copy()
-    out["trade_date"] = pd.to_datetime(out["trade_date"], format="%Y%m%d", errors="coerce")
-    out = out.dropna(subset=["trade_date", "mapping_ts_code"])
-    out["trade_date"] = out["trade_date"].dt.strftime("%Y-%m-%d")
-    out = (
-        out[["trade_date", "mapping_ts_code"]]
-        .drop_duplicates()
-        .sort_values("trade_date")
-        .reset_index(drop=True)
-    )
-    return out
-
-
-def _normalize_ftmins_df(df: pd.DataFrame, contract_code: str) -> pd.DataFrame:
-    """
-    ft_mins 返回 -> 统一字段:
-        datetime, open, high, low, close, volume, open_interest, turnover, ts_code
-    """
-    rename = {
-        "trade_time": "datetime",
-        "vol": "volume",
-        "oi": "open_interest",
-        "amount": "turnover",
-    }
-    out = df.rename(columns=rename).copy()
-
-    needed = ["datetime", "open", "high", "low", "close",
-              "volume", "open_interest", "turnover"]
-    for c in needed:
-        if c not in out.columns:
-            out[c] = pd.NA
-
-    out["datetime"] = pd.to_datetime(out["datetime"], errors="coerce")
-    out = out.dropna(subset=["datetime"]).sort_values("datetime").reset_index(drop=True)
-    for c in ["open", "high", "low", "close", "volume", "open_interest", "turnover"]:
-        out[c] = pd.to_numeric(out[c], errors="coerce")
-
-    if "ts_code" not in out.columns:
-        out["ts_code"] = contract_code
-
-    keep = needed + ["ts_code"]
-    keep = [c for c in keep if c in out.columns]
-    return out[keep].copy()
-
-
-def _normalize_contract_filename(contract_code: str) -> str:
-    """Convert contract code to filesystem-safe stem."""
-    return str(contract_code).strip().upper().replace(".", "_")
