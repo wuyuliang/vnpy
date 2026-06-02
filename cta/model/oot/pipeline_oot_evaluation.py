@@ -520,6 +520,7 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
             blocked_by_signal_type_cap: set[int] = set()
             for idx in entry_order:
                 signal_type_key = str(signal_type_arr[idx]).strip().lower() if idx < len(signal_type_arr) else ''
+                interval_key = normalize_portfolio_interval(selected.iloc[idx].get('interval', ''))
                 signal_type_cap = cfg.resolve_signal_type_max_concurrent(signal_type_key)
                 signal_type_count_now = int(signal_type_open_counts.get(signal_type_key, 0))
                 if signal_type_cap is not None and signal_type_count_now >= int(signal_type_cap):
@@ -538,7 +539,7 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
                     prob_pctl = float(np.clip((float(prob_raw) if np.isfinite(prob_raw) else 0.0) * 100.0, 0.0, 100.0))
                 prob_pctl = float(
                     np.clip(
-                        float(prob_pctl) - float(cfg.resolve_ranker_prob_pctl_delta(signal_type_key)),
+                        float(prob_pctl) - float(cfg.resolve_ranker_prob_pctl_delta(signal_type_key, interval_key)),
                         0.0,
                         100.0,
                     )
@@ -548,7 +549,7 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
                         '_row_idx': int(idx),
                         'symbol': str(symbol_arr[idx]).upper(),
                         'exchange': str(exchange_arr[idx]).upper(),
-                        'interval': normalize_portfolio_interval(selected.iloc[idx].get('interval', '')),
+                        'interval': interval_key,
                         'direction': str(side_arr[idx]).lower(),
                         'cluster_name': infer_symbol_cluster(str(symbol_arr[idx]).upper()),
                         'signal_type': signal_type_key,
@@ -667,7 +668,12 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
                 if np.isfinite(ent_px) and ent_px > 0 and np.isfinite(sl_price) and (sl_price > 0):
                     stop_risk_pct = abs(ent_px - sl_price) / ent_px
             # 按 signal_type 调整单笔仓位上限：effective_cap = max_position_scale * multiplier（已 clamp 到 [0,1]）
-            eff_pos_cap = float(cfg.resolve_effective_position_scale_cap(signal_type_arr[idx] if idx < len(signal_type_arr) else ''))
+            eff_pos_cap = float(
+                cfg.resolve_effective_position_scale_cap(
+                    signal_type_arr[idx] if idx < len(signal_type_arr) else '',
+                    normalize_portfolio_interval(selected.iloc[idx].get('interval', '')),
+                )
+            )
             if bool(cfg.use_position_sizing):
                 if np.isfinite(stop_risk_pct) and stop_risk_pct > 0:
                     expected_loss_pct = float(stop_risk_pct)

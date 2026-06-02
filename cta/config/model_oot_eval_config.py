@@ -63,6 +63,20 @@ def _normalize_cluster_interval_key(field_name: str, key: object) -> tuple[str, 
     return cluster, interval, f"{cluster}|{interval}"
 
 
+def _normalize_signal_type_interval_key(field_name: str, key: object) -> tuple[str, str, str]:
+    parts = str(key).strip().lower().split("|")
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise ValueError(f"{field_name} key must be 'signal_type|interval', got {key!r}")
+    signal_type = str(parts[0]).strip().lower()
+    interval = normalize_portfolio_interval(parts[1])
+    if interval not in _KNOWN_INTERVALS:
+        raise ValueError(
+            f"{field_name} unknown interval {parts[1]!r} (normalized {interval!r}); "
+            f"allowed={sorted(_KNOWN_INTERVALS)}"
+        )
+    return signal_type, interval, f"{signal_type}|{interval}"
+
+
 @dataclass(frozen=True)
 class OotEvaluationConfig:
     """Configuration for OOT monthly return + sharpe evaluation.
@@ -133,6 +147,14 @@ class OotEvaluationConfig:
             "tight_range_breakout": 35.0,
         }
     )
+    # 按 signal_type|interval 追加 trade_filter 阈值 delta。
+    # 用于统一模式下仅对 day 等特定周期收紧/放宽，而不影响同 signal_type 的其他周期。
+    trade_filter_raw_threshold_delta_by_signal_type_interval: dict[str, float] = field(
+        default_factory=dict
+    )
+    trade_filter_percentile_threshold_delta_by_signal_type_interval: dict[str, float] = field(
+        default_factory=dict
+    )
     # ranker 阶段的最小分位数门槛偏置（score/min_prob 侧二次分流）。
     # 作用：trade_filter 放宽后，避免核心 alpha 在 ranker 再次被统一 min_prob=60 误杀；
     # 同时可对低质量类型抬高 ranker 侧准入门槛，减少其占用有限名额。
@@ -148,6 +170,10 @@ class OotEvaluationConfig:
             "donchian_breakout": 20.0,
             "tight_range_breakout": 30.0,
         }
+    )
+    # ranker 阶段按 signal_type|interval 追加 min_prob_pctl 偏置。
+    ranker_prob_pctl_delta_by_signal_type_interval: dict[str, float] = field(
+        default_factory=dict
     )
     # 场景阈值：cluster|interval|side|bull_mode（如 "index|day|long|attack": 65）
     trade_filter_raw_threshold_by_cluster_interval_side_bull_mode: dict[str, float] = field(default_factory=dict)
@@ -224,6 +250,10 @@ class OotEvaluationConfig:
             "donchian_breakout": 0.25,
             "tight_range_breakout": 0.15,
         }
+    )
+    # 按 signal_type|interval 覆盖单笔仓位系数，用于 day 单独降杠杆等场景。
+    signal_type_size_multiplier_by_signal_type_interval: dict[str, float] = field(
+        default_factory=dict
     )
     # 按 signal_type 限制同时在仓笔数，用于压高回撤类型的并发暴露。
     signal_type_max_concurrent_positions: dict[str, int] = field(
@@ -388,6 +418,19 @@ class OotEvaluationConfig:
                 continue
             _check(f"trade_filter_raw_threshold_delta_by_signal_type[{key}]", float(value), -1.0, 1.0)
             norm_trade_filter_raw_delta_by_signal_type[signal_type] = float(value)
+        norm_trade_filter_raw_delta_by_signal_type_interval: dict[str, float] = {}
+        for key, value in dict(self.trade_filter_raw_threshold_delta_by_signal_type_interval).items():
+            _signal_type, _interval, norm_key = _normalize_signal_type_interval_key(
+                "trade_filter_raw_threshold_delta_by_signal_type_interval",
+                key,
+            )
+            _check(
+                f"trade_filter_raw_threshold_delta_by_signal_type_interval[{key}]",
+                float(value),
+                -1.0,
+                1.0,
+            )
+            norm_trade_filter_raw_delta_by_signal_type_interval[norm_key] = float(value)
         norm_trade_filter_percentile_delta_by_signal_type: dict[str, float] = {}
         for key, value in dict(self.trade_filter_percentile_threshold_delta_by_signal_type).items():
             signal_type = str(key).strip().lower()
@@ -400,6 +443,19 @@ class OotEvaluationConfig:
                 100.0,
             )
             norm_trade_filter_percentile_delta_by_signal_type[signal_type] = float(value)
+        norm_trade_filter_percentile_delta_by_signal_type_interval: dict[str, float] = {}
+        for key, value in dict(self.trade_filter_percentile_threshold_delta_by_signal_type_interval).items():
+            _signal_type, _interval, norm_key = _normalize_signal_type_interval_key(
+                "trade_filter_percentile_threshold_delta_by_signal_type_interval",
+                key,
+            )
+            _check(
+                f"trade_filter_percentile_threshold_delta_by_signal_type_interval[{key}]",
+                float(value),
+                -100.0,
+                100.0,
+            )
+            norm_trade_filter_percentile_delta_by_signal_type_interval[norm_key] = float(value)
         norm_ranker_prob_pctl_delta_by_signal_type: dict[str, float] = {}
         for key, value in dict(self.ranker_prob_pctl_delta_by_signal_type).items():
             signal_type = str(key).strip().lower()
@@ -412,6 +468,19 @@ class OotEvaluationConfig:
                 100.0,
             )
             norm_ranker_prob_pctl_delta_by_signal_type[signal_type] = float(value)
+        norm_ranker_prob_pctl_delta_by_signal_type_interval: dict[str, float] = {}
+        for key, value in dict(self.ranker_prob_pctl_delta_by_signal_type_interval).items():
+            _signal_type, _interval, norm_key = _normalize_signal_type_interval_key(
+                "ranker_prob_pctl_delta_by_signal_type_interval",
+                key,
+            )
+            _check(
+                f"ranker_prob_pctl_delta_by_signal_type_interval[{key}]",
+                float(value),
+                -100.0,
+                100.0,
+            )
+            norm_ranker_prob_pctl_delta_by_signal_type_interval[norm_key] = float(value)
         for key, value in self.trade_filter_raw_threshold_by_cluster_interval_side_bull_mode.items():
             _check(f"trade_filter_raw_threshold_by_cluster_interval_side_bull_mode[{key}]", float(value), 0.0, 1.0)
         for key, value in self.trade_filter_percentile_threshold_by_cluster_interval_side_bull_mode.items():
@@ -477,6 +546,23 @@ class OotEvaluationConfig:
             if float(value) <= 0.0:
                 raise ValueError(f"signal_type_size_multiplier[{key}] must be > 0")
             norm_signal_type_size_multiplier[signal_type] = float(value)
+        norm_signal_type_size_multiplier_by_signal_type_interval: dict[str, float] = {}
+        for key, value in dict(self.signal_type_size_multiplier_by_signal_type_interval).items():
+            _signal_type, _interval, norm_key = _normalize_signal_type_interval_key(
+                "signal_type_size_multiplier_by_signal_type_interval",
+                key,
+            )
+            _check(
+                f"signal_type_size_multiplier_by_signal_type_interval[{key}]",
+                float(value),
+                0.0,
+                5.0,
+            )
+            if float(value) <= 0.0:
+                raise ValueError(
+                    f"signal_type_size_multiplier_by_signal_type_interval[{key}] must be > 0"
+                )
+            norm_signal_type_size_multiplier_by_signal_type_interval[norm_key] = float(value)
         norm_signal_type_max_concurrent: dict[str, int] = {}
         for key, value in dict(self.signal_type_max_concurrent_positions).items():
             signal_type = str(key).strip().lower()
@@ -553,13 +639,28 @@ class OotEvaluationConfig:
         )
         object.__setattr__(
             self,
+            "trade_filter_raw_threshold_delta_by_signal_type_interval",
+            MappingProxyType(norm_trade_filter_raw_delta_by_signal_type_interval),
+        )
+        object.__setattr__(
+            self,
             "trade_filter_percentile_threshold_delta_by_signal_type",
             MappingProxyType(norm_trade_filter_percentile_delta_by_signal_type),
         )
         object.__setattr__(
             self,
+            "trade_filter_percentile_threshold_delta_by_signal_type_interval",
+            MappingProxyType(norm_trade_filter_percentile_delta_by_signal_type_interval),
+        )
+        object.__setattr__(
+            self,
             "ranker_prob_pctl_delta_by_signal_type",
             MappingProxyType(norm_ranker_prob_pctl_delta_by_signal_type),
+        )
+        object.__setattr__(
+            self,
+            "ranker_prob_pctl_delta_by_signal_type_interval",
+            MappingProxyType(norm_ranker_prob_pctl_delta_by_signal_type_interval),
         )
         object.__setattr__(
             self,
@@ -597,6 +698,11 @@ class OotEvaluationConfig:
             self,
             "signal_type_size_multiplier",
             MappingProxyType(norm_signal_type_size_multiplier),
+        )
+        object.__setattr__(
+            self,
+            "signal_type_size_multiplier_by_signal_type_interval",
+            MappingProxyType(norm_signal_type_size_multiplier_by_signal_type_interval),
         )
         object.__setattr__(
             self,
@@ -642,19 +748,41 @@ class OotEvaluationConfig:
         """Normalize signal type key for config lookup."""
         return str(signal_type or "").strip().lower()
 
+    @staticmethod
+    def normalize_interval(interval: object) -> str:
+        """Normalize interval key for config lookup."""
+        raw = str(interval or "").strip()
+        if not raw:
+            return ""
+        return normalize_portfolio_interval(raw)
+
+    def _signal_type_interval_key(self, signal_type: object, interval: object) -> str:
+        signal_type_key = self.normalize_signal_type(signal_type)
+        interval_key = self.normalize_interval(interval)
+        if not signal_type_key or not interval_key:
+            return ""
+        return f"{signal_type_key}|{interval_key}"
+
     def is_signal_type_blacklisted(self, signal_type: object) -> bool:
         """Return whether signal_type is blocked by config blacklist."""
         key = self.normalize_signal_type(signal_type)
         return bool(key) and key in self.signal_type_blacklist
 
-    def resolve_signal_type_size_multiplier(self, signal_type: object) -> float:
+    def resolve_signal_type_size_multiplier(self, signal_type: object, interval: object = "") -> float:
         """Resolve sizing multiplier by signal type, defaulting to 1.0."""
         key = self.normalize_signal_type(signal_type)
+        interval_key = self._signal_type_interval_key(signal_type, interval)
+        if interval_key:
+            override = self.signal_type_size_multiplier_by_signal_type_interval.get(interval_key)
+            if override is not None:
+                return float(override)
         return float(self.signal_type_size_multiplier.get(key, 1.0))
 
-    def resolve_effective_position_scale_cap(self, signal_type: object) -> float:
+    def resolve_effective_position_scale_cap(self, signal_type: object, interval: object = "") -> float:
         """Resolve effective position-scale cap after signal_type multiplier."""
-        cap = float(self.max_position_scale) * float(self.resolve_signal_type_size_multiplier(signal_type))
+        cap = float(self.max_position_scale) * float(
+            self.resolve_signal_type_size_multiplier(signal_type, interval)
+        )
         return float(min(max(cap, 0.0), 1.0))
 
     def resolve_signal_type_max_concurrent(self, signal_type: object) -> int | None:
@@ -673,10 +801,42 @@ class OotEvaluationConfig:
             return None
         return float(raw)
 
-    def resolve_ranker_prob_pctl_delta(self, signal_type: object) -> float:
+    def resolve_ranker_prob_pctl_delta(self, signal_type: object, interval: object = "") -> float:
         """Resolve ranker min_prob percentile delta by signal type."""
         key = self.normalize_signal_type(signal_type)
-        return float(self.ranker_prob_pctl_delta_by_signal_type.get(key, 0.0))
+        interval_key = self._signal_type_interval_key(signal_type, interval)
+        return float(self.ranker_prob_pctl_delta_by_signal_type.get(key, 0.0)) + float(
+            self.ranker_prob_pctl_delta_by_signal_type_interval.get(interval_key, 0.0)
+        )
+
+    def resolve_trade_filter_raw_threshold_delta(
+        self,
+        signal_type: object,
+        interval: object = "",
+    ) -> float:
+        """Resolve raw trade-filter threshold delta by signal type and interval."""
+        key = self.normalize_signal_type(signal_type)
+        interval_key = self._signal_type_interval_key(signal_type, interval)
+        return float(self.trade_filter_raw_threshold_delta_by_signal_type.get(key, 0.0)) + float(
+            self.trade_filter_raw_threshold_delta_by_signal_type_interval.get(interval_key, 0.0)
+        )
+
+    def resolve_trade_filter_percentile_threshold_delta(
+        self,
+        signal_type: object,
+        interval: object = "",
+    ) -> float:
+        """Resolve percentile trade-filter threshold delta by signal type and interval."""
+        key = self.normalize_signal_type(signal_type)
+        interval_key = self._signal_type_interval_key(signal_type, interval)
+        return float(
+            self.trade_filter_percentile_threshold_delta_by_signal_type.get(key, 0.0)
+        ) + float(
+            self.trade_filter_percentile_threshold_delta_by_signal_type_interval.get(
+                interval_key,
+                0.0,
+            )
+        )
 
     @staticmethod
     def _default_label_stop_loss_pct() -> float:

@@ -187,3 +187,46 @@ def test_trade_filter_gate_supports_signal_type_threshold_delta() -> None:
     assert bool(gate_out.iloc[0]) is True
     assert bool(gate_out.iloc[1]) is True
     assert bool(gate_out.iloc[2]) is False
+
+
+def test_trade_filter_gate_supports_signal_type_interval_threshold_delta() -> None:
+    df = pd.DataFrame(
+        {
+            "symbol": ["IF0", "IF0"],
+            "exchange": ["CFFEX", "CFFEX"],
+            "interval": ["day", "60min"],
+            "side": ["long", "long"],
+            "bull_mode": ["normal", "normal"],
+            "trade_filter_prob": [0.70, 0.70],
+            "trade_filter_prob_pctl": [70.0, 70.0],
+            "signal_type": [
+                "bull_pullback_continuation",
+                "bull_pullback_continuation",
+            ],
+        }
+    )
+    cfg = OotEvaluationConfig(
+        use_trade_filter_gate=True,
+        trade_filter_gate_mode="cluster_interval_percentile",
+        trade_filter_percentile_threshold=70.0,
+        trade_filter_percentile_threshold_delta_by_signal_type={
+            "bull_pullback_continuation": -5.0,
+        },
+        trade_filter_percentile_threshold_delta_by_signal_type_interval={
+            "bull_pullback_continuation|day": 8.0,
+        },
+    )
+    gate = pd.Series([True, True], index=df.index, dtype=bool)
+    block = pd.Series(["", ""], index=df.index, dtype=object)
+
+    out, gate_out, _block_out = apply_trade_filter_gate(
+        df,
+        cfg=cfg,
+        gate_by_legacy=gate,
+        model_block_reason=block,
+    )
+
+    assert float(out.iloc[0]["trade_filter_gate_threshold"]) == 73.0
+    assert float(out.iloc[1]["trade_filter_gate_threshold"]) == 65.0
+    assert bool(gate_out.iloc[0]) is False
+    assert bool(gate_out.iloc[1]) is True

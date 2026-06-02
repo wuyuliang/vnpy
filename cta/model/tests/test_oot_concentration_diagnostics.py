@@ -88,10 +88,19 @@ class TestOotConcentrationDiagnostics(unittest.TestCase):
                 "peak_margin_used",
                 "return_on_peak_margin",
                 "return_on_risk_capital",
+                "hard_stop_rate",
+                "same_bar_stop_rate",
+                "open_notional_at_entry_p95_pct",
+                "cost_to_gross_ratio",
             ):
                 self.assertIn(col, headline.columns)
             diag = pd.read_csv(report_dir / "09_diagnostics" / "concentration_diagnostics.csv", encoding="utf-8-sig")
             self.assertEqual(len(diag), 1)
+            exec_diag = pd.read_csv(
+                report_dir / "09_diagnostics" / "execution_risk_diagnostics.csv",
+                encoding="utf-8-sig",
+            )
+            self.assertEqual(len(exec_diag), 1)
 
 
 if __name__ == "__main__":

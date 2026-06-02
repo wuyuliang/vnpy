@@ -231,6 +231,68 @@ class TestOotEvaluationConfigValidation(unittest.TestCase):
         with self.assertRaises(TypeError):
             cfg.ranker_prob_pctl_delta_by_signal_type["atr_breakout"] = 5.0  # type: ignore[index]
 
+    def test_signal_type_interval_overrides_normalize_and_resolve(self) -> None:
+        cfg = OotEvaluationConfig(
+            max_position_scale=0.1,
+            signal_type_size_multiplier={" Bull_Pullback_Continuation ": 2.0},
+            signal_type_size_multiplier_by_signal_type_interval={"bull_pullback_continuation|DAY": 1.2},
+            trade_filter_percentile_threshold_delta_by_signal_type={"bull_pullback_continuation": -5.0},
+            trade_filter_percentile_threshold_delta_by_signal_type_interval={
+                "bull_pullback_continuation|day": 8.0
+            },
+            trade_filter_raw_threshold_delta_by_signal_type={"bull_pullback_continuation": -0.02},
+            trade_filter_raw_threshold_delta_by_signal_type_interval={
+                "bull_pullback_continuation|day": 0.05
+            },
+            ranker_prob_pctl_delta_by_signal_type={"bull_pullback_continuation": -15.0},
+            ranker_prob_pctl_delta_by_signal_type_interval={
+                "bull_pullback_continuation|day": 10.0
+            },
+        )
+        self.assertAlmostEqual(
+            cfg.resolve_signal_type_size_multiplier("bull_pullback_continuation", "day"),
+            1.2,
+            places=12,
+        )
+        self.assertAlmostEqual(
+            cfg.resolve_signal_type_size_multiplier("bull_pullback_continuation", "60min"),
+            2.0,
+            places=12,
+        )
+        self.assertAlmostEqual(
+            cfg.resolve_effective_position_scale_cap("bull_pullback_continuation", "day"),
+            0.12,
+            places=12,
+        )
+        self.assertAlmostEqual(
+            cfg.resolve_trade_filter_percentile_threshold_delta("bull_pullback_continuation", "day"),
+            3.0,
+            places=12,
+        )
+        self.assertAlmostEqual(
+            cfg.resolve_trade_filter_percentile_threshold_delta("bull_pullback_continuation", "60min"),
+            -5.0,
+            places=12,
+        )
+        self.assertAlmostEqual(
+            cfg.resolve_trade_filter_raw_threshold_delta("bull_pullback_continuation", "day"),
+            0.03,
+            places=12,
+        )
+        self.assertAlmostEqual(
+            cfg.resolve_ranker_prob_pctl_delta("bull_pullback_continuation", "day"),
+            -5.0,
+            places=12,
+        )
+        with self.assertRaises(TypeError):
+            cfg.signal_type_size_multiplier_by_signal_type_interval["bull_pullback_continuation|day"] = 1.0  # type: ignore[index]
+        with self.assertRaises(ValueError):
+            OotEvaluationConfig(
+                signal_type_size_multiplier_by_signal_type_interval={
+                    "bull_pullback_continuation|bad_interval": 1.0
+                }
+            )
+
     def test_trade_filter_signal_type_delta_rejects_out_of_range_values(self) -> None:
         with self.assertRaises(ValueError):
             OotEvaluationConfig(
@@ -243,6 +305,18 @@ class TestOotEvaluationConfigValidation(unittest.TestCase):
         with self.assertRaises(ValueError):
             OotEvaluationConfig(
                 ranker_prob_pctl_delta_by_signal_type={"bull_pullback_continuation": -120.0}
+            )
+        with self.assertRaises(ValueError):
+            OotEvaluationConfig(
+                trade_filter_percentile_threshold_delta_by_signal_type_interval={
+                    "bull_pullback_continuation|day": 120.0
+                }
+            )
+        with self.assertRaises(ValueError):
+            OotEvaluationConfig(
+                signal_type_size_multiplier_by_signal_type_interval={
+                    "bull_pullback_continuation|day": 0.0
+                }
             )
 
     def test_signal_type_max_notional_pct_normalization_and_validation(self) -> None:

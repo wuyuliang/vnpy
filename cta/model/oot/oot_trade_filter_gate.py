@@ -165,13 +165,18 @@ def apply_trade_filter_gate(
         short_attack = (bull_mode == "attack") & (side == "short") & (~has_side_override)
         threshold.loc[long_attack] = threshold.loc[long_attack] + attack_long_delta
         threshold.loc[short_attack] = threshold.loc[short_attack] + attack_short_delta
-        st_delta_map = dict(
-            getattr(cfg, "trade_filter_percentile_threshold_delta_by_signal_type", {}) or {}
-        )
-        if st_delta_map:
-            st_delta = signal_type.map(
-                lambda st: float(st_delta_map.get(str(st).strip().lower(), 0.0))
-            ).astype(float)
+        if bool(
+            getattr(cfg, "trade_filter_percentile_threshold_delta_by_signal_type", {})
+            or getattr(cfg, "trade_filter_percentile_threshold_delta_by_signal_type_interval", {})
+        ):
+            st_delta = pd.Series(
+                [
+                    float(cfg.resolve_trade_filter_percentile_threshold_delta(st, interval))
+                    for st, interval in zip(signal_type.tolist(), intervals.tolist())
+                ],
+                index=out.index,
+                dtype=float,
+            )
             threshold = threshold + st_delta
         threshold = threshold.clip(lower=0.0, upper=100.0)
         pass_trade = score.fillna(-np.inf) >= threshold
@@ -207,13 +212,18 @@ def apply_trade_filter_gate(
         short_attack = (bull_mode == "attack") & (side == "short") & (~has_side_override)
         threshold.loc[long_attack] = threshold.loc[long_attack] + attack_long_delta
         threshold.loc[short_attack] = threshold.loc[short_attack] + attack_short_delta
-        st_delta_map = dict(
-            getattr(cfg, "trade_filter_raw_threshold_delta_by_signal_type", {}) or {}
-        )
-        if st_delta_map:
-            st_delta = signal_type.map(
-                lambda st: float(st_delta_map.get(str(st).strip().lower(), 0.0))
-            ).astype(float)
+        if bool(
+            getattr(cfg, "trade_filter_raw_threshold_delta_by_signal_type", {})
+            or getattr(cfg, "trade_filter_raw_threshold_delta_by_signal_type_interval", {})
+        ):
+            st_delta = pd.Series(
+                [
+                    float(cfg.resolve_trade_filter_raw_threshold_delta(st, interval))
+                    for st, interval in zip(signal_type.tolist(), intervals.tolist())
+                ],
+                index=out.index,
+                dtype=float,
+            )
             threshold = threshold + st_delta
         threshold = threshold.clip(lower=0.0, upper=1.0)
         pass_trade = score >= threshold

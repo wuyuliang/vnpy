@@ -223,7 +223,11 @@ class TestOotReportWriter(unittest.TestCase):
                 "symbol_count",
                 "interval_count",
                 "commission_pct_of_gross",
+                "cost_to_gross_ratio",
                 "slippage_pct_of_gross",
+                "hard_stop_rate",
+                "same_bar_stop_rate",
+                "open_notional_at_entry_p95_pct",
                 "git_sha",
             ):
                 self.assertIn(col, headline.columns)
@@ -320,14 +324,21 @@ class TestOotReportWriter(unittest.TestCase):
             daily = pd.read_csv(diag / "daily_trade_position_distribution.csv", encoding="utf-8-sig")
             monthly = pd.read_csv(diag / "monthly_trade_position_distribution.csv", encoding="utf-8-sig")
             weekday = pd.read_csv(diag / "weekday_trade_position_distribution.csv", encoding="utf-8-sig")
+            execution_risk = pd.read_csv(diag / "execution_risk_diagnostics.csv", encoding="utf-8-sig")
+            risk_panel = pd.read_csv(diag / "risk_four_panel.csv", encoding="utf-8-sig")
 
             self.assertEqual(int(daily["trade_count"].sum()), 2)
             self.assertEqual(int(monthly["total_trade_count"].sum()), 2)
             self.assertEqual(int(weekday["days"].sum()), len(daily))
+            self.assertEqual(int(execution_risk.iloc[0]["executed_trade_count"]), 2)
+            self.assertEqual(int(risk_panel["trade_count"].sum()), 2)
 
             for col in (
                 "position_notional_mean_pct",
                 "margin_used_after_trade_mean_pct",
+                "open_notional_at_entry_p95_pct",
+                "hard_stop_rate",
+                "same_bar_stop_rate",
                 "eod_position_notional_pct",
                 "eod_margin_used_after_trade_pct",
                 "day_net_pnl",
@@ -338,6 +349,9 @@ class TestOotReportWriter(unittest.TestCase):
                 "avg_eod_position_notional_pct",
                 "max_eod_position_notional_pct",
                 "avg_eod_margin_used_pct",
+                "avg_open_notional_at_entry_p95_pct",
+                "avg_hard_stop_rate",
+                "avg_same_bar_stop_rate",
                 "month_net_pnl",
             ):
                 self.assertIn(col, monthly.columns)
@@ -347,8 +361,28 @@ class TestOotReportWriter(unittest.TestCase):
                 "weekday",
                 "avg_eod_position_notional_pct",
                 "avg_eod_margin_used_pct",
+                "avg_open_notional_at_entry_p95_pct",
+                "avg_hard_stop_rate",
+                "avg_same_bar_stop_rate",
             ):
                 self.assertIn(col, weekday.columns)
+
+            for col in (
+                "hard_stop_rate",
+                "same_bar_stop_rate",
+                "open_notional_at_entry_p95_pct",
+                "worst5_trade_net_pnl_sum",
+            ):
+                self.assertIn(col, execution_risk.columns)
+
+            for col in (
+                "open_notional_at_entry_p95_pct",
+                "worst_trade_net_pnl",
+                "hard_stop_rate",
+                "same_bar_stop_rate",
+                "top5_symbol_pnl_pct",
+            ):
+                self.assertIn(col, risk_panel.columns)
 
 
 if __name__ == "__main__":

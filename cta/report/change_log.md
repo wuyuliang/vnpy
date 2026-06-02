@@ -12,6 +12,36 @@
 
 ---
 
+## 2026-06-02 (二) · 新增防爆仓 / 生存层风控设计文档 `cta/docs/risk2.md`
+
+### 任务
+以"十几年中国 CTA 专家"视角，回答"为防止爆仓（如原油负价）还需做什么"，产出 `cta/docs/risk2.md`。
+定位为现有风控的**生存层**补充：`risk.md`（alpha + 正常市况结构化）/ `20260602_risk_codex.md`（单次 OOT 调参）
+之外，专攻**黑天鹅 / 极端尾部下防止账户被强平、穿仓倒欠**的硬约束（生存优先于收益）。
+
+### 主要内容
+- §1 爆仓 4 类机制性死法：保证金不足强平 / 连续停板锁死 / 跳空穿透止损 / 负价等异常价（公式失效）。
+- §2 gap 分析（引真实代码）：`CapsConfig` 只管 notional 不管保证金强平线；`RiskThrottle` 看已实现回撤来不及；
+  `position_evaluator` hard_stop 假设止损价成交；`margin_reconciler` 仅事后对账；全链路 price≤0 无健壮性闸；
+  `kill_switch` 有开关无自动判据。
+- §3 12 条生存层动作（P0：MarginSurvivalGuard / LimitLockStressSizer / GapThroughStopAssumption /
+  NegativePriceSafeguard / AccountSurvivalKillSwitch；P1/P2：交易所规则突变、交割月归零、相关性=1 stress、
+  隔夜 gap 预算、黑天鹅情景引擎、资金分层、通道故障安全默认）。
+- §4 复用现有资产接口（`_BaseRule` / `PositionScaler` / `KillSwitch` / `AccountSnapshot` /
+  `infer_symbol_limit_pct` / `PortfolioState`）；§5 7 条生存层不变量；§6 防爆仓 KPI；§7 落地阶段。
+
+### 修改文件
+- 新增 `cta/docs/risk2.md`（435 行，设计/策略清单文档，**代码未实现**）。
+- 本条 change_log。
+
+### 运行 / 验证（文档型）
+- `wc -l cta/docs/risk2.md` → 435；`grep -n "爆仓\|强平\|保证金\|负价\|生存\|停板锁死" cta/docs/risk2.md`。
+
+### 风险与后续
+- 本轮**仅设计文档，未改任何生产代码**；P0 组件（保证金生存约束 / 负价健壮性 / 账户硬熔断）建议下一轮 TDD 实现。
+
+---
+
 ## 2026-06-01 (一) · eval-only 统一组合评估（对齐 sim/live：跨 cluster 共享 1000 万 + 150%）
 
 ### 任务

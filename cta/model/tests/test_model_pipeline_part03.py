@@ -72,6 +72,7 @@ class TestModelPipelinePart03(unittest.TestCase):
             signal_type_size_multiplier={},
             signal_type_max_concurrent_positions={},
             signal_type_max_notional_pct={},
+            signal_type_blacklist=(),
             trade_filter_percentile_threshold_delta_by_signal_type={},
             trade_filter_raw_threshold_delta_by_signal_type={},
             risk_per_trade_pct=0.01,
@@ -126,6 +127,7 @@ class TestModelPipelinePart03(unittest.TestCase):
             use_intrabar_stop_tracking=False,
             use_portfolio_constraints=False,
             use_position_sizing=False,
+            signal_type_blacklist=(),
             use_portfolio_logic_runtime=True,
             portfolio_logic=PortfolioLogicConfig(
                 enable_htf_gate=False,
@@ -230,6 +232,7 @@ class TestModelPipelinePart03(unittest.TestCase):
             signal_type_size_multiplier={},
             signal_type_max_concurrent_positions={},
             signal_type_max_notional_pct={},
+            signal_type_blacklist=(),
             trade_filter_percentile_threshold_delta_by_signal_type={},
             trade_filter_raw_threshold_delta_by_signal_type={},
             use_portfolio_constraints=True,
@@ -287,6 +290,7 @@ class TestModelPipelinePart03(unittest.TestCase):
             max_position_scale=1.0,
             signal_type_size_multiplier={},  # 解耦 signal_type sizing，专测每日笔数/名义 cap
             signal_type_max_notional_pct={},
+            signal_type_blacklist=(),
             max_symbol_notional_pct=1.0,
             max_concurrent_positions_per_symbol=10,
             max_concurrent_positions_total=20,
@@ -349,6 +353,7 @@ class TestModelPipelinePart03(unittest.TestCase):
             signal_type_size_multiplier={},  # 解耦 signal_type sizing，专测 blocked entry 不预占保证金
             signal_type_max_concurrent_positions={},
             signal_type_max_notional_pct={},
+            signal_type_blacklist=(),
             trade_filter_percentile_threshold_delta_by_signal_type={},
             trade_filter_raw_threshold_delta_by_signal_type={},
             use_portfolio_constraints=True,
@@ -402,6 +407,7 @@ class TestModelPipelinePart03(unittest.TestCase):
             commission_pct_by_cluster_interval={},
             slippage_pct_by_cluster_interval={},
             use_position_sizing=False,
+            signal_type_blacklist=(),
             use_portfolio_constraints=False,
             use_intrabar_stop_tracking=False,
         )
@@ -456,6 +462,7 @@ class TestModelPipelinePart03(unittest.TestCase):
             weekly_max_drawdown_pct=0.02,
             enforce_weekly_dd_budget_on_entry=True,
             block_new_entries_on_weekly_dd_breach=True,
+            signal_type_blacklist=(),
             benchmark_annual_return=0.0,
             risk_free_annual_return=0.0,
             annualization_factor=12.0,

@@ -825,6 +825,57 @@ def test_signal_type_size_multiplier_changes_effective_position_scale_cap() -> N
     assert by_signal["bull_pullback_continuation"] > by_signal["atr_breakout"]
 
 
+def test_signal_type_interval_size_multiplier_changes_day_only_position_scale_cap() -> None:
+    pred = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-06 09:00:00"]),
+            "entry_datetime": pd.to_datetime(["2020-01-06 09:00:00", "2020-01-06 09:00:00"]),
+            "exit_datetime": pd.to_datetime(["2020-01-07 09:00:00", "2020-01-07 09:00:00"]),
+            "symbol": ["RB0", "HC0"],
+            "exchange": ["SHFE", "SHFE"],
+            "interval": ["day", "60min"],
+            "signal_type": ["bull_pullback_continuation", "bull_pullback_continuation"],
+            "side": ["long", "long"],
+            "pred_regime_label": ["trend_up", "trend_up"],
+            "pred_split": ["test", "test"],
+            "window_id": [0, 0],
+            "is_executed": [1, 1],
+            "entry_price": [100.0, 100.0],
+            "future_mfe_atr": [1.0, 1.0],
+            "future_mae_atr": [0.2, 0.2],
+        }
+    )
+    cfg = OotEvaluationConfig(
+        use_stacking_gate=False,
+        use_trade_filter_gate=False,
+        use_regime_gate=False,
+        use_mfe_mae_gate=False,
+        use_test_split_only=False,
+        require_executed_only=True,
+        use_intrabar_stop_tracking=False,
+        use_portfolio_constraints=False,
+        use_position_sizing=False,
+        use_portfolio_logic_runtime=False,
+        max_position_scale=0.10,
+        signal_type_size_multiplier={
+            "bull_pullback_continuation": 4.0,
+        },
+        signal_type_size_multiplier_by_signal_type_interval={
+            "bull_pullback_continuation|day": 2.5,
+        },
+        signal_type_blacklist=(),
+    )
+    _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+    assert int(summary.iloc[0]["trade_count"]) == 2
+    by_interval = {
+        str(row["interval"]): float(row["position_scale"])
+        for _, row in trades.loc[trades["execution_status"] == "executed"].iterrows()
+    }
+    assert np.isclose(by_interval["day"], 0.25)
+    assert np.isclose(by_interval["60min"], 0.40)
+    assert by_interval["day"] < by_interval["60min"]
+
+
 def test_signal_type_max_concurrent_positions_blocks_n_plus_one_entry() -> None:
     pred = pd.DataFrame(
         {
@@ -1042,6 +1093,69 @@ def test_ranker_prob_pctl_delta_by_signal_type_adjusts_min_prob_filter() -> None
             enable_htf_gate=False,
             enable_ranker=True,
             enable_risk_throttle=True,  # normal: min_prob_pctl=60
+            enable_pyramid=False,
+        ),
+    )
+    _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+    assert int(summary.iloc[0]["trade_count"]) == 1
+    by_symbol = {
+        str(row["symbol"]): str(row["execution_status"])
+        for _, row in trades.iterrows()
+    }
+    assert by_symbol["BU0"] == "executed"
+    assert by_symbol["RB0"] == "blocked_ranker"
+
+
+def test_ranker_prob_pctl_delta_by_signal_type_interval_tightens_day_only() -> None:
+    pred = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(["2020-01-06 10:00:00", "2020-01-06 10:00:00"]),
+            "entry_datetime": pd.to_datetime(["2020-01-06 10:00:00", "2020-01-06 10:00:00"]),
+            "exit_datetime": pd.to_datetime(["2020-01-06 13:00:00", "2020-01-06 13:00:00"]),
+            "symbol": ["BU0", "RB0"],
+            "exchange": ["SHFE", "SHFE"],
+            "interval": ["60min", "day"],
+            "signal_type": ["bull_pullback_continuation", "bull_pullback_continuation"],
+            "side": ["long", "long"],
+            "pred_regime_label": ["trend_up", "trend_up"],
+            "pred_split": ["test", "test"],
+            "window_id": [0, 0],
+            "is_executed": [1, 1],
+            "entry_price": [100.0, 100.0],
+            "trade_filter_prob": [0.45, 0.45],
+            "pred_mfe_atr": [4.0, 4.0],
+            "pred_mae_atr": [1.0, 1.0],
+            "future_mfe_atr": [1.2, 1.2],
+            "future_mae_atr": [0.2, 0.2],
+        }
+    )
+    cfg = OotEvaluationConfig(
+        use_stacking_gate=False,
+        use_trade_filter_gate=False,
+        use_regime_gate=False,
+        use_mfe_mae_gate=False,
+        use_test_split_only=False,
+        require_executed_only=True,
+        use_intrabar_stop_tracking=False,
+        use_portfolio_constraints=True,
+        use_position_sizing=False,
+        use_portfolio_logic_runtime=True,
+        initial_capital=100_000.0,
+        max_position_scale=0.10,
+        signal_type_size_multiplier={
+            "bull_pullback_continuation": 1.0,
+        },
+        ranker_prob_pctl_delta_by_signal_type={
+            "bull_pullback_continuation": -20.0,
+        },
+        ranker_prob_pctl_delta_by_signal_type_interval={
+            "bull_pullback_continuation|day": 25.0,
+        },
+        signal_type_blacklist=(),
+        portfolio_logic=PortfolioLogicConfig(
+            enable_htf_gate=False,
+            enable_ranker=True,
+            enable_risk_throttle=True,
             enable_pyramid=False,
         ),
     )

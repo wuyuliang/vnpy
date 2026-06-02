@@ -221,6 +221,7 @@ def _write_headline_and_summary(
     initial_capital: float,
     risk_free_annual: float,
     reproducibility_info: dict[str, Any] | None = None,
+    execution_risk_metrics: dict[str, Any] | None = None,
 ) -> None:
     overview = report_dir / "00_overview"
     overview.mkdir(parents=True, exist_ok=True)
@@ -237,6 +238,7 @@ def _write_headline_and_summary(
         errors="coerce",
     ).fillna(pnl)
     cost = gross - pnl
+    cost_to_gross_ratio = float(cost.sum() / abs(gross.sum())) if abs(float(gross.sum())) > 1e-12 else float("nan")
     cum_equity = float(initial_capital) + pnl.cumsum()
     max_dd = _compute_max_drawdown(cum_equity)
     total_ret = float(pnl.sum() / float(initial_capital)) if initial_capital > 0 else float("nan")
@@ -285,10 +287,12 @@ def _write_headline_and_summary(
                 "interval_count": interval_count,
                 "commission_pct_of_gross": commission_pct_of_gross,
                 "slippage_pct_of_gross": float("nan"),
+                "cost_to_gross_ratio": cost_to_gross_ratio,
                 "git_sha": git_sha,
     }
     headline_row.update(concentration)
     headline_row.update(deployable)
+    headline_row.update(dict(execution_risk_metrics or {}))
     headline = pd.DataFrame([headline_row])
     headline.to_csv(overview / "headline_metrics.csv", index=False, encoding="utf-8-sig")
     pd.DataFrame([concentration]).to_csv(
@@ -438,6 +442,7 @@ def write_oot_evaluation_report(
         _copy_if_exists(trade_path, report_dir / "raw" / "all_trade_details.csv")
 
     _write_aggregate(report_dir, bundle_dir)
+    execution_risk_metrics = write_trade_position_time_distributions(report_dir, trades)
     _write_headline_and_summary(
         report_dir,
         trades,
@@ -445,10 +450,10 @@ def write_oot_evaluation_report(
         initial_capital=float(cfg.initial_capital),
         risk_free_annual=float(cfg.risk_free_annual_return),
         reproducibility_info=reproducibility_info,
+        execution_risk_metrics=execution_risk_metrics,
     )
     write_cluster_symbol_interval_signal_views(report_dir, trades, cfg=cfg)
     write_drilldown(report_dir, trades)
-    write_trade_position_time_distributions(report_dir, trades)
     _write_diagnostics(report_dir, run_records)
     _write_meta(report_dir, run_tag=run_tag, cfg=cfg)
     _write_stub_html_reports(report_dir, run_tag=run_tag)

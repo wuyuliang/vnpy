@@ -147,7 +147,7 @@ python3 -m pytest -q \
 ```
 
 最简单最全的两条命令：
-nohup python3 -m cta.feature.run_all_features  --symbols AL0 TA0 L0 --interval day 60min 30min 15min 5min min   --start 2010-01-01 --end 2025-12-31   --workers 4   > 20260522_features.out 2>&1 &
+nohup python3 -m cta.feature.run_all_features --interval day 60min 30min   --start 2026-01-01 --end 2026-05-31   --workers 4   > 20260531_features.out 2>&1 &
 
 nohup python3 -m cta.feature.run_all_features  --symbols AL0 TA0 L0 --interval day 60min 30min   --start 2010-01-01 --end 2025-12-31   --workers 4   > 20260528_features.out 2>&1 &
 
@@ -155,10 +155,10 @@ nohup python3 -m cta.feature.run_all_features  --symbols AL0 TA0 L0 --interval d
 nohup python3 -m cta.model.train \
   --group-pool --group-by cluster \
   --interval day 60min 30min \
-  --start 2010-01-01 --end 2025-12-31 \
+  --start 2010-01-01 --end 2026-12-31 \
   --train-end 2020-12-31 --valid-end 2023-12-31 \
   --trade-side-mode both \
-  --max-walk-forward-windows 1 \
+  --max-walk-forward-windows 5 \
   --window-mode expanding \
   --by-signal-type \
   --use-portfolio-logic-runtime \
@@ -166,8 +166,8 @@ nohup python3 -m cta.model.train \
   --cross-sectional-enabled-cells "*|day" \
   --generic-mode auto \
   --output-root cta/backtest \
-  --seed 2026052823 \
-  2>&1 > 2026052823.out &
+  --seed 2026060221 \
+  2>&1 > 2026060221.out &
 
 nohup python3 -m cta.model.eval \
   --from-root cta/backtest \
