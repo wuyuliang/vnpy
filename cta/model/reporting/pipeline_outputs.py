@@ -124,6 +124,13 @@ def _write_group_pool_runtime_bundle(*, root: Path, run_date_tag: str, group_by:
     side_key = _safe_name(trade_side_mode)
     bundle_dir = root / f'{run_date_tag}_GROUP_POOL_{group_key.upper()}_{side_key}_portfolio_logic_runtime'
     bundle_dir.mkdir(parents=True, exist_ok=True)
+    (bundle_dir / "README.md").write_text(
+        "# Group-Pool Runtime Bundle\n\n"
+        "This bundle concatenates per-group/per-interval OOT trade details.\n"
+        "It is diagnostic only and is not final account PnL.\n\n"
+        "Use the sibling `oot_*_unified` eval-only bundle for final unified-account performance.\n",
+        encoding="utf-8",
+    )
     detail_root = bundle_dir / 'symbol_group_details'
     detail_root.mkdir(parents=True, exist_ok=True)
 

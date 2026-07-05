@@ -32,6 +32,10 @@ BR_BLOCKED_TRADE_FILTER = "blocked_trade_filter"
 BR_BLOCKED_REGIME_GATE = "blocked_regime_gate"
 BR_BLOCKED_MFE_MAE_GATE = "blocked_mfe_mae_gate"
 BR_BLOCKED_FINAL_DECISION_GATE = "blocked_final_decision_gate"
+BR_BLOCKED_SIGNAL_TYPE_ALLOWLIST = "blocked_signal_type_allowlist"
+BR_BLOCKED_INTERVAL_CELL_GATE = "blocked_interval_cell_gate"
+BR_BLOCKED_MINUTE30_CELL_STATE = "blocked_minute30_cell_state"
+BR_BLOCKED_HARD_STOP_ENTRY_FILTER = "blocked_hard_stop_entry_filter"
 
 # Candidate fallback reasons.
 BR_FILTERED_BY_RULE = "filtered_by_rule"
@@ -72,6 +76,10 @@ BlockReason = Literal[
     "blocked_regime_gate",
     "blocked_mfe_mae_gate",
     "blocked_final_decision_gate",
+    "blocked_signal_type_allowlist",
+    "blocked_interval_cell_gate",
+    "blocked_minute30_cell_state",
+    "blocked_hard_stop_entry_filter",
     "blocked_ma_cross_trend",
     "blocked_regime_short_filter",
     "filtered_by_rule",
@@ -110,6 +118,10 @@ CANONICAL_BLOCK_REASONS: tuple[BlockReason, ...] = (
     BR_BLOCKED_REGIME_GATE,
     BR_BLOCKED_MFE_MAE_GATE,
     BR_BLOCKED_FINAL_DECISION_GATE,
+    BR_BLOCKED_SIGNAL_TYPE_ALLOWLIST,
+    BR_BLOCKED_INTERVAL_CELL_GATE,
+    BR_BLOCKED_MINUTE30_CELL_STATE,
+    BR_BLOCKED_HARD_STOP_ENTRY_FILTER,
     BR_FILTERED_BY_RULE,
     BR_RISK_RULE_BLOCKED,
     BR_CAPACITY_BLOCKED,
@@ -139,6 +151,10 @@ __all__ = [
     "BR_BLOCKED_REGIME_GATE",
     "BR_BLOCKED_MFE_MAE_GATE",
     "BR_BLOCKED_FINAL_DECISION_GATE",
+    "BR_BLOCKED_SIGNAL_TYPE_ALLOWLIST",
+    "BR_BLOCKED_INTERVAL_CELL_GATE",
+    "BR_BLOCKED_MINUTE30_CELL_STATE",
+    "BR_BLOCKED_HARD_STOP_ENTRY_FILTER",
     "BR_CAPACITY_BLOCKED",
     "BR_EXECUTION_RULE_BLOCKED",
     "BR_FILTERED_BY_RULE",

@@ -217,6 +217,7 @@ def _write_headline_and_summary(
     report_dir: Path,
     trades: pd.DataFrame,
     *,
+    bundle_dir: Path,
     run_tag: str,
     initial_capital: float,
     risk_free_annual: float,
@@ -317,9 +318,14 @@ def _write_headline_and_summary(
     warning_line = ""
     if bool(concentration.get("concentration_warning", False)):
         warning_line = "\n⚠️ 收益集中度偏高：请优先查看 09_diagnostics/concentration_diagnostics.csv。\n"
+    diagnostic_line = ""
+    bundle_name = str(Path(bundle_dir).name)
+    if "GROUP_POOL" in bundle_name.upper() and not bundle_name.lower().startswith("oot_"):
+        diagnostic_line = "\nThis is a diagnostic group-pool aggregate. It is not a unified account replay.\n"
 
     summary_md = (
         f"# OOT 评估摘要 — {run_tag}\n\n"
+        f"{diagnostic_line}"
         f"期间：{headline.iloc[0]['start_date']} → {headline.iloc[0]['end_date']}\n\n"
         f"总收益率 {total_ret:.4f}，年化 {ann_ret:.4f}，最大回撤 {max_dd:.4f}，月度夏普 {monthly_sharpe:.4f}。\n"
         f"最强板块：{best_cluster or 'N/A'}；最弱板块：{worst_cluster or 'N/A'}。\n"
@@ -446,6 +452,7 @@ def write_oot_evaluation_report(
     _write_headline_and_summary(
         report_dir,
         trades,
+        bundle_dir=bundle_dir,
         run_tag=run_tag,
         initial_capital=float(cfg.initial_capital),
         risk_free_annual=float(cfg.risk_free_annual_return),

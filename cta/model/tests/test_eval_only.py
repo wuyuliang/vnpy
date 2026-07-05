@@ -59,7 +59,7 @@ def _make_fake_train_run(
         "symbol": ["RB0"] * n,
         "exchange": ["SHFE"] * n,
         "interval": [interval] * n,
-        "signal_type": ["donchian_breakout"] * n,
+        "signal_type": ["bull_pullback_continuation"] * n,
         "side": rng.choice(["long", "short"], size=n).tolist(),
         "entry_action": ["buy"] * n,
         "exit_action": ["sell"] * n,
@@ -105,7 +105,7 @@ def _make_single_trade_train_run(
     side: str = "both",
     symbol: str = "IF0",
     exchange: str = "CFFEX",
-    signal_type: str = "donchian_breakout",
+    signal_type: str = "bull_pullback_continuation",
     trade_time: str = "2024-01-02 09:30:00",
     exit_time: str = "2024-01-10 15:00:00",
 ) -> Path:
@@ -345,7 +345,7 @@ class TestRunOotEvalBatch(unittest.TestCase):
                 pool_name="GRP_CLUSTER_INDEX",
                 interval="day",
                 symbol="IF0",
-                signal_type="donchian_breakout",
+                signal_type="bull_pullback_continuation",
             )
             _make_single_trade_train_run(
                 root,
@@ -353,7 +353,7 @@ class TestRunOotEvalBatch(unittest.TestCase):
                 pool_name="GRP_CLUSTER_INDEX",
                 interval="minute60",
                 symbol="IF0",
-                signal_type="donchian_breakout",
+                signal_type="bull_pullback_continuation",
             )
             cfg = OotEvaluationConfig(
                 use_trade_filter_gate=False,
@@ -423,7 +423,7 @@ def _make_scored_single_trade_run(
     run_date: str = "20260523",
     interval: str = "day",
     side: str = "both",
-    signal_type: str = "donchian_breakout",
+    signal_type: str = "bull_pullback_continuation",
     trade_time: str = "2024-01-02 09:30:00",
     exit_time: str = "2024-01-10 15:00:00",
 ) -> Path:
@@ -584,6 +584,44 @@ class TestUnifiedPortfolioEval(unittest.TestCase):
 
 
 class TestEvalOnlyCliRiskGuardFlags(unittest.TestCase):
+    def test_cfg_json_accepts_portfolio_logic_trailing_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            patch_path = Path(td) / "cfg.json"
+            patch_path.write_text(
+                json.dumps(
+                    {
+                        "portfolio_logic": {
+                            "trailing": {
+                                "interval_params": {
+                                    "day": {
+                                        "atr_multiplier": 3.2,
+                                        "activation_profit_atr": 0.8,
+                                        "fallback_hard_stop_pct": 0.04,
+                                        "breakeven_profit_atr": 0.8,
+                                        "breakeven_lock_atr": 0.05,
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = _parse_args(
+                [
+                    "--from-root",
+                    "cta/backtest",
+                    "--output-root",
+                    "cta/backtest/out",
+                    "--cfg-json",
+                    str(patch_path),
+                ]
+            )
+            cfg = _build_cfg_from_args(args)
+        params = cfg.portfolio_logic.trailing.interval_params["day"]
+        self.assertAlmostEqual(float(params.activation_profit_atr), 0.8, places=12)
+        self.assertAlmostEqual(float(params.breakeven_lock_atr), 0.05, places=12)
+
     def test_parse_oot_guard_chain_flags_into_cfg(self) -> None:
         args = _parse_args(
             [

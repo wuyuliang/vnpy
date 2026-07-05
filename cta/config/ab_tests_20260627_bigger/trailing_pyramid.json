@@ -1,0 +1,41 @@
+{
+  "portfolio_logic": {
+    "trailing": {
+      "activate_only_when_regime": ["trend_up", "trend_down", "range"],
+      "interval_params": {
+        "day": {
+          "atr_multiplier": 3.2,
+          "activation_profit_atr": 0.8,
+          "fallback_hard_stop_pct": 0.04,
+          "breakeven_profit_atr": 0.8,
+          "breakeven_lock_atr": 0.05
+        },
+        "60min": {
+          "atr_multiplier": 2.8,
+          "activation_profit_atr": 0.7,
+          "fallback_hard_stop_pct": 0.03,
+          "breakeven_profit_atr": 0.7,
+          "breakeven_lock_atr": 0.05
+        },
+        "30min": {
+          "atr_multiplier": 2.6,
+          "activation_profit_atr": 0.9,
+          "fallback_hard_stop_pct": 0.025,
+          "breakeven_profit_atr": 0.9,
+          "breakeven_lock_atr": 0.03
+        }
+      }
+    },
+    "pyramid": {
+      "max_active_layers": 3,
+      "max_lifetime_layers": 3,
+      "size_decay": [1.0, 0.5, 0.25],
+      "min_profit_atr_to_add": 1.2,
+      "allowed_signal_type_interval": [
+        "bull_pullback_continuation|day",
+        "bull_pullback_continuation|60min",
+        "cross_sectional_momentum|day"
+      ]
+    }
+  }
+}

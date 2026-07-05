@@ -224,6 +224,7 @@ class PyramidManager:
         *,
         pos: PyramidPosition,
         new_interval: str,
+        new_signal_type: str | None = None,
         current_time: pd.Timestamp,
         current_price: float,
         min_profit_atr_to_add: float,
@@ -231,6 +232,10 @@ class PyramidManager:
     ) -> bool:
         if not self.cfg.enabled:
             return False
+        if new_signal_type is not None and self.cfg.allowed_signal_type_interval:
+            key = f"{str(new_signal_type).strip().lower()}|{normalize_portfolio_interval(new_interval)}"
+            if key not in set(self.cfg.allowed_signal_type_interval):
+                return False
         if not htf_aligned and self.cfg.require_htf_still_aligned:
             return False
         active_layers = pos.active_layers

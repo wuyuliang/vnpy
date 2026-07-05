@@ -19,7 +19,7 @@ class TestOotEvaluationConfigValidation(unittest.TestCase):
         self.assertAlmostEqual(float(cfg.max_single_loss_pct), 0.002, places=12)
         self.assertAlmostEqual(float(cfg.max_symbol_notional_pct), 0.30, places=12)
         self.assertEqual(int(cfg.max_concurrent_positions_per_symbol), 3)
-        self.assertEqual(int(cfg.max_concurrent_positions_total), 10)
+        self.assertEqual(int(cfg.max_concurrent_positions_total), 12)
         self.assertTrue(bool(cfg.enforce_stop_loss_consistency))
         self.assertTrue(bool(cfg.enforce_intrabar_bar_volume_cap))
         self.assertAlmostEqual(float(cfg.intrabar_max_bar_volume_participation_pct), 0.01, places=12)
@@ -142,27 +142,33 @@ class TestOotEvaluationConfigValidation(unittest.TestCase):
         cfg = OotEvaluationConfig()
         pctl = cfg.trade_filter_percentile_threshold_delta_by_signal_type
         ranker_pctl = cfg.ranker_prob_pctl_delta_by_signal_type
-        self.assertAlmostEqual(float(pctl["bull_pullback_continuation"]), -20.0, places=12)
+        self.assertAlmostEqual(float(cfg.stacking_score_threshold), 0.50, places=12)
+        self.assertAlmostEqual(float(pctl["bull_pullback_continuation"]), -28.0, places=12)
         self.assertAlmostEqual(float(pctl["breakout_pullback_continuation"]), -16.0, places=12)
+        self.assertAlmostEqual(float(pctl["cross_sectional_momentum"]), -12.0, places=12)
         self.assertAlmostEqual(float(pctl["atr_breakout"]), 30.0, places=12)
         self.assertAlmostEqual(float(pctl["donchian_breakout"]), 25.0, places=12)
         self.assertAlmostEqual(float(pctl["tight_range_breakout"]), 35.0, places=12)
-        self.assertAlmostEqual(float(ranker_pctl["bull_pullback_continuation"]), -20.0, places=12)
+        self.assertAlmostEqual(float(ranker_pctl["bull_pullback_continuation"]), -30.0, places=12)
         self.assertAlmostEqual(float(ranker_pctl["breakout_pullback_continuation"]), -10.0, places=12)
+        self.assertAlmostEqual(float(ranker_pctl["cross_sectional_momentum"]), -8.0, places=12)
         self.assertAlmostEqual(float(ranker_pctl["atr_breakout"]), 30.0, places=12)
         self.assertAlmostEqual(float(ranker_pctl["donchian_breakout"]), 20.0, places=12)
         # 负向放宽核心 alpha、正向缩量低质类型的方向性
         self.assertLess(float(pctl["bull_pullback_continuation"]), 0.0)
+        self.assertLess(float(pctl["cross_sectional_momentum"]), 0.0)
         self.assertGreater(float(pctl["atr_breakout"]), 0.0)
         self.assertLess(float(ranker_pctl["bull_pullback_continuation"]), 0.0)
+        self.assertLess(float(ranker_pctl["cross_sectional_momentum"]), 0.0)
         self.assertGreater(float(ranker_pctl["atr_breakout"]), 0.0)
         # 二次限流：硬性 notional 份额上限——低质/肥尾类型给低份额，核心 pullback 不设
-        self.assertAlmostEqual(cfg.resolve_signal_type_max_notional_pct("cross_sectional_momentum"), 0.10, places=12)
+        self.assertAlmostEqual(cfg.resolve_signal_type_max_notional_pct("cross_sectional_momentum"), 0.18, places=12)
         self.assertAlmostEqual(cfg.resolve_signal_type_max_notional_pct("atr_breakout"), 0.08, places=12)
         self.assertAlmostEqual(cfg.resolve_signal_type_max_notional_pct("donchian_breakout"), 0.06, places=12)
         self.assertAlmostEqual(cfg.resolve_signal_type_max_notional_pct("trend_acceleration_breakout"), 0.05, places=12)
         self.assertAlmostEqual(cfg.resolve_signal_type_max_notional_pct("tight_range_breakout"), 0.04, places=12)
         self.assertIsNone(cfg.resolve_signal_type_max_notional_pct("bull_pullback_continuation"))
+        self.assertEqual(int(cfg.max_concurrent_positions_total), 12)
 
     def test_signal_type_blacklist_defaults_and_normalization(self) -> None:
         default_cfg = OotEvaluationConfig()
@@ -339,7 +345,7 @@ class TestOotEvaluationConfigValidation(unittest.TestCase):
             {
                 "bull_pullback_continuation": 10,
                 "breakout_pullback_continuation": 8,
-                "cross_sectional_momentum": 2,
+                "cross_sectional_momentum": 4,
                 "trend_acceleration_breakout": 1,
                 "atr_breakout": 1,
                 "donchian_breakout": 1,
@@ -361,6 +367,65 @@ class TestOotEvaluationConfigValidation(unittest.TestCase):
     def test_signal_type_max_concurrent_rejects_invalid_values(self) -> None:
         with self.assertRaises(ValueError):
             OotEvaluationConfig(signal_type_max_concurrent_positions={"atr_breakout": 0})
+
+    def test_signal_type_allowlist_normalization_and_overlap_validation(self) -> None:
+        cfg = OotEvaluationConfig(
+            signal_type_allowlist=(
+                " Bull_Pullback_Continuation ",
+                "cross_sectional_momentum",
+                "bull_pullback_continuation",
+            ),
+            signal_type_blacklist=(),
+        )
+        self.assertEqual(
+            cfg.signal_type_allowlist,
+            ("bull_pullback_continuation", "cross_sectional_momentum"),
+        )
+        self.assertTrue(cfg.is_signal_type_allowed(" BULL_PULLBACK_CONTINUATION "))
+        self.assertFalse(cfg.is_signal_type_allowed("breakout_pullback_continuation"))
+        with self.assertRaises(ValueError):
+            OotEvaluationConfig(
+                signal_type_allowlist=("atr_breakout",),
+                signal_type_blacklist=("ATR_Breakout",),
+            )
+
+    def test_new_bigger_config_fields_normalize_and_validate(self) -> None:
+        cfg = OotEvaluationConfig(
+            disabled_intervals=("minute30", "30min"),
+            disabled_cluster_signal_interval_cells=(" Index|Bull_Pullback_Continuation|minute30 ",),
+            enabled_cluster_signal_interval_cells=("BLACK|Cross_Sectional_Momentum|day",),
+            min_pred_mfe_mae_ratio_by_signal_type_interval={
+                "Bull_Pullback_Continuation|minute30": 1.6
+            },
+            max_pred_mae_atr_by_signal_type_interval={"Cross_Sectional_Momentum|DAY": 1.5},
+            neutral_htf_size_multiplier_by_interval={"minute60": 0.5},
+            signal_type_min_reserved_slots={" Cross_Sectional_Momentum ": 3},
+        )
+        self.assertEqual(cfg.disabled_intervals, ("30min",))
+        self.assertEqual(
+            cfg.disabled_cluster_signal_interval_cells,
+            ("index|bull_pullback_continuation|30min",),
+        )
+        self.assertEqual(
+            cfg.enabled_cluster_signal_interval_cells,
+            ("black|cross_sectional_momentum|day",),
+        )
+        self.assertAlmostEqual(
+            float(cfg.min_pred_mfe_mae_ratio_by_signal_type_interval["bull_pullback_continuation|30min"]),
+            1.6,
+            places=12,
+        )
+        self.assertAlmostEqual(
+            float(cfg.max_pred_mae_atr_by_signal_type_interval["cross_sectional_momentum|day"]),
+            1.5,
+            places=12,
+        )
+        self.assertAlmostEqual(float(cfg.neutral_htf_size_multiplier_by_interval["60min"]), 0.5, places=12)
+        self.assertEqual(cfg.resolve_signal_type_min_reserved_slots("cross_sectional_momentum"), 3)
+        with self.assertRaises(ValueError):
+            OotEvaluationConfig(disabled_intervals=("bad_interval",))
+        with self.assertRaises(ValueError):
+            OotEvaluationConfig(signal_type_min_reserved_slots={"cross_sectional_momentum": -1})
 
     def test_rejects_out_of_range_risk_values(self) -> None:
         with self.assertRaises(ValueError):

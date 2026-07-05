@@ -5,6 +5,14 @@ from cta.model.oot.pipeline_oot_evaluation_base import BR_BLOCKED_CLUSTER_CAP, B
 from cta.model.oot.pipeline_oot_evaluation_base import DEFAULT_OOT_EVAL_CONFIG, EquityTracker, HtfGate, OpportunityRanker, OotEvaluationConfig, PortfolioState, PyramidManager, PyramidPosition, RiskThrottle
 from cta.model.oot.pipeline_oot_evaluation_base import _IntrabarBarCache, _build_position_lifetime_table, _calc_roll_cost, _log_block_reason_distribution, _resolve_contract_spec, _simulate_intrabar_exit
 from cta.model.oot.pipeline_oot_evaluation_base import dataclasses, infer_symbol_cluster, logger, normalize_interval, normalize_portfolio_interval, np, pd, simulate_trailing_exit
+from cta.model.oot.block_reasons import (
+    BR_BLOCKED_HARD_STOP_ENTRY_FILTER,
+    BR_BLOCKED_MINUTE30_CELL_STATE,
+    BR_BLOCKED_SIGNAL_TYPE_ALLOWLIST,
+    BR_BLOCKED_INTERVAL_CELL_GATE,
+)
+from cta.model.oot.hard_stop_entry_filter import apply_hard_stop_entry_filter
+from cta.model.oot.interval_cell_gate import build_cell_key
 from cta.model.oot.pipeline_oot_evaluation_gates import apply_oot_model_gates
 from cta.model.oot.pipeline_oot_evaluation_inputs import (
     apply_oot_liquidity_floor_guard,
@@ -83,13 +91,24 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
             - 为空时：保持旧行为，使用 ``prediction_df`` 作为 HTF 参考；; - 非空时：用于构建 day/60min 等 HTF state，解决单 interval 评估时
               ``htf_missing`` 过多的问题。
     """
-    monthly_cols = ['month', 'trade_count', 'win_count', 'loss_count', 'win_rate', 'gross_pnl', 'net_pnl', 'month_start_equity', 'month_end_equity', 'monthly_return_pct', 'monthly_excess_return_pct', 'cum_return_pct']; summary_cols = ['oot_rows', 'executed_rows', 'trade_count', 'selected_rows', 'blocked_rows', 'blocked_trade_filter_rows', 'blocked_regime_gate_rows', 'blocked_mfe_mae_rows', 'blocked_final_decision_rows', 'blocked_margin_cash_rows', 'blocked_leverage_rows', 'blocked_limit_move_rows', 'blocked_daily_position_rows', 'blocked_weekly_drawdown_rows', 'blocked_weekly_budget_rows', 'blocked_monthly_drawdown_rows', 'blocked_symbol_cap_rows', 'blocked_total_notional_rows', 'blocked_symbol_concurrent_rows', 'blocked_total_concurrent_rows', 'blocked_htf_rows', 'blocked_ranker_rows', 'blocked_throttle_rows', 'blocked_pyramid_rows', 'exit_datetime_fixup_rows', 'stop_loss_exit_rows', 'trailing_stop_exit_rows', 'horizon_exit_rows', 'monthly_obs', 'gross_pnl', 'net_pnl', 'roll_cost_total', 'total_return_pct', 'avg_monthly_return_pct', 'std_monthly_return_pct', 'monthly_excess_return_pct', 'std_monthly_excess_return_pct', 'monthly_sharpe', 'max_drawdown_pct', 'annualized_return_pct', 'calmar_like']
-    trade_cols = ['datetime', 'entry_datetime', 'signal_datetime', 'exit_datetime', 'exit_datetime_fixup', 'symbol', 'exchange', 'interval', 'signal_type', 'spread_pair_key', 'spread_side', 'spread_leg_id', 'spread_zscore_at_entry', 'spread_zscore_at_exit', 'spread_pnl_pct', 'side', 'entry_action', 'exit_action', 'execution_status', 'block_reason', 'entry_fill_datetime', 'entry_fill_price', 'planned_exit_datetime', 'planned_exit_price', 'stop_loss_price', 'stop_hit_datetime', 'stop_hit_price', 'stop_triggered', 'final_exit_datetime', 'final_exit_price', 'stop_tracking_interval', 'exit_reason', 'trailing_activated', 'trailing_stop_price', 'trailing_tp_active', 'trailing_tp_highwater', 'extensions_used', 'horizon_extended_to', 'pos_id', 'layer_id', 'layer_interval', 'htf_alignment', 'throttle_level_at_entry', 'ranker_score', 'ranker_score_threshold', 'model_signal_type', 'window_id', 'pred_split', 'entry_price', 'exit_price_ref', 'trigger', 'stop_price', 'trade_filter_prob', 'trade_filter_prob_pctl', 'trade_filter_cluster', 'trade_filter_gate_key', 'trade_filter_gate_mode', 'trade_filter_gate_score', 'trade_filter_gate_threshold', 'trend_aware_threshold_delta', 'trend_aware_relaxed', 'risk_effective_threshold', 'risk_lots_mult', 'risk_block_reason', 'liquidity_blocked', 'liquidity_block_reason', 'bull_strength_proxy', 'bull_mode', 'pred_regime_label', 'regime_label', 'ma_alignment', 'pred_mfe_atr', 'pred_mae_atr', 'final_decision_score', 'final_decision_model_kind', 'hold_extend_score', 'recommended_horizon_extension_bars', 'pyramid_add_score', 'pyramid_size_mult', 'pyramid_add_score_threshold', 'pyramid_size_mult_used', 'future_mfe_atr', 'future_mae_atr', 'future_pnl_atr', 'realized_return_atr', 'position_scale', 'position_notional', 'entry_amount', 'entry_margin', 'exit_amount', 'position_qty', 'contract_size', 'lot_size', 'margin_rate_used', 'max_loss_amount', 'expected_loss_pct', 'expected_loss_amount', 'available_cash_before_entry', 'margin_used_before_entry', 'open_notional_before_entry', 'open_notional_at_entry', 'position_notional_after_trade', 'weekly_drawdown_pct_before_entry', 'gross_return_pct', 'trade_return_pct', 'net_return_pct', 'gross_pnl', 'cost_pct', 'net_pnl', 'roll_cost', 'pnl_amount', 'equity_before', 'equity_after', 'month']; throttle_cols = ['timestamp', 'equity', 'drawdown_pct', 'weekly_return_pct', 'monthly_return_pct', 'level', 'score_threshold']
+    monthly_cols = ['month', 'trade_count', 'win_count', 'loss_count', 'win_rate', 'gross_pnl', 'net_pnl', 'month_start_equity', 'month_end_equity', 'monthly_return_pct', 'monthly_excess_return_pct', 'cum_return_pct']; summary_cols = ['oot_rows', 'executed_rows', 'trade_count', 'selected_rows', 'blocked_rows', 'blocked_signal_type_allowlist_rows', 'blocked_interval_cell_gate_rows', 'blocked_minute30_cell_state_rows', 'blocked_hard_stop_entry_filter_rows', 'blocked_trade_filter_rows', 'blocked_regime_gate_rows', 'blocked_mfe_mae_rows', 'blocked_final_decision_rows', 'blocked_margin_cash_rows', 'blocked_leverage_rows', 'blocked_limit_move_rows', 'blocked_daily_position_rows', 'blocked_weekly_drawdown_rows', 'blocked_weekly_budget_rows', 'blocked_monthly_drawdown_rows', 'blocked_symbol_cap_rows', 'blocked_total_notional_rows', 'blocked_symbol_concurrent_rows', 'blocked_total_concurrent_rows', 'blocked_htf_rows', 'blocked_ranker_rows', 'blocked_throttle_rows', 'blocked_pyramid_rows', 'exit_datetime_fixup_rows', 'stop_loss_exit_rows', 'trailing_stop_exit_rows', 'horizon_exit_rows', 'monthly_obs', 'gross_pnl', 'net_pnl', 'roll_cost_total', 'total_return_pct', 'avg_monthly_return_pct', 'std_monthly_return_pct', 'monthly_excess_return_pct', 'std_monthly_excess_return_pct', 'monthly_sharpe', 'max_drawdown_pct', 'annualized_return_pct', 'calmar_like']
+    trade_cols = ['datetime', 'entry_datetime', 'signal_datetime', 'exit_datetime', 'exit_datetime_fixup', 'symbol', 'exchange', 'interval', 'signal_type', 'spread_pair_key', 'spread_side', 'spread_leg_id', 'spread_zscore_at_entry', 'spread_zscore_at_exit', 'spread_pnl_pct', 'side', 'entry_action', 'exit_action', 'execution_status', 'block_reason', 'entry_fill_datetime', 'entry_fill_price', 'planned_exit_datetime', 'planned_exit_price', 'stop_loss_price', 'stop_hit_datetime', 'stop_hit_price', 'stop_triggered', 'final_exit_datetime', 'final_exit_price', 'stop_tracking_interval', 'exit_reason', 'trailing_activated', 'trailing_stop_price', 'breakeven_stop_lifted', 'trailing_tp_active', 'trailing_tp_highwater', 'extensions_used', 'horizon_extended_to', 'pos_id', 'layer_id', 'layer_interval', 'htf_alignment', 'throttle_level_at_entry', 'ranker_score', 'ranker_score_threshold', 'ranker_prob_pctl_threshold', 'reserved_slot_signal_type', 'reserved_slot_used', 'reserved_slot_rank', 'model_signal_type', 'window_id', 'pred_split', 'entry_price', 'exit_price_ref', 'trigger', 'stop_price', 'trade_filter_prob', 'trade_filter_prob_pctl', 'trade_filter_cluster', 'trade_filter_gate_key', 'trade_filter_gate_mode', 'trade_filter_gate_score', 'trade_filter_gate_threshold', 'trend_aware_threshold_delta', 'trend_aware_relaxed', 'risk_effective_threshold', 'risk_lots_mult', 'risk_block_reason', 'hard_stop_filter_reason', 'pred_mfe_mae_ratio', 'minute30_cell_closed_trades', 'minute30_cell_closed_net_pnl', 'minute30_cell_gate_pass', 'liquidity_blocked', 'liquidity_block_reason', 'bull_strength_proxy', 'bull_mode', 'pred_regime_label', 'regime_label', 'ma_alignment', 'pred_mfe_atr', 'pred_mae_atr', 'final_decision_score', 'final_decision_model_kind', 'hold_extend_score', 'recommended_horizon_extension_bars', 'pyramid_add_score', 'pyramid_size_mult', 'pyramid_add_score_threshold', 'pyramid_size_mult_used', 'future_mfe_atr', 'future_mae_atr', 'future_pnl_atr', 'realized_return_atr', 'position_scale', 'position_notional', 'entry_amount', 'entry_margin', 'exit_amount', 'position_qty', 'contract_size', 'lot_size', 'margin_rate_used', 'max_loss_amount', 'expected_loss_pct', 'expected_loss_amount', 'available_cash_before_entry', 'margin_used_before_entry', 'open_notional_before_entry', 'open_notional_at_entry', 'position_notional_after_trade', 'weekly_drawdown_pct_before_entry', 'gross_return_pct', 'trade_return_pct', 'net_return_pct', 'gross_pnl', 'cost_pct', 'net_pnl', 'roll_cost', 'pnl_amount', 'equity_before', 'equity_after', 'month']; throttle_cols = ['timestamp', 'equity', 'drawdown_pct', 'weekly_return_pct', 'monthly_return_pct', 'level', 'score_threshold']
 
     def _init_empty_extra_outputs() -> None:
         if extra_outputs is None:
             return
         extra_outputs['throttle_log'] = pd.DataFrame(columns=throttle_cols); extra_outputs['position_lifetime'] = _build_position_lifetime_table(pd.DataFrame(columns=trade_cols))
+
+    def _finalize_summary(summary: pd.DataFrame, trade_frame: pd.DataFrame | None = None) -> pd.DataFrame:
+        out_summary = summary.reindex(columns=summary_cols, fill_value=0).copy()
+        if trade_frame is None or trade_frame.empty or "execution_status" not in trade_frame.columns:
+            return out_summary
+        status = trade_frame["execution_status"].astype(str)
+        out_summary.loc[:, "blocked_signal_type_allowlist_rows"] = int((status == BR_BLOCKED_SIGNAL_TYPE_ALLOWLIST).sum())
+        out_summary.loc[:, "blocked_interval_cell_gate_rows"] = int((status == BR_BLOCKED_INTERVAL_CELL_GATE).sum())
+        out_summary.loc[:, "blocked_minute30_cell_state_rows"] = int((status == BR_BLOCKED_MINUTE30_CELL_STATE).sum())
+        out_summary.loc[:, "blocked_hard_stop_entry_filter_rows"] = int((status == BR_BLOCKED_HARD_STOP_ENTRY_FILTER).sum())
+        return out_summary
     if prediction_df.empty:
         _init_empty_extra_outputs(); return (pd.DataFrame(columns=monthly_cols), pd.DataFrame(columns=summary_cols), pd.DataFrame(columns=trade_cols))
     df = prediction_df.copy(); from cta.config.symbol_disable import mask_disabled_rows; df = mask_disabled_rows(df, symbol_column='symbol')
@@ -126,7 +145,7 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
         df = df.loc[exec_mask].copy()
     executed_rows = int(exec_mask.sum()) if cfg.require_executed_only else int(len(df))
     if df.empty:
-        summary = pd.DataFrame([{'oot_rows': oot_rows, 'executed_rows': executed_rows, 'trade_count': 0, 'selected_rows': 0, 'blocked_rows': 0, 'blocked_trade_filter_rows': 0, 'blocked_regime_gate_rows': 0, 'blocked_mfe_mae_rows': 0, 'blocked_final_decision_rows': 0, 'blocked_margin_cash_rows': 0, 'blocked_leverage_rows': 0, 'blocked_limit_move_rows': 0, 'blocked_daily_position_rows': 0, 'blocked_weekly_drawdown_rows': 0, 'blocked_weekly_budget_rows': 0, 'blocked_monthly_drawdown_rows': 0, 'blocked_symbol_cap_rows': 0, 'blocked_total_notional_rows': 0, 'blocked_symbol_concurrent_rows': 0, 'blocked_total_concurrent_rows': 0, 'blocked_htf_rows': 0, 'blocked_ranker_rows': 0, 'blocked_throttle_rows': 0, 'blocked_pyramid_rows': 0, 'exit_datetime_fixup_rows': 0, 'stop_loss_exit_rows': 0, 'trailing_stop_exit_rows': 0, 'horizon_exit_rows': 0, 'monthly_obs': 0, 'gross_pnl': 0.0, 'net_pnl': 0.0, 'roll_cost_total': 0.0, 'total_return_pct': 0.0, 'avg_monthly_return_pct': float('nan'), 'std_monthly_return_pct': float('nan'), 'monthly_excess_return_pct': float('nan'), 'std_monthly_excess_return_pct': float('nan'), 'monthly_sharpe': float('nan'), 'max_drawdown_pct': float('nan'), 'annualized_return_pct': float('nan'), 'calmar_like': float('nan')}]); return (pd.DataFrame(columns=monthly_cols), summary, pd.DataFrame(columns=trade_cols))
+        summary = pd.DataFrame([{'oot_rows': oot_rows, 'executed_rows': executed_rows, 'trade_count': 0, 'selected_rows': 0, 'blocked_rows': 0, 'blocked_trade_filter_rows': 0, 'blocked_regime_gate_rows': 0, 'blocked_mfe_mae_rows': 0, 'blocked_final_decision_rows': 0, 'blocked_margin_cash_rows': 0, 'blocked_leverage_rows': 0, 'blocked_limit_move_rows': 0, 'blocked_daily_position_rows': 0, 'blocked_weekly_drawdown_rows': 0, 'blocked_weekly_budget_rows': 0, 'blocked_monthly_drawdown_rows': 0, 'blocked_symbol_cap_rows': 0, 'blocked_total_notional_rows': 0, 'blocked_symbol_concurrent_rows': 0, 'blocked_total_concurrent_rows': 0, 'blocked_htf_rows': 0, 'blocked_ranker_rows': 0, 'blocked_throttle_rows': 0, 'blocked_pyramid_rows': 0, 'exit_datetime_fixup_rows': 0, 'stop_loss_exit_rows': 0, 'trailing_stop_exit_rows': 0, 'horizon_exit_rows': 0, 'monthly_obs': 0, 'gross_pnl': 0.0, 'net_pnl': 0.0, 'roll_cost_total': 0.0, 'total_return_pct': 0.0, 'avg_monthly_return_pct': float('nan'), 'std_monthly_return_pct': float('nan'), 'monthly_excess_return_pct': float('nan'), 'std_monthly_excess_return_pct': float('nan'), 'monthly_sharpe': float('nan'), 'max_drawdown_pct': float('nan'), 'annualized_return_pct': float('nan'), 'calmar_like': float('nan')}]).reindex(columns=summary_cols, fill_value=0); return (pd.DataFrame(columns=monthly_cols), summary, pd.DataFrame(columns=trade_cols))
     df, gate, model_block_reason = apply_oot_model_gates(df, cfg)
     df = apply_risk_orchestrator_columns(df, cfg)
     risk_block_reason = df.get("risk_block_reason", pd.Series([""] * len(df), index=df.index)).astype(str)
@@ -136,6 +155,11 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
             risk_block_mask
         ]
         gate = gate & (~risk_block_mask)
+    df = apply_hard_stop_entry_filter(df, cfg)
+    hard_stop_block = df.get("block_reason", pd.Series([""] * len(df), index=df.index)).astype(str) == BR_BLOCKED_HARD_STOP_ENTRY_FILTER
+    if bool(hard_stop_block.any()):
+        model_block_reason.loc[hard_stop_block & (model_block_reason == "")] = BR_BLOCKED_HARD_STOP_ENTRY_FILTER
+        gate = gate & (~hard_stop_block)
     df = apply_oot_liquidity_floor_guard(df, cfg)
     liquidity_block_mask = df.get("liquidity_blocked", pd.Series([False] * len(df), index=df.index)).astype(bool)
     if bool(liquidity_block_mask.any()):
@@ -175,8 +199,8 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
         selected['_model_pass'] = True
     if '_model_block_reason' not in selected.columns:
         selected['_model_block_reason'] = ''
-    model_pass = selected['_model_pass'].astype(bool); model_reason = selected['_model_block_reason'].astype(str); selected['execution_status'] = np.where(model_pass, 'pending', model_reason.replace('', BR_BLOCKED_FINAL_DECISION_GATE)); selected['block_reason'] = np.where(model_pass, '', model_reason.replace('', BR_BLOCKED_FINAL_DECISION_GATE)); selected['equity_before'] = np.nan; selected['equity_after'] = np.nan; selected['gross_pnl'] = 0.0; selected['net_pnl'] = 0.0; selected['roll_cost'] = 0.0; selected['pnl_amount'] = 0.0; selected['max_loss_amount'] = np.nan; selected['position_scale'] = 0.0; selected['position_notional'] = 0.0; selected['entry_amount'] = 0.0; selected['entry_margin'] = 0.0; selected['exit_amount'] = 0.0; selected['position_qty'] = np.nan; selected['contract_size'] = np.nan; selected['lot_size'] = np.nan; selected['margin_rate_used'] = np.nan; selected['expected_loss_pct'] = np.nan; selected['expected_loss_amount'] = np.nan; selected['available_cash_before_entry'] = np.nan; selected['margin_used_before_entry'] = np.nan; selected['open_notional_before_entry'] = np.nan; selected['open_notional_at_entry'] = np.nan; selected['position_notional_after_trade'] = np.nan; selected['weekly_drawdown_pct_before_entry'] = np.nan; selected['entry_fill_datetime'] = pd.NaT; selected['entry_fill_price'] = np.nan; selected['planned_exit_datetime'] = selected['exit_datetime']; selected['planned_exit_price'] = np.nan; selected['stop_loss_price'] = np.nan; selected['stop_hit_datetime'] = pd.NaT; selected['stop_hit_price'] = np.nan; selected['stop_triggered'] = 0; selected['final_exit_datetime'] = selected['exit_datetime']; selected['final_exit_price'] = np.nan; selected['stop_tracking_interval'] = ''; selected['exit_reason'] = ''; selected['trailing_activated'] = 0; selected['trailing_stop_price'] = np.nan; selected['trailing_tp_active'] = 0; selected['trailing_tp_highwater'] = np.nan; selected['pos_id'] = ''; selected['layer_id'] = np.nan; selected['layer_interval'] = ''; selected['htf_alignment'] = ''
-    selected['throttle_level_at_entry'] = ''; selected['ranker_score'] = np.nan; selected['ranker_score_threshold'] = np.nan
+    model_pass = selected['_model_pass'].astype(bool); model_reason = selected['_model_block_reason'].astype(str); selected['execution_status'] = np.where(model_pass, 'pending', model_reason.replace('', BR_BLOCKED_FINAL_DECISION_GATE)); selected['block_reason'] = np.where(model_pass, '', model_reason.replace('', BR_BLOCKED_FINAL_DECISION_GATE)); selected['equity_before'] = np.nan; selected['equity_after'] = np.nan; selected['gross_pnl'] = 0.0; selected['net_pnl'] = 0.0; selected['roll_cost'] = 0.0; selected['pnl_amount'] = 0.0; selected['max_loss_amount'] = np.nan; selected['position_scale'] = 0.0; selected['position_notional'] = 0.0; selected['entry_amount'] = 0.0; selected['entry_margin'] = 0.0; selected['exit_amount'] = 0.0; selected['position_qty'] = np.nan; selected['contract_size'] = np.nan; selected['lot_size'] = np.nan; selected['margin_rate_used'] = np.nan; selected['expected_loss_pct'] = np.nan; selected['expected_loss_amount'] = np.nan; selected['available_cash_before_entry'] = np.nan; selected['margin_used_before_entry'] = np.nan; selected['open_notional_before_entry'] = np.nan; selected['open_notional_at_entry'] = np.nan; selected['position_notional_after_trade'] = np.nan; selected['weekly_drawdown_pct_before_entry'] = np.nan; selected['entry_fill_datetime'] = pd.NaT; selected['entry_fill_price'] = np.nan; selected['planned_exit_datetime'] = selected['exit_datetime']; selected['planned_exit_price'] = np.nan; selected['stop_loss_price'] = np.nan; selected['stop_hit_datetime'] = pd.NaT; selected['stop_hit_price'] = np.nan; selected['stop_triggered'] = 0; selected['final_exit_datetime'] = selected['exit_datetime']; selected['final_exit_price'] = np.nan; selected['stop_tracking_interval'] = ''; selected['exit_reason'] = ''; selected['trailing_activated'] = 0; selected['trailing_stop_price'] = np.nan; selected['breakeven_stop_lifted'] = 0; selected['trailing_tp_active'] = 0; selected['trailing_tp_highwater'] = np.nan; selected['pos_id'] = ''; selected['layer_id'] = np.nan; selected['layer_interval'] = ''; selected['htf_alignment'] = ''
+    selected['throttle_level_at_entry'] = ''; selected['ranker_score'] = np.nan; selected['ranker_score_threshold'] = np.nan; selected['ranker_prob_pctl_threshold'] = np.nan; selected['reserved_slot_signal_type'] = ''; selected['reserved_slot_used'] = 0; selected['reserved_slot_rank'] = np.nan; selected['hard_stop_filter_reason'] = selected.get('hard_stop_filter_reason', ''); selected['pred_mfe_mae_ratio'] = selected.get('pred_mfe_mae_ratio', np.nan); selected['minute30_cell_closed_trades'] = np.nan; selected['minute30_cell_closed_net_pnl'] = np.nan; selected['minute30_cell_gate_pass'] = np.nan
     if 'pred_mae_atr' in selected.columns:
         pred_mae_series = pd.to_numeric(selected['pred_mae_atr'], errors='coerce')
     else:
@@ -198,6 +222,10 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
         selected.get('pyramid_size_mult', pd.Series(np.nan, index=selected.index, dtype=float)),
         errors='coerce',
     ).to_numpy(dtype=float)
+    risk_lots_mult_arr = pd.to_numeric(
+        selected.get('risk_lots_mult', pd.Series(1.0, index=selected.index, dtype=float)),
+        errors='coerce',
+    ).fillna(1.0).clip(lower=0.0).to_numpy(dtype=float)
     selected['pyramid_add_score_threshold'] = np.nan
     selected['pyramid_size_mult_used'] = np.nan
     selected['extensions_used'] = 0
@@ -243,7 +271,11 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
         ))
         runtime_caps_cfg = dataclasses.replace(
             base_caps,
-            max_total_positions=max(1, int(cfg.max_concurrent_positions_total)),
+            max_total_positions=max(
+                1,
+                int(cfg.max_concurrent_positions_total),
+                int(base_caps.max_total_positions),
+            ),
             max_total_per_cluster=max(
                 int(base_caps.max_total_per_cluster),
                 max(1, int(cfg.max_concurrent_positions_total)),
@@ -416,7 +448,7 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
                     stop_loss_pct=_row_stop_pct,
                     bars=bars,
                 )
-            selected.at[idx, 'entry_fill_datetime'] = sim['entry_fill_datetime']; selected.at[idx, 'entry_fill_price'] = sim['entry_fill_price']; selected.at[idx, 'planned_exit_datetime'] = sim['planned_exit_datetime']; selected.at[idx, 'planned_exit_price'] = sim['planned_exit_price']; selected.at[idx, 'stop_loss_price'] = sim['stop_loss_price']; selected.at[idx, 'stop_hit_datetime'] = sim['stop_hit_datetime']; selected.at[idx, 'stop_hit_price'] = sim['stop_hit_price']; selected.at[idx, 'stop_triggered'] = int(sim['stop_triggered']); selected.at[idx, 'final_exit_datetime'] = sim['final_exit_datetime']; selected.at[idx, 'final_exit_price'] = sim['final_exit_price']; selected.at[idx, 'stop_tracking_interval'] = used_interval; selected.at[idx, 'exit_reason'] = sim['exit_reason']; selected.at[idx, 'trailing_activated'] = int(sim.get('trailing_activated', 0)); selected.at[idx, 'trailing_stop_price'] = sim.get('trailing_stop_price', np.nan); selected.at[idx, 'trailing_tp_active'] = int(sim.get('trailing_tp_active', 0)); selected.at[idx, 'trailing_tp_highwater'] = sim.get('trailing_tp_highwater', np.nan); selected.at[idx, 'extensions_used'] = int(sim.get('extensions_used', 0)); selected.at[idx, 'horizon_extended_to'] = int(sim.get('horizon_extended_to', 0)); ret = float(sim['price_return_pct']) if np.isfinite(sim['price_return_pct']) else float('nan')
+            selected.at[idx, 'entry_fill_datetime'] = sim['entry_fill_datetime']; selected.at[idx, 'entry_fill_price'] = sim['entry_fill_price']; selected.at[idx, 'planned_exit_datetime'] = sim['planned_exit_datetime']; selected.at[idx, 'planned_exit_price'] = sim['planned_exit_price']; selected.at[idx, 'stop_loss_price'] = sim['stop_loss_price']; selected.at[idx, 'stop_hit_datetime'] = sim['stop_hit_datetime']; selected.at[idx, 'stop_hit_price'] = sim['stop_hit_price']; selected.at[idx, 'stop_triggered'] = int(sim['stop_triggered']); selected.at[idx, 'final_exit_datetime'] = sim['final_exit_datetime']; selected.at[idx, 'final_exit_price'] = sim['final_exit_price']; selected.at[idx, 'stop_tracking_interval'] = used_interval; selected.at[idx, 'exit_reason'] = sim['exit_reason']; selected.at[idx, 'trailing_activated'] = int(sim.get('trailing_activated', 0)); selected.at[idx, 'trailing_stop_price'] = sim.get('trailing_stop_price', np.nan); selected.at[idx, 'breakeven_stop_lifted'] = int(sim.get('breakeven_stop_lifted', 0)); selected.at[idx, 'trailing_tp_active'] = int(sim.get('trailing_tp_active', 0)); selected.at[idx, 'trailing_tp_highwater'] = sim.get('trailing_tp_highwater', np.nan); selected.at[idx, 'extensions_used'] = int(sim.get('extensions_used', 0)); selected.at[idx, 'horizon_extended_to'] = int(sim.get('horizon_extended_to', 0)); ret = float(sim['price_return_pct']) if np.isfinite(sim['price_return_pct']) else float('nan')
             if np.isfinite(ret):
                 _row_stop_pct = float(intrabar_stop_pct_arr[idx]) if idx < len(intrabar_stop_pct_arr) else _intrabar_default; _row_cost_pct = float(cost_pct_arr[idx]) if idx < len(cost_pct_arr) else float(cfg.commission_pct_per_trade) + float(cfg.slippage_pct_per_trade); g = max(ret, -_row_stop_pct); gross_pct_arr[idx] = float(g); net_pct_arr[idx] = float(g - _row_cost_pct)
         selected['gross_return_pct'] = pd.Series(gross_pct_arr, index=selected.index, dtype=float); selected['trade_return_pct'] = pd.Series(net_pct_arr, index=selected.index, dtype=float); selected['net_return_pct'] = selected['trade_return_pct']; final_exit_dt = pd.to_datetime(selected['final_exit_datetime'], errors='coerce'); valid_final = final_exit_dt.notna(); selected.loc[valid_final, 'exit_datetime'] = final_exit_dt.loc[valid_final]
@@ -448,6 +480,44 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
     if missing_symbol_count > 0:
         logger.warning('OOT evaluator: %d/%d rows missing symbol; per-symbol cap will be skipped for these rows (organization cap still applies). check upstream feature pipeline.', missing_symbol_count, int(len(symbol_arr)))
     day_key: pd.Timestamp | None = None; day_start_equity = float(cfg.initial_capital); day_new_notional = 0.0; week_key: pd.Timestamp | None = None; week_peak_equity = float(cfg.initial_capital); week_dd_breached = False; month_key: pd.Timestamp | None = None; month_peak_equity = float(cfg.initial_capital); month_dd_breached = False; throttle_log_rows: list[dict[str, Any]] = []; entries_map: dict[pd.Timestamp, list[int]] = {}; exits_map: dict[pd.Timestamp, list[int]] = {}
+    minute30_closed_history: dict[str, list[tuple[pd.Timestamp, float]]] = {}
+
+    def _minute30_cell_key_for_idx(idx: int) -> str:
+        try:
+            return build_cell_key(selected.iloc[int(idx)])
+        except Exception:
+            signal_type_key = str(signal_type_arr[idx]).strip().lower() if idx < len(signal_type_arr) else ""
+            interval_key = normalize_portfolio_interval(selected.iloc[idx].get("interval", ""))
+            return f"{infer_symbol_cluster(str(symbol_arr[idx]))}|{signal_type_key}|{interval_key}"
+
+    def _minute30_cell_state(idx: int, as_of: pd.Timestamp) -> tuple[int, float, bool]:
+        key = _minute30_cell_key_for_idx(idx)
+        lookback_months = int(getattr(cfg, "minute30_positive_cell_lookback_months", 6))
+        cutoff = pd.Timestamp(as_of) - pd.DateOffset(months=lookback_months)
+        rows = [
+            (exit_ts, pnl)
+            for exit_ts, pnl in minute30_closed_history.get(key, [])
+            if pd.Timestamp(exit_ts) < pd.Timestamp(as_of) and pd.Timestamp(exit_ts) >= cutoff
+        ]
+        count = int(len(rows))
+        pnl_sum = float(sum(float(pnl) for _, pnl in rows))
+        pass_gate = count >= int(getattr(cfg, "minute30_positive_cell_min_trades", 20)) and pnl_sum > float(getattr(cfg, "minute30_positive_cell_min_net_pnl", 0.0))
+        return count, pnl_sum, bool(pass_gate)
+
+    def _minute30_shadow_pnl_for_idx(idx: int) -> float:
+        row = selected.iloc[int(idx)]
+        for col in ("shadow_net_pnl", "shadow_pnl", "candidate_net_pnl"):
+            if col in row.index:
+                val = pd.to_numeric(pd.Series([row.get(col, np.nan)]), errors="coerce").iloc[0]
+                if np.isfinite(val):
+                    return float(val)
+        interval_key = normalize_portfolio_interval(row.get("interval", ""))
+        signal_type_key = str(row.get("signal_type", "")).strip().lower()
+        risk_mult = float(risk_lots_mult_arr[idx]) if idx < len(risk_lots_mult_arr) else 1.0
+        scale = float(cfg.resolve_effective_position_scale_cap(signal_type_key, interval_key)) * max(0.0, risk_mult)
+        pct = pd.to_numeric(pd.Series([row.get("trade_return_pct", row.get("net_return_pct", 0.0))]), errors="coerce").iloc[0]
+        pct = float(pct) if np.isfinite(pct) else 0.0
+        return float(pct * float(cfg.initial_capital) * max(0.0, scale))
     for idx in range(n):
         ent = pd.to_datetime(selected.iloc[idx]['entry_datetime'], errors='coerce'); exi = pd.to_datetime(selected.iloc[idx]['exit_datetime'], errors='coerce')
         if pd.isna(ent) or pd.isna(exi) or exi < ent:
@@ -466,6 +536,12 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
             month_key = cur_month; month_peak_equity = float(cash); month_dd_breached = False
         for idx in exits_map.get(ts, []):
             if idx not in open_positions:
+                status_now = str(selected.at[idx, 'execution_status'])
+                interval_now = normalize_portfolio_interval(selected.iloc[idx].get('interval', ''))
+                if status_now == BR_BLOCKED_MINUTE30_CELL_STATE and interval_now == '30min':
+                    minute30_closed_history.setdefault(_minute30_cell_key_for_idx(idx), []).append(
+                        (pd.Timestamp(ts), _minute30_shadow_pnl_for_idx(int(idx)))
+                    )
                 continue
             pos = open_positions.pop(idx); margin_used = max(0.0, float(margin_used - float(pos['margin']))); open_notional = max(0.0, float(open_notional - float(pos['notional']))); pos_sym = str(pos.get('symbol', '')); pos_signal_type = str(pos.get('signal_type', '')).strip().lower(); runtime_state.remove_position(str(pos.get('pos_id', '')))
             if pos_signal_type:
@@ -487,6 +563,8 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
                 if len(pos_ref.active_layers) == 0:
                     active_pyramid_by_sym_dir.pop(sym_dir, None)
             gross_pnl = float(pos['notional']) * float(pos['gross_ret_pct']); roll_cost = _calc_roll_cost(symbol=pos_sym, notional=float(pos['notional']), entry_ts=pd.Timestamp(pos.get('entry_ts', ts)), exit_ts=pd.Timestamp(ts), cfg=cfg); net_pnl = float(pos['notional']) * float(pos['net_ret_pct']) - float(roll_cost); cash = float(cash + net_pnl); selected.at[idx, 'equity_before'] = float(pos['entry_equity']); selected.at[idx, 'equity_after'] = float(cash); selected.at[idx, 'gross_pnl'] = gross_pnl; selected.at[idx, 'net_pnl'] = net_pnl; selected.at[idx, 'roll_cost'] = float(roll_cost); selected.at[idx, 'pnl_amount'] = net_pnl; selected.at[idx, 'entry_amount'] = float(pos['notional']); selected.at[idx, 'exit_amount'] = float(pos['notional'] + net_pnl); selected.at[idx, 'position_notional_after_trade'] = float(open_notional); selected.at[idx, 'execution_status'] = 'executed'
+            if normalize_portfolio_interval(pos.get('interval', selected.iloc[idx].get('interval', ''))) == '30min':
+                minute30_closed_history.setdefault(_minute30_cell_key_for_idx(idx), []).append((pd.Timestamp(ts), float(net_pnl)))
         week_peak_equity = max(float(week_peak_equity), float(cash)); month_peak_equity = max(float(month_peak_equity), float(cash))
         if week_peak_equity > 0:
             dd_now = float(cash / week_peak_equity - 1.0)
@@ -503,6 +581,25 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
                 for idx in pending_entries:
                     selected.at[idx, 'execution_status'] = 'blocked_throttle_halt'; selected.at[idx, 'block_reason'] = 'blocked_throttle_halt'; selected.at[idx, 'equity_before'] = float(cash); selected.at[idx, 'equity_after'] = float(cash); selected.at[idx, 'throttle_level_at_entry'] = throttle_level_name
                 entry_order = []
+        if bool(getattr(cfg, 'use_minute30_positive_cell_gate', False)) and entry_order:
+            kept_entry_order: list[int] = []
+            for idx in entry_order:
+                interval_key = normalize_portfolio_interval(selected.iloc[idx].get('interval', ''))
+                if interval_key != '30min':
+                    kept_entry_order.append(int(idx))
+                    continue
+                closed_count, closed_pnl, pass_gate = _minute30_cell_state(int(idx), pd.Timestamp(ts))
+                selected.at[idx, 'minute30_cell_closed_trades'] = int(closed_count)
+                selected.at[idx, 'minute30_cell_closed_net_pnl'] = float(closed_pnl)
+                selected.at[idx, 'minute30_cell_gate_pass'] = int(pass_gate)
+                if not pass_gate:
+                    selected.at[idx, 'execution_status'] = BR_BLOCKED_MINUTE30_CELL_STATE
+                    selected.at[idx, 'block_reason'] = BR_BLOCKED_MINUTE30_CELL_STATE
+                    selected.at[idx, 'equity_before'] = float(cash)
+                    selected.at[idx, 'equity_after'] = float(cash)
+                    continue
+                kept_entry_order.append(int(idx))
+            entry_order = kept_entry_order
         if use_pl_htf and htf_gate is not None and entry_order:
             if ts not in htf_state_cache:
                 htf_state_cache[ts] = htf_gate.compute_htf_state(htf_ref_by_interval, as_of=pd.Timestamp(ts))
@@ -632,15 +729,68 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
             else:
                 score_threshold_for_bar = float(pl_cfg.ranker.score_threshold_baseline)
 
-            picks = ranker.allocate(
-                scored,
+            reserved_frames: list[pd.DataFrame] = []
+            remaining_scored = scored.copy()
+            reserved_cfg = dict(getattr(cfg, 'signal_type_min_reserved_slots', {}) or {})
+            if reserved_cfg and not remaining_scored.empty and 'signal_type' in remaining_scored.columns:
+                for reserved_st, reserved_min in reserved_cfg.items():
+                    available_reserved = max(
+                        0,
+                        int(reserved_min) - int(signal_type_open_counts.get(str(reserved_st).strip().lower(), 0)),
+                    )
+                    if available_reserved <= 0:
+                        continue
+                    st_mask = remaining_scored['signal_type'].astype(str).str.strip().str.lower() == str(reserved_st).strip().lower()
+                    st_scored = remaining_scored.loc[st_mask].sort_values('score', ascending=False)
+                    if st_scored.empty:
+                        continue
+                    caps_reserved = dataclasses.replace(
+                        caps_eff,
+                        max_total_positions=min(
+                            int(caps_eff.max_total_positions),
+                            int(state.total_positions) + int(available_reserved),
+                        ),
+                    )
+                    picks_reserved = ranker.allocate(
+                        st_scored,
+                        state=state,
+                        caps=caps_reserved,
+                        score_threshold=float(score_threshold_for_bar),
+                        min_prob_pctl=float(min_prob_pctl_for_bar),
+                    )
+                    if picks_reserved.empty:
+                        continue
+                    picks_reserved = picks_reserved.copy()
+                    picks_reserved['reserved_slot_signal_type'] = str(reserved_st).strip().lower()
+                    picks_reserved['reserved_slot_used'] = 1
+                    picks_reserved['reserved_slot_rank'] = range(1, len(picks_reserved) + 1)
+                    reserved_frames.append(picks_reserved)
+                    used_idx = set(picks_reserved.get('_row_idx', pd.Series([], dtype=int)).astype(int).tolist())
+                    remaining_scored = remaining_scored.loc[
+                        ~remaining_scored.get('_row_idx', pd.Series([], dtype=int)).astype(int).isin(used_idx)
+                    ].copy()
+            picks_general = ranker.allocate(
+                remaining_scored,
                 state=state,
                 caps=caps_eff,
                 score_threshold=float(score_threshold_for_bar),
                 min_prob_pctl=float(min_prob_pctl_for_bar),
             )
+            pick_frames = [frame for frame in [*reserved_frames, picks_general] if frame is not None and not frame.empty]
+            picks = pd.concat(pick_frames, axis=0, ignore_index=True, sort=False) if pick_frames else pd.DataFrame(columns=scored.columns)
             selected_idx = {int(x) for x in picks.get('_row_idx', pd.Series([], dtype=int)).tolist()}
             ranker_entry_order = [int(x) for x in scored.get('_row_idx', pd.Series([], dtype=int)).tolist()]
+            if not picks.empty:
+                for _, row in picks.iterrows():
+                    ridx = int(row.get('_row_idx'))
+                    reserved_used_raw = pd.to_numeric(
+                        pd.Series([row.get('reserved_slot_used', 0)]),
+                        errors='coerce',
+                    ).fillna(0).iloc[0]
+                    if int(reserved_used_raw):
+                        selected.at[ridx, 'reserved_slot_signal_type'] = str(row.get('reserved_slot_signal_type', ''))
+                        selected.at[ridx, 'reserved_slot_used'] = 1
+                        selected.at[ridx, 'reserved_slot_rank'] = float(row.get('reserved_slot_rank', np.nan))
             for idx in ranker_entry_order:
                 selected.at[idx, 'ranker_score_threshold'] = float(score_threshold_for_bar)
                 selected.at[idx, 'ranker_prob_pctl_threshold'] = float(min_prob_pctl_for_bar)
@@ -687,11 +837,13 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
                 expected_loss_pct = float(cfg.max_single_loss_pct); position_scale = float(min(eff_pos_cap, 1.0))
             if week_dd_breached:
                 position_scale = float(position_scale * float(cfg.weekly_dd_position_scale_after_breach))
+            if idx < len(risk_lots_mult_arr):
+                position_scale = float(position_scale * float(risk_lots_mult_arr[idx]))
             position_scale = max(position_scale, 0.0); desired_notional = max(0.0, float(entry_equity * position_scale)); sym_key = str(symbol_arr[idx]) if idx < len(symbol_arr) else ''; ex_key = str(exchange_arr[idx]) if idx < len(exchange_arr) else ''; signal_type_key = str(signal_type_arr[idx]).strip().lower() if idx < len(signal_type_arr) else ''; signal_type_cap = cfg.resolve_signal_type_max_concurrent(signal_type_key); contract_size, lot_size, margin_rate_cfg = _resolve_contract_spec(cfg, sym_key); margin_rate = max(float(margin_rate_cfg), 1e-09); notional = desired_notional; reason = ''; cluster_key = infer_symbol_cluster(sym_key); sym_dir_key = (sym_key, ex_key, side_now); sym_tuple = (str(sym_key).upper(), str(ex_key).upper()); sym_notional_now = float(runtime_state.symbol_notional.get(sym_tuple, 0.0)); sym_count_now = int(runtime_state.symbol_counts.get(sym_tuple, 0)); cluster_notional_now = float(runtime_state.cluster_notional.get(cluster_key, 0.0)); cluster_count_now = int(runtime_state.cluster_counts.get(cluster_key, 0)); total_count_now = int(runtime_state.total_positions); signal_type_count_now = int(signal_type_open_counts.get(signal_type_key, 0)); signal_type_notional_now = float(signal_type_open_notional.get(signal_type_key, 0.0)); signal_type_notional_pct = cfg.resolve_signal_type_max_notional_pct(signal_type_key); is_add_layer = False; current_pos_obj: PyramidPosition | None = None
             if use_pl_pyramid and pyramid_manager is not None:
                 current_pos_obj = active_pyramid_by_sym_dir.get(sym_dir_key)
                 if current_pos_obj is not None:
-                    ent_for_add = float(ent_fill) if np.isfinite(ent_fill) else float(entry_price_arr[idx]) if np.isfinite(entry_price_arr[idx]) else 0.0; can_add = pyramid_manager.decide_add_layer(pos=current_pos_obj, new_interval=normalize_portfolio_interval(selected.iloc[idx].get('interval', '')), current_time=pd.Timestamp(ts), current_price=ent_for_add, min_profit_atr_to_add=float(pl_cfg.pyramid.min_profit_atr_to_add), htf_aligned=True); add_score = float(pyramid_add_score_arr[idx]) if idx < len(pyramid_add_score_arr) and np.isfinite(pyramid_add_score_arr[idx]) else float('nan'); add_score_threshold = float(getattr(pl_cfg.pyramid, 'min_model_add_score', 0.0)); selected.at[idx, 'pyramid_add_score_threshold'] = add_score_threshold; size_mult_used = 1.0
+                    ent_for_add = float(ent_fill) if np.isfinite(ent_fill) else float(entry_price_arr[idx]) if np.isfinite(entry_price_arr[idx]) else 0.0; can_add = pyramid_manager.decide_add_layer(pos=current_pos_obj, new_interval=normalize_portfolio_interval(selected.iloc[idx].get('interval', '')), new_signal_type=signal_type_key, current_time=pd.Timestamp(ts), current_price=ent_for_add, min_profit_atr_to_add=float(pl_cfg.pyramid.min_profit_atr_to_add), htf_aligned=True); add_score = float(pyramid_add_score_arr[idx]) if idx < len(pyramid_add_score_arr) and np.isfinite(pyramid_add_score_arr[idx]) else float('nan'); add_score_threshold = float(getattr(pl_cfg.pyramid, 'min_model_add_score', 0.0)); selected.at[idx, 'pyramid_add_score_threshold'] = add_score_threshold; size_mult_used = 1.0
                     if bool(getattr(pl_cfg.pyramid, 'apply_model_add_score_gate', False)) and np.isfinite(add_score) and add_score < add_score_threshold:
                         can_add = False
                     if bool(getattr(pl_cfg.pyramid, 'apply_model_size_multiplier', False)):
@@ -837,7 +989,7 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
                 selected.at[idx, 'pos_id'] = str(pos_obj.pos_id); selected.at[idx, 'layer_id'] = int(layer_id); selected.at[idx, 'layer_interval'] = normalize_portfolio_interval(selected.iloc[idx].get('interval', '')); idx_layer_ref[idx] = (pos_obj, int(layer_id))
             else:
                 selected.at[idx, 'pos_id'] = f'{sym_key}_{ex_key}_{side_now}_{pd.Timestamp(ts).isoformat()}'; selected.at[idx, 'layer_id'] = 0; selected.at[idx, 'layer_interval'] = normalize_portfolio_interval(selected.iloc[idx].get('interval', ''))
-            pos_id_now = str(selected.at[idx, 'pos_id']); open_positions[idx] = {'notional': notional, 'margin': margin, 'gross_ret_pct': float(gross_pct_arr[idx]), 'net_ret_pct': float(net_pct_arr[idx]), 'entry_equity': entry_equity, 'symbol': sym_key, 'exchange': ex_key, 'side': side_now, 'signal_type': signal_type_key, 'cluster': cluster_key, 'pos_id': pos_id_now, 'layer_id': int(pd.to_numeric(pd.Series([selected.at[idx, 'layer_id']]), errors='coerce').fillna(0).iloc[0]), 'entry_ts': pd.Timestamp(ts)}
+            pos_id_now = str(selected.at[idx, 'pos_id']); open_positions[idx] = {'notional': notional, 'margin': margin, 'gross_ret_pct': float(gross_pct_arr[idx]), 'net_ret_pct': float(net_pct_arr[idx]), 'entry_equity': entry_equity, 'symbol': sym_key, 'exchange': ex_key, 'side': side_now, 'signal_type': signal_type_key, 'interval': normalize_portfolio_interval(selected.iloc[idx].get('interval', '')), 'cluster': cluster_key, 'pos_id': pos_id_now, 'layer_id': int(pd.to_numeric(pd.Series([selected.at[idx, 'layer_id']]), errors='coerce').fillna(0).iloc[0]), 'entry_ts': pd.Timestamp(ts)}
             if signal_type_key:
                 signal_type_open_counts[signal_type_key] = int(signal_type_open_counts.get(signal_type_key, 0) + 1)
                 signal_type_open_notional[signal_type_key] = float(signal_type_open_notional.get(signal_type_key, 0.0) + float(notional))
@@ -949,7 +1101,7 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
         trade_df = selected.reindex(columns=trade_cols).copy()
         if extra_outputs is not None:
             extra_outputs['throttle_log'] = pd.DataFrame(throttle_log_rows, columns=throttle_cols); extra_outputs['position_lifetime'] = _build_position_lifetime_table(trade_df)
-        _log_block_reason_distribution(trade_df, path_marker='early_return'); return (pd.DataFrame(columns=monthly_cols), summary[summary_cols], trade_df)
+        _log_block_reason_distribution(trade_df, path_marker='early_return'); return (pd.DataFrame(columns=monthly_cols), _finalize_summary(summary, selected), trade_df)
     executed['month'] = pd.to_datetime(executed['exit_datetime'], errors='coerce').dt.to_period('M').dt.to_timestamp(); monthly = executed.groupby('month', as_index=False).agg(trade_count=('net_pnl', 'size'), win_count=('net_pnl', lambda s: int((pd.Series(s) > 0.0).sum())), loss_count=('net_pnl', lambda s: int((pd.Series(s) < 0.0).sum())), win_rate=('net_pnl', lambda s: float((pd.Series(s) > 0.0).mean())), gross_pnl=('gross_pnl', 'sum'), net_pnl=('net_pnl', 'sum')).sort_values('month').reset_index(drop=True); start_cap = float(cfg.initial_capital); month_start_arr: list[float] = []; month_end_arr: list[float] = []; cur_eq = start_cap
     for _, r in monthly.iterrows():
         month_start_arr.append(float(cur_eq)); net_v = float(pd.to_numeric(pd.Series([r.get('net_pnl', 0.0)]), errors='coerce').fillna(0.0).iloc[0]); cur_eq = float(cur_eq + net_v); month_end_arr.append(float(cur_eq))
@@ -968,7 +1120,7 @@ def _evaluate_oot_real_execution(prediction_df: pd.DataFrame, *, cfg: OotEvaluat
     trade_df = selected.reindex(columns=trade_cols).copy()
     if extra_outputs is not None:
         extra_outputs['throttle_log'] = pd.DataFrame(throttle_log_rows, columns=throttle_cols); extra_outputs['position_lifetime'] = _build_position_lifetime_table(trade_df)
-    _log_block_reason_distribution(trade_df, path_marker='main'); return (monthly[monthly_cols], summary[summary_cols], trade_df)
+    _log_block_reason_distribution(trade_df, path_marker='main'); return (monthly[monthly_cols], _finalize_summary(summary, selected), trade_df)
 
 
 __all__ = ["_evaluate_oot_real_execution", "_build_position_lifetime_table"]

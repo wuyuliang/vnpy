@@ -77,6 +77,21 @@ def _normalize_signal_type_interval_key(field_name: str, key: object) -> tuple[s
     return signal_type, interval, f"{signal_type}|{interval}"
 
 
+def _normalize_cluster_signal_interval_key(field_name: str, key: object) -> str:
+    parts = str(key).strip().lower().split("|")
+    if len(parts) != 3 or not parts[0] or not parts[1] or not parts[2]:
+        raise ValueError(f"{field_name} key must be 'cluster|signal_type|interval', got {key!r}")
+    cluster = str(parts[0]).strip().lower()
+    signal_type = str(parts[1]).strip().lower()
+    interval = normalize_portfolio_interval(parts[2])
+    if interval not in _KNOWN_INTERVALS:
+        raise ValueError(
+            f"{field_name} unknown interval {parts[2]!r} (normalized {interval!r}); "
+            f"allowed={sorted(_KNOWN_INTERVALS)}"
+        )
+    return f"{cluster}|{signal_type}|{interval}"
+
+
 @dataclass(frozen=True)
 class OotEvaluationConfig:
     """Configuration for OOT monthly return + sharpe evaluation.
@@ -94,7 +109,7 @@ class OotEvaluationConfig:
     # P1.3: 以最终决策模型（stacking）为主 gate；缺列时回退到三段 gate。
     use_stacking_gate: bool = True
     stacking_score_column: str = "final_decision_score"
-    stacking_score_threshold: float = 0.55
+    stacking_score_threshold: float = 0.50
     stacking_gate_overrides_individual_gates: bool = True
 
     use_trade_filter_gate: bool = True
@@ -127,9 +142,9 @@ class OotEvaluationConfig:
     # 口径：先用 trade_filter 阈值做粗分流，再用并发/名义上限做二次限流。
     trade_filter_raw_threshold_delta_by_signal_type: dict[str, float] = field(
         default_factory=lambda: {
-            "bull_pullback_continuation": -0.08,
+            "bull_pullback_continuation": -0.10,
             "breakout_pullback_continuation": -0.06,
-            "cross_sectional_momentum": 0.03,
+            "cross_sectional_momentum": -0.04,
             "trend_acceleration_breakout": 0.08,
             "atr_breakout": 0.15,
             "donchian_breakout": 0.12,
@@ -138,9 +153,9 @@ class OotEvaluationConfig:
     )
     trade_filter_percentile_threshold_delta_by_signal_type: dict[str, float] = field(
         default_factory=lambda: {
-            "bull_pullback_continuation": -20.0,
+            "bull_pullback_continuation": -28.0,
             "breakout_pullback_continuation": -16.0,
-            "cross_sectional_momentum": 6.0,
+            "cross_sectional_momentum": -12.0,
             "trend_acceleration_breakout": 15.0,
             "atr_breakout": 30.0,
             "donchian_breakout": 25.0,
@@ -162,9 +177,9 @@ class OotEvaluationConfig:
     # 代码上等价为：effective_prob_pctl = clip(raw_prob_pctl - delta, 0, 100)。
     ranker_prob_pctl_delta_by_signal_type: dict[str, float] = field(
         default_factory=lambda: {
-            "bull_pullback_continuation": -20.0,
+            "bull_pullback_continuation": -30.0,
             "breakout_pullback_continuation": -10.0,
-            "cross_sectional_momentum": 8.0,
+            "cross_sectional_momentum": -8.0,
             "trend_acceleration_breakout": 15.0,
             "atr_breakout": 30.0,
             "donchian_breakout": 20.0,
@@ -194,6 +209,17 @@ class OotEvaluationConfig:
         "trend_acceleration_breakout",
         "bull_volatility_contraction_breakout",
     )
+    # 统一账户主口径的开仓 allowlist。命中 allowlist 外的 signal_type 会保留到诊断表，
+    # 但不参与后续模型 gate / ranker / 组合开仓。
+    use_signal_type_allowlist: bool = True
+    signal_type_allowlist: tuple[str, ...] = (
+        "bull_pullback_continuation",
+        "cross_sectional_momentum",
+    )
+    # 静态 interval/cell gate。cell key: cluster|signal_type|interval。
+    disabled_intervals: tuple[str, ...] = ()
+    disabled_cluster_signal_interval_cells: tuple[str, ...] = ()
+    enabled_cluster_signal_interval_cells: tuple[str, ...] = ()
     # bull_mode 识别配置（score 优先用 bull_strength_score 列，不存在时回退到 trade_filter_prob_pctl）
     bull_strength_score_column: str = "bull_strength_score"
     bull_attack_percentile_threshold: float = 70.0
@@ -206,6 +232,12 @@ class OotEvaluationConfig:
     use_mfe_mae_gate: bool = True
     mae_penalty: float = LABEL_MAE_PENALTY
     min_pred_edge_atr: float = 0.0
+    # hard-stop entry prefilter / sizing cut. key: signal_type|interval.
+    use_hard_stop_entry_filter: bool = False
+    min_pred_mfe_mae_ratio_by_signal_type_interval: dict[str, float] = field(default_factory=dict)
+    max_pred_mae_atr_by_signal_type_interval: dict[str, float] = field(default_factory=dict)
+    neutral_htf_size_multiplier_by_interval: dict[str, float] = field(default_factory=dict)
+    high_mae_size_multiplier: float = 0.5
 
     # 资金与交易成本参数（净值口径）
     initial_capital: float = 10_000_000.0
@@ -260,17 +292,20 @@ class OotEvaluationConfig:
         default_factory=lambda: {
             "bull_pullback_continuation": 10,
             "breakout_pullback_continuation": 8,
-            "cross_sectional_momentum": 2,
+            "cross_sectional_momentum": 4,
             "trend_acceleration_breakout": 1,
             "atr_breakout": 1,
             "donchian_breakout": 1,
             "tight_range_breakout": 1,
         }
     )
+    signal_type_min_reserved_slots: dict[str, int] = field(
+        default_factory=lambda: {"cross_sectional_momentum": 3}
+    )
     # 按 signal_type 限"未平仓累计名义 / 当时权益"份额。未配置的类型不额外限制（None）。
     signal_type_max_notional_pct: dict[str, float] = field(
         default_factory=lambda: {
-            "cross_sectional_momentum": 0.10,
+            "cross_sectional_momentum": 0.18,
             "atr_breakout": 0.08,
             "donchian_breakout": 0.06,
             "trend_acceleration_breakout": 0.05,
@@ -282,7 +317,7 @@ class OotEvaluationConfig:
     # 单品种同时在仓笔数上限。
     max_concurrent_positions_per_symbol: int = 3
     # 组合内同时在仓笔数上限。
-    max_concurrent_positions_total: int = 10
+    max_concurrent_positions_total: int = 12
     # OOT逐笔成交详情：是否基于分钟级路径做止损跟踪与真实退出时刻回放
     use_intrabar_stop_tracking: bool = True
     # 是否启用 portfolio_logic 运行时（W2/W3/W4 分阶段接入）。
@@ -358,6 +393,11 @@ class OotEvaluationConfig:
     # 月回撤硬熔断（按月内权益峰值计）
     monthly_max_drawdown_pct: float = 0.08
     block_new_entries_on_monthly_dd_breach: bool = True
+    # Time-safe stateful 30min sleeve gate. Cell key is cluster|signal_type|30min.
+    use_minute30_positive_cell_gate: bool = False
+    minute30_positive_cell_lookback_months: int = 6
+    minute30_positive_cell_min_trades: int = 20
+    minute30_positive_cell_min_net_pnl: float = 0.0
 
     # 超额收益基准（年化）
     benchmark_annual_return: float = 0.02
@@ -492,6 +532,79 @@ class OotEvaluationConfig:
             )
         _check("bull_attack_percentile_threshold", self.bull_attack_percentile_threshold, 0.0, 100.0)
         _check("bull_late_risk_percentile_threshold", self.bull_late_risk_percentile_threshold, 0.0, 100.0)
+        norm_signal_type_allowlist = tuple(
+            dict.fromkeys(
+                self.normalize_signal_type(signal_type)
+                for signal_type in self.signal_type_allowlist
+                if self.normalize_signal_type(signal_type)
+            )
+        )
+        norm_signal_type_blacklist = tuple(
+            dict.fromkeys(
+                self.normalize_signal_type(signal_type)
+                for signal_type in self.signal_type_blacklist
+                if self.normalize_signal_type(signal_type)
+            )
+        )
+        overlap = set(norm_signal_type_allowlist) & set(norm_signal_type_blacklist)
+        if overlap:
+            raise ValueError(
+                "signal_type_allowlist and signal_type_blacklist overlap: "
+                f"{sorted(overlap)}"
+            )
+        norm_disabled_intervals = tuple(
+            dict.fromkeys(
+                normalize_portfolio_interval(interval)
+                for interval in self.disabled_intervals
+                if str(interval).strip()
+            )
+        )
+        for interval in norm_disabled_intervals:
+            if interval not in _KNOWN_INTERVALS:
+                raise ValueError(
+                    f"disabled_intervals unknown interval {interval!r}; allowed={sorted(_KNOWN_INTERVALS)}"
+                )
+        norm_disabled_cells = tuple(
+            dict.fromkeys(
+                _normalize_cluster_signal_interval_key("disabled_cluster_signal_interval_cells", key)
+                for key in self.disabled_cluster_signal_interval_cells
+                if str(key).strip()
+            )
+        )
+        norm_enabled_cells = tuple(
+            dict.fromkeys(
+                _normalize_cluster_signal_interval_key("enabled_cluster_signal_interval_cells", key)
+                for key in self.enabled_cluster_signal_interval_cells
+                if str(key).strip()
+            )
+        )
+        norm_hard_stop_ratio: dict[str, float] = {}
+        for key, value in dict(self.min_pred_mfe_mae_ratio_by_signal_type_interval).items():
+            _signal_type, _interval, norm_key = _normalize_signal_type_interval_key(
+                "min_pred_mfe_mae_ratio_by_signal_type_interval",
+                key,
+            )
+            _check(f"min_pred_mfe_mae_ratio_by_signal_type_interval[{key}]", float(value), 0.0, 20.0)
+            norm_hard_stop_ratio[norm_key] = float(value)
+        norm_hard_stop_mae: dict[str, float] = {}
+        for key, value in dict(self.max_pred_mae_atr_by_signal_type_interval).items():
+            _signal_type, _interval, norm_key = _normalize_signal_type_interval_key(
+                "max_pred_mae_atr_by_signal_type_interval",
+                key,
+            )
+            _check(f"max_pred_mae_atr_by_signal_type_interval[{key}]", float(value), 0.0, 20.0)
+            norm_hard_stop_mae[norm_key] = float(value)
+        norm_neutral_htf_mult: dict[str, float] = {}
+        for key, value in dict(self.neutral_htf_size_multiplier_by_interval).items():
+            interval = normalize_portfolio_interval(key)
+            if interval not in _KNOWN_INTERVALS:
+                raise ValueError(
+                    f"neutral_htf_size_multiplier_by_interval unknown interval {key!r}; "
+                    f"allowed={sorted(_KNOWN_INTERVALS)}"
+                )
+            _check(f"neutral_htf_size_multiplier_by_interval[{key}]", float(value), 0.0, 5.0)
+            norm_neutral_htf_mult[interval] = float(value)
+        _check("high_mae_size_multiplier", self.high_mae_size_multiplier, 0.0, 5.0)
         _check("risk_per_trade_pct", self.risk_per_trade_pct, 0.0, 1.0)
         _check("max_single_loss_pct", self.max_single_loss_pct, 0.0, 1.0)
         _check("commission_pct_per_trade", self.commission_pct_per_trade, 0.0, 0.02)
@@ -574,6 +687,18 @@ class OotEvaluationConfig:
                     f"signal_type_max_concurrent_positions[{key}] must be >= 1, got {value!r}"
                 )
             norm_signal_type_max_concurrent[signal_type] = count
+        norm_signal_type_min_reserved_slots: dict[str, int] = {}
+        for key, value in dict(self.signal_type_min_reserved_slots).items():
+            signal_type = str(key).strip().lower()
+            if not signal_type:
+                continue
+            count = int(value)
+            if count < 0:
+                raise ValueError(
+                    f"signal_type_min_reserved_slots[{key}] must be >= 0, got {value!r}"
+                )
+            if count > 0:
+                norm_signal_type_min_reserved_slots[signal_type] = count
         norm_signal_type_max_notional: dict[str, float] = {}
         for key, value in dict(self.signal_type_max_notional_pct).items():
             signal_type = str(key).strip().lower()
@@ -611,6 +736,10 @@ class OotEvaluationConfig:
         _check("weekly_max_drawdown_pct", self.weekly_max_drawdown_pct, 0.0, 1.0)
         _check("weekly_dd_position_scale_after_breach", self.weekly_dd_position_scale_after_breach, 0.0, 1.0)
         _check("monthly_max_drawdown_pct", self.monthly_max_drawdown_pct, 0.0, 1.0)
+        if int(self.minute30_positive_cell_lookback_months) < 1:
+            raise ValueError("minute30_positive_cell_lookback_months must be >= 1")
+        if int(self.minute30_positive_cell_min_trades) < 0:
+            raise ValueError("minute30_positive_cell_min_trades must be >= 0")
         _check("max_total_leverage", self.max_total_leverage, 0.0, 10.0)
         if self.risk_system is not None and not isinstance(self.risk_system, RiskSystemConfig):
             raise ValueError("risk_system must be RiskSystemConfig or None")
@@ -686,13 +815,42 @@ class OotEvaluationConfig:
         object.__setattr__(
             self,
             "signal_type_blacklist",
-            tuple(
-                dict.fromkeys(
-                    self.normalize_signal_type(signal_type)
-                    for signal_type in self.signal_type_blacklist
-                    if self.normalize_signal_type(signal_type)
-                )
-            ),
+            norm_signal_type_blacklist,
+        )
+        object.__setattr__(
+            self,
+            "signal_type_allowlist",
+            norm_signal_type_allowlist,
+        )
+        object.__setattr__(
+            self,
+            "disabled_intervals",
+            norm_disabled_intervals,
+        )
+        object.__setattr__(
+            self,
+            "disabled_cluster_signal_interval_cells",
+            norm_disabled_cells,
+        )
+        object.__setattr__(
+            self,
+            "enabled_cluster_signal_interval_cells",
+            norm_enabled_cells,
+        )
+        object.__setattr__(
+            self,
+            "min_pred_mfe_mae_ratio_by_signal_type_interval",
+            MappingProxyType(norm_hard_stop_ratio),
+        )
+        object.__setattr__(
+            self,
+            "max_pred_mae_atr_by_signal_type_interval",
+            MappingProxyType(norm_hard_stop_mae),
+        )
+        object.__setattr__(
+            self,
+            "neutral_htf_size_multiplier_by_interval",
+            MappingProxyType(norm_neutral_htf_mult),
         )
         object.__setattr__(
             self,
@@ -708,6 +866,11 @@ class OotEvaluationConfig:
             self,
             "signal_type_max_concurrent_positions",
             MappingProxyType(norm_signal_type_max_concurrent),
+        )
+        object.__setattr__(
+            self,
+            "signal_type_min_reserved_slots",
+            MappingProxyType(norm_signal_type_min_reserved_slots),
         )
         object.__setattr__(
             self,
@@ -768,6 +931,13 @@ class OotEvaluationConfig:
         key = self.normalize_signal_type(signal_type)
         return bool(key) and key in self.signal_type_blacklist
 
+    def is_signal_type_allowed(self, signal_type: object) -> bool:
+        """Return whether signal_type is allowed by the optional allowlist."""
+        if not bool(self.use_signal_type_allowlist) or not self.signal_type_allowlist:
+            return True
+        key = self.normalize_signal_type(signal_type)
+        return bool(key) and key in self.signal_type_allowlist
+
     def resolve_signal_type_size_multiplier(self, signal_type: object, interval: object = "") -> float:
         """Resolve sizing multiplier by signal type, defaulting to 1.0."""
         key = self.normalize_signal_type(signal_type)
@@ -792,6 +962,11 @@ class OotEvaluationConfig:
         if raw is None:
             return None
         return int(raw)
+
+    def resolve_signal_type_min_reserved_slots(self, signal_type: object) -> int:
+        """Resolve minimum reserved global slots for a signal type."""
+        key = self.normalize_signal_type(signal_type)
+        return int(self.signal_type_min_reserved_slots.get(key, 0))
 
     def resolve_signal_type_max_notional_pct(self, signal_type: object) -> float | None:
         """Resolve optional per-signal_type notional-share cap (fraction of equity)."""

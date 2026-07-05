@@ -9,7 +9,14 @@ import numpy as np
 import pandas as pd
 
 from cta.config.model_oot_eval_config import OotEvaluationConfig
-from cta.model.oot.block_reasons import CANONICAL_BLOCK_REASONS, BR_LOG_EXECUTED_SENTINEL
+from cta.model.oot.block_reasons import (
+    BR_BLOCKED_HARD_STOP_ENTRY_FILTER,
+    BR_BLOCKED_INTERVAL_CELL_GATE,
+    BR_BLOCKED_MINUTE30_CELL_STATE,
+    BR_BLOCKED_SIGNAL_TYPE_ALLOWLIST,
+    CANONICAL_BLOCK_REASONS,
+    BR_LOG_EXECUTED_SENTINEL,
+)
 from cta.model.oot.pipeline_oot_evaluation import _evaluate_oot_real_execution
 from cta.portfolio_logic.config import CapsConfig, PortfolioLogicConfig, PyramidConfig
 
@@ -113,7 +120,7 @@ def _pyramid_runtime_pred(*, add_score: float, add_size_mult: float) -> pd.DataF
             "symbol": ["RB0", "RB0"],
             "exchange": ["SHFE", "SHFE"],
             "interval": ["60min", "60min"],
-            "signal_type": ["tight_range_breakout", "tight_range_breakout"],
+            "signal_type": ["bull_pullback_continuation", "bull_pullback_continuation"],
             "side": ["long", "long"],
             "pred_split": ["test", "test"],
             "window_id": [0, 0],
@@ -216,6 +223,309 @@ def test_signal_type_blacklist_filters_rows_before_oot_evaluation() -> None:
     assert int(summary.iloc[0]["oot_rows"]) == 1
     assert int(summary.iloc[0]["trade_count"]) == 1
     assert set(trades["signal_type"].astype(str)) == {"bull_pullback_continuation"}
+
+
+def test_signal_type_allowlist_blocks_unlisted_signal_type() -> None:
+    pred = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+            "entry_datetime": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+            "exit_datetime": pd.to_datetime(["2024-01-04", "2024-01-05"]),
+            "symbol": ["RB0", "HC0"],
+            "exchange": ["SHFE", "SHFE"],
+            "interval": ["day", "day"],
+            "signal_type": ["bull_pullback_continuation", "breakout_pullback_continuation"],
+            "side": ["long", "long"],
+            "pred_split": ["test", "test"],
+            "window_id": [0, 0],
+            "is_executed": [1, 1],
+            "entry_price": [100.0, 100.0],
+            "future_mfe_atr": [1.0, 1.0],
+            "future_mae_atr": [0.2, 0.2],
+        }
+    )
+    cfg = OotEvaluationConfig(
+        use_signal_type_allowlist=True,
+        signal_type_allowlist=("bull_pullback_continuation", "cross_sectional_momentum"),
+        signal_type_blacklist=(),
+        use_stacking_gate=False,
+        use_trade_filter_gate=False,
+        use_regime_gate=False,
+        use_mfe_mae_gate=False,
+        use_test_split_only=True,
+        require_executed_only=True,
+        use_intrabar_stop_tracking=False,
+        use_portfolio_constraints=False,
+        use_position_sizing=False,
+    )
+    _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+
+    assert int(summary.iloc[0]["trade_count"]) == 1
+    assert int(summary.iloc[0]["blocked_signal_type_allowlist_rows"]) == 1
+    by_signal = {str(row["signal_type"]): str(row["execution_status"]) for _, row in trades.iterrows()}
+    assert by_signal["bull_pullback_continuation"] == "executed"
+    assert by_signal["breakout_pullback_continuation"] == BR_BLOCKED_SIGNAL_TYPE_ALLOWLIST
+
+
+def test_stacking_override_keeps_hard_entry_blocks() -> None:
+    pred = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(
+                [
+                    "2024-01-02 09:00:00",
+                    "2024-01-02 09:01:00",
+                    "2024-01-02 09:02:00",
+                    "2024-01-02 09:03:00",
+                ]
+            ),
+            "entry_datetime": pd.to_datetime(
+                [
+                    "2024-01-02 09:00:00",
+                    "2024-01-02 09:01:00",
+                    "2024-01-02 09:02:00",
+                    "2024-01-02 09:03:00",
+                ]
+            ),
+            "exit_datetime": pd.to_datetime(
+                [
+                    "2024-01-02 11:00:00",
+                    "2024-01-02 11:01:00",
+                    "2024-01-02 11:02:00",
+                    "2024-01-02 11:03:00",
+                ]
+            ),
+            "symbol": ["RB0", "HC0", "I0", "J0"],
+            "exchange": ["SHFE", "SHFE", "DCE", "DCE"],
+            "interval": ["day", "day", "minute30", "minute60"],
+            "signal_type": [
+                "bull_pullback_continuation",
+                "breakout_pullback_continuation",
+                "bull_pullback_continuation",
+                "bull_pullback_continuation",
+            ],
+            "side": ["long"] * 4,
+            "pred_split": ["test"] * 4,
+            "window_id": [0] * 4,
+            "is_executed": [1] * 4,
+            "entry_price": [100.0] * 4,
+            "pred_mfe_atr": [2.0, 2.0, 2.0, 1.0],
+            "pred_mae_atr": [0.5, 0.5, 0.5, 1.0],
+            "final_decision_score": [1.0] * 4,
+            "future_mfe_atr": [1.0] * 4,
+            "future_mae_atr": [0.2] * 4,
+        }
+    )
+    cfg = OotEvaluationConfig(
+        use_signal_type_allowlist=True,
+        signal_type_allowlist=("bull_pullback_continuation", "cross_sectional_momentum"),
+        signal_type_blacklist=(),
+        disabled_intervals=("30min",),
+        use_hard_stop_entry_filter=True,
+        min_pred_mfe_mae_ratio_by_signal_type_interval={
+            "bull_pullback_continuation|60min": 1.6
+        },
+        use_stacking_gate=True,
+        stacking_score_threshold=0.55,
+        stacking_gate_overrides_individual_gates=True,
+        use_trade_filter_gate=False,
+        use_regime_gate=False,
+        use_mfe_mae_gate=False,
+        use_test_split_only=True,
+        require_executed_only=True,
+        use_intrabar_stop_tracking=False,
+        use_portfolio_constraints=False,
+        use_position_sizing=False,
+    )
+    _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+
+    assert int(summary.iloc[0]["trade_count"]) == 1
+    assert int(summary.iloc[0]["blocked_signal_type_allowlist_rows"]) == 1
+    assert int(summary.iloc[0]["blocked_interval_cell_gate_rows"]) == 1
+    assert int(summary.iloc[0]["blocked_hard_stop_entry_filter_rows"]) == 1
+    by_symbol = {
+        str(row["symbol"]): str(row["execution_status"])
+        for _, row in trades.iterrows()
+    }
+    assert by_symbol == {
+        "RB0": "executed",
+        "HC0": BR_BLOCKED_SIGNAL_TYPE_ALLOWLIST,
+        "I0": BR_BLOCKED_INTERVAL_CELL_GATE,
+        "J0": BR_BLOCKED_HARD_STOP_ENTRY_FILTER,
+    }
+
+
+def test_relaxed_allowlist_defaults_admit_cross_sectional_momentum_candidate() -> None:
+    pred = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(["2024-01-02"]),
+            "entry_datetime": pd.to_datetime(["2024-01-02"]),
+            "exit_datetime": pd.to_datetime(["2024-01-04"]),
+            "symbol": ["CU0"],
+            "exchange": ["SHFE"],
+            "interval": ["day"],
+            "signal_type": ["cross_sectional_momentum"],
+            "side": ["long"],
+            "pred_split": ["test"],
+            "window_id": [0],
+            "is_executed": [1],
+            "entry_price": [100.0],
+            "trade_filter_prob": [0.60],
+            "trade_filter_prob_pctl": [60.0],
+            "final_decision_score": [0.52],
+            "future_mfe_atr": [1.0],
+            "future_mae_atr": [0.2],
+        }
+    )
+    strict_cfg = OotEvaluationConfig(
+        stacking_score_threshold=0.55,
+        trade_filter_percentile_threshold_delta_by_signal_type={
+            "cross_sectional_momentum": 6.0,
+        },
+        signal_type_blacklist=(),
+        use_signal_type_allowlist=True,
+        signal_type_allowlist=("bull_pullback_continuation", "cross_sectional_momentum"),
+        use_trade_filter_gate=True,
+        use_regime_gate=False,
+        use_mfe_mae_gate=False,
+        use_test_split_only=True,
+        require_executed_only=True,
+        use_intrabar_stop_tracking=False,
+        use_portfolio_constraints=False,
+        use_position_sizing=False,
+    )
+    relaxed_cfg = OotEvaluationConfig(
+        signal_type_blacklist=(),
+        use_signal_type_allowlist=True,
+        signal_type_allowlist=("bull_pullback_continuation", "cross_sectional_momentum"),
+        use_trade_filter_gate=True,
+        use_regime_gate=False,
+        use_mfe_mae_gate=False,
+        use_test_split_only=True,
+        require_executed_only=True,
+        use_intrabar_stop_tracking=False,
+        use_portfolio_constraints=False,
+        use_position_sizing=False,
+    )
+
+    _m_strict, strict_summary, strict_trades = _evaluate_oot_real_execution(pred, cfg=strict_cfg)
+    _m_relaxed, relaxed_summary, relaxed_trades = _evaluate_oot_real_execution(pred, cfg=relaxed_cfg)
+
+    assert int(strict_summary.iloc[0]["trade_count"]) == 0
+    assert str(strict_trades.iloc[0]["execution_status"]) in {
+        "blocked_trade_filter",
+        "blocked_final_decision_gate",
+    }
+    assert int(relaxed_summary.iloc[0]["trade_count"]) == 1
+    assert str(relaxed_trades.iloc[0]["execution_status"]) == "executed"
+
+
+def test_disabled_interval_blocks_minute30_candidates() -> None:
+    pred = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(["2024-01-02 09:00:00", "2024-01-02 09:30:00"]),
+            "entry_datetime": pd.to_datetime(["2024-01-02 09:00:00", "2024-01-02 09:30:00"]),
+            "exit_datetime": pd.to_datetime(["2024-01-02 11:00:00", "2024-01-03 09:00:00"]),
+            "symbol": ["RB0", "HC0"],
+            "exchange": ["SHFE", "SHFE"],
+            "interval": ["minute30", "day"],
+            "signal_type": ["bull_pullback_continuation", "bull_pullback_continuation"],
+            "side": ["long", "long"],
+            "pred_split": ["test", "test"],
+            "window_id": [0, 0],
+            "is_executed": [1, 1],
+            "entry_price": [100.0, 100.0],
+            "future_mfe_atr": [1.0, 1.0],
+            "future_mae_atr": [0.2, 0.2],
+        }
+    )
+    cfg = OotEvaluationConfig(
+        disabled_intervals=("30min",),
+        use_stacking_gate=False,
+        use_trade_filter_gate=False,
+        use_regime_gate=False,
+        use_mfe_mae_gate=False,
+        use_test_split_only=True,
+        require_executed_only=True,
+        use_intrabar_stop_tracking=False,
+        use_portfolio_constraints=False,
+        use_position_sizing=False,
+    )
+    _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+
+    assert int(summary.iloc[0]["trade_count"]) == 1
+    assert int(summary.iloc[0]["blocked_interval_cell_gate_rows"]) == 1
+    assert set(trades.loc[trades["execution_status"] == BR_BLOCKED_INTERVAL_CELL_GATE, "interval"]) == {"minute30"}
+
+
+def test_minute30_positive_cell_gate_uses_only_closed_shadow_history() -> None:
+    pred = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(
+                [
+                    "2024-01-02 09:00:00",
+                    "2024-01-02 10:00:00",
+                    "2024-01-02 11:00:00",
+                ]
+            ),
+            "entry_datetime": pd.to_datetime(
+                [
+                    "2024-01-02 09:00:00",
+                    "2024-01-02 10:00:00",
+                    "2024-01-02 11:00:00",
+                ]
+            ),
+            "exit_datetime": pd.to_datetime(
+                [
+                    "2024-01-02 09:30:00",
+                    "2024-01-02 12:00:00",
+                    "2024-01-02 13:00:00",
+                ]
+            ),
+            "symbol": ["RB0", "RB0", "RB0"],
+            "exchange": ["SHFE", "SHFE", "SHFE"],
+            "interval": ["minute30", "minute30", "minute30"],
+            "signal_type": ["bull_pullback_continuation"] * 3,
+            "side": ["long"] * 3,
+            "pred_split": ["test"] * 3,
+            "window_id": [0, 0, 0],
+            "is_executed": [1, 1, 1],
+            "entry_price": [100.0, 100.0, 100.0],
+            "future_mfe_atr": [1.0, 1.0, 1.0],
+            "future_mae_atr": [0.2, 0.2, 0.2],
+            "shadow_net_pnl": [1000.0, -5000.0, 1000.0],
+        }
+    )
+    cfg = OotEvaluationConfig(
+        use_minute30_positive_cell_gate=True,
+        minute30_positive_cell_lookback_months=6,
+        minute30_positive_cell_min_trades=1,
+        minute30_positive_cell_min_net_pnl=0.0,
+        use_stacking_gate=False,
+        use_trade_filter_gate=False,
+        use_regime_gate=False,
+        use_mfe_mae_gate=False,
+        use_test_split_only=True,
+        require_executed_only=True,
+        use_intrabar_stop_tracking=False,
+        use_portfolio_constraints=False,
+        use_position_sizing=False,
+        use_portfolio_logic_runtime=False,
+        signal_type_blacklist=(),
+    )
+    _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+
+    assert int(summary.iloc[0]["trade_count"]) == 2
+    assert int(summary.iloc[0]["blocked_minute30_cell_state_rows"]) == 1
+    ordered = trades.sort_values("entry_datetime").reset_index(drop=True)
+    assert str(ordered.iloc[0]["execution_status"]) == BR_BLOCKED_MINUTE30_CELL_STATE
+    assert int(ordered.iloc[0]["minute30_cell_closed_trades"]) == 0
+    assert str(ordered.iloc[1]["execution_status"]) == "executed"
+    assert int(ordered.iloc[1]["minute30_cell_closed_trades"]) == 1
+    assert float(ordered.iloc[1]["minute30_cell_closed_net_pnl"]) == 1000.0
+    # The second row's future loss exits after the third row enters, so it must not leak into row three.
+    assert str(ordered.iloc[2]["execution_status"]) == "executed"
+    assert int(ordered.iloc[2]["minute30_cell_closed_trades"]) == 1
+    assert float(ordered.iloc[2]["minute30_cell_closed_net_pnl"]) == 1000.0
 
 
 def test_oot_trade_details_keep_spread_arbitrage_columns() -> None:
@@ -813,6 +1123,7 @@ def test_signal_type_size_multiplier_changes_effective_position_scale_cap() -> N
             "atr_breakout": 0.4,
         },
         signal_type_blacklist=(),
+        use_signal_type_allowlist=False,
     )
     _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
     assert int(summary.iloc[0]["trade_count"]) == 2
@@ -934,6 +1245,7 @@ def test_signal_type_max_concurrent_positions_blocks_n_plus_one_entry() -> None:
         max_daily_new_notional_pct=10.0,
         signal_type_max_concurrent_positions={"atr_breakout": 2},
         signal_type_blacklist=(),
+        use_signal_type_allowlist=False,
     )
     _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
     assert int(summary.iloc[0]["trade_count"]) == 2
@@ -1016,6 +1328,7 @@ def test_ranker_prefilters_signal_type_cap_to_avoid_slot_waste() -> None:
             "bull_pullback_continuation": 5,
         },
         signal_type_blacklist=(),
+        use_signal_type_allowlist=False,
         ranker_prob_pctl_delta_by_signal_type={},
         portfolio_logic=PortfolioLogicConfig(
             enable_htf_gate=False,
@@ -1089,6 +1402,7 @@ def test_ranker_prob_pctl_delta_by_signal_type_adjusts_min_prob_filter() -> None
             "atr_breakout": 30.0,  # 收紧：85 -> 55
         },
         signal_type_blacklist=(),
+        use_signal_type_allowlist=False,
         portfolio_logic=PortfolioLogicConfig(
             enable_htf_gate=False,
             enable_ranker=True,
@@ -1169,6 +1483,229 @@ def test_ranker_prob_pctl_delta_by_signal_type_interval_tightens_day_only() -> N
     assert by_symbol["RB0"] == "blocked_ranker"
 
 
+def test_reserved_slots_keep_cross_sectional_momentum_capacity() -> None:
+    symbols = [f"RB{i}" for i in range(10)] + ["CU0", "AL0", "ZN0"]
+    signal_types = ["bull_pullback_continuation"] * 10 + ["cross_sectional_momentum"] * 3
+    probs = [0.95 - i * 0.01 for i in range(10)] + [0.50, 0.49, 0.48]
+    pred = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(["2020-01-06 10:00:00"] * 13),
+            "entry_datetime": pd.to_datetime(["2020-01-06 10:00:00"] * 13),
+            "exit_datetime": pd.to_datetime(["2020-01-06 13:00:00"] * 13),
+            "symbol": symbols,
+            "exchange": ["SHFE"] * 13,
+            "interval": ["day"] * 13,
+            "signal_type": signal_types,
+            "side": ["long"] * 13,
+            "pred_regime_label": ["trend_up"] * 13,
+            "pred_split": ["test"] * 13,
+            "window_id": [0] * 13,
+            "is_executed": [1] * 13,
+            "entry_price": [100.0] * 13,
+            "trade_filter_prob": probs,
+            "trade_filter_prob_pctl": [p * 100 for p in probs],
+            "pred_mfe_atr": [2.0] * 13,
+            "pred_mae_atr": [0.5] * 13,
+            "future_mfe_atr": [1.2] * 13,
+            "future_mae_atr": [0.2] * 13,
+        }
+    )
+    cfg = OotEvaluationConfig(
+        use_stacking_gate=False,
+        use_trade_filter_gate=False,
+        use_regime_gate=False,
+        use_mfe_mae_gate=False,
+        use_test_split_only=False,
+        require_executed_only=True,
+        use_intrabar_stop_tracking=False,
+        use_portfolio_constraints=True,
+        use_position_sizing=False,
+        use_portfolio_logic_runtime=True,
+        max_position_scale=0.01,
+        max_concurrent_positions_total=10,
+        max_concurrent_positions_per_symbol=10,
+        max_daily_new_notional_pct=10.0,
+        max_total_leverage=10.0,
+        signal_type_blacklist=(),
+        signal_type_size_multiplier={
+            "bull_pullback_continuation": 1.0,
+            "cross_sectional_momentum": 1.0,
+        },
+        signal_type_max_concurrent_positions={
+            "bull_pullback_continuation": 10,
+            "cross_sectional_momentum": 4,
+        },
+        signal_type_min_reserved_slots={"cross_sectional_momentum": 3},
+        signal_type_max_notional_pct={},
+        portfolio_logic=PortfolioLogicConfig(
+            enable_htf_gate=False,
+            enable_ranker=True,
+            enable_risk_throttle=False,
+            enable_pyramid=False,
+            caps=CapsConfig(
+                max_total_positions=10,
+                max_per_symbol=10,
+                max_total_per_cluster=20,
+                max_symbol_notional_pct=1.0,
+                max_cluster_notional_pct=2.0,
+                max_total_notional_pct=10.0,
+                dedup_same_symbol_same_direction=False,
+            ),
+        ),
+    )
+    _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+    executed = trades.loc[trades["execution_status"].astype(str) == "executed"]
+
+    assert int(summary.iloc[0]["trade_count"]) == 10
+    assert int((executed["signal_type"].astype(str) == "cross_sectional_momentum").sum()) == 3
+    assert int(executed["reserved_slot_used"].sum()) == 3
+
+
+def test_reserved_slots_do_not_bypass_trade_filter() -> None:
+    pred = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(["2020-01-06 10:00:00", "2020-01-06 10:00:00"]),
+            "entry_datetime": pd.to_datetime(["2020-01-06 10:00:00", "2020-01-06 10:00:00"]),
+            "exit_datetime": pd.to_datetime(["2020-01-06 13:00:00", "2020-01-06 13:00:00"]),
+            "symbol": ["CU0", "AL0"],
+            "exchange": ["SHFE", "SHFE"],
+            "interval": ["day", "day"],
+            "signal_type": ["cross_sectional_momentum", "bull_pullback_continuation"],
+            "side": ["long", "long"],
+            "pred_regime_label": ["trend_up", "trend_up"],
+            "pred_split": ["test", "test"],
+            "window_id": [0, 0],
+            "is_executed": [1, 1],
+            "entry_price": [100.0, 100.0],
+            "trade_filter_prob": [0.10, 0.90],
+            "pred_mfe_atr": [2.0, 2.0],
+            "pred_mae_atr": [0.5, 0.5],
+            "future_mfe_atr": [1.2, 1.2],
+            "future_mae_atr": [0.2, 0.2],
+        }
+    )
+    cfg = OotEvaluationConfig(
+        use_stacking_gate=False,
+        use_trade_filter_gate=True,
+        trade_filter_gate_mode="raw",
+        trade_filter_threshold=0.62,
+        trade_filter_raw_threshold_by_cluster_interval={},
+        use_regime_gate=False,
+        use_mfe_mae_gate=False,
+        use_test_split_only=False,
+        require_executed_only=True,
+        use_intrabar_stop_tracking=False,
+        use_portfolio_constraints=True,
+        use_position_sizing=False,
+        use_portfolio_logic_runtime=True,
+        max_position_scale=0.01,
+        signal_type_blacklist=(),
+        signal_type_min_reserved_slots={"cross_sectional_momentum": 1},
+        signal_type_max_notional_pct={},
+        portfolio_logic=PortfolioLogicConfig(
+            enable_htf_gate=False,
+            enable_ranker=True,
+            enable_risk_throttle=False,
+            enable_pyramid=False,
+            caps=CapsConfig(max_total_positions=2, max_total_per_cluster=10, max_per_symbol=10),
+        ),
+    )
+    _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+
+    assert int(summary.iloc[0]["trade_count"]) == 1
+    xsec = trades.loc[trades["signal_type"].astype(str) == "cross_sectional_momentum"].iloc[0]
+    assert str(xsec["execution_status"]) == "blocked_trade_filter"
+    assert int(xsec["reserved_slot_used"]) == 0
+
+
+def test_hard_stop_entry_filter_blocks_low_mfe_mae_ratio() -> None:
+    pred = _single_day_pred("long").copy()
+    pred["interval"] = "minute30"
+    pred["pred_mfe_atr"] = 1.0
+    pred["pred_mae_atr"] = 1.0
+    cfg = OotEvaluationConfig(
+        use_hard_stop_entry_filter=True,
+        min_pred_mfe_mae_ratio_by_signal_type_interval={
+            "bull_pullback_continuation|30min": 1.6
+        },
+        use_stacking_gate=False,
+        use_trade_filter_gate=False,
+        use_regime_gate=False,
+        use_mfe_mae_gate=False,
+        use_test_split_only=True,
+        require_executed_only=True,
+        use_intrabar_stop_tracking=False,
+        use_portfolio_constraints=False,
+        use_position_sizing=False,
+    )
+    _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+
+    assert int(summary.iloc[0]["trade_count"]) == 0
+    assert int(summary.iloc[0]["blocked_hard_stop_entry_filter_rows"]) == 1
+    row = trades.iloc[0]
+    assert str(row["execution_status"]) == BR_BLOCKED_HARD_STOP_ENTRY_FILTER
+    assert str(row["hard_stop_filter_reason"]) == "mfe_mae_ratio_low"
+
+
+def test_hard_stop_entry_filter_scales_high_mae_candidate_once() -> None:
+    pred = _single_day_pred("long").copy()
+    pred["interval"] = "day"
+    pred["pred_mfe_atr"] = 2.0
+    pred["pred_mae_atr"] = 2.0
+    cfg = OotEvaluationConfig(
+        use_hard_stop_entry_filter=True,
+        max_pred_mae_atr_by_signal_type_interval={
+            "bull_pullback_continuation|day": 1.2
+        },
+        high_mae_size_multiplier=0.5,
+        use_stacking_gate=False,
+        use_trade_filter_gate=False,
+        use_regime_gate=False,
+        use_mfe_mae_gate=False,
+        use_test_split_only=True,
+        require_executed_only=True,
+        use_intrabar_stop_tracking=False,
+        use_portfolio_constraints=False,
+        use_position_sizing=False,
+        max_position_scale=0.10,
+    )
+    _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+
+    assert int(summary.iloc[0]["trade_count"]) == 1
+    row = trades.iloc[0]
+    assert str(row["execution_status"]) == "executed"
+    assert np.isclose(float(row["risk_lots_mult"]), 0.5)
+    assert np.isclose(float(row["position_scale"]), 0.20)
+    assert str(row["hard_stop_filter_reason"]) == "pred_mae_high"
+
+
+def test_neutral_htf_minute30_can_zero_size() -> None:
+    pred = _single_day_pred("long").copy()
+    pred["interval"] = "minute30"
+    pred["htf_alignment"] = "neutral"
+    pred["pred_mfe_atr"] = 2.0
+    pred["pred_mae_atr"] = 0.5
+    cfg = OotEvaluationConfig(
+        use_hard_stop_entry_filter=True,
+        neutral_htf_size_multiplier_by_interval={"30min": 0.0},
+        use_stacking_gate=False,
+        use_trade_filter_gate=False,
+        use_regime_gate=False,
+        use_mfe_mae_gate=False,
+        use_test_split_only=True,
+        require_executed_only=True,
+        use_intrabar_stop_tracking=False,
+        use_portfolio_constraints=False,
+        use_position_sizing=False,
+    )
+    _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
+
+    assert int(summary.iloc[0]["trade_count"]) == 0
+    row = trades.iloc[0]
+    assert np.isclose(float(row["risk_lots_mult"]), 0.0)
+    assert str(row["execution_status"]) == "blocked_zero_notional"
+
+
 def test_max_total_leverage_cap_uses_notional_over_equity_semantics() -> None:
     """max_total_leverage 当前口径是 sum(open_notional) / equity。"""
     pred = pd.DataFrame(
@@ -1212,6 +1749,7 @@ def test_max_total_leverage_cap_uses_notional_over_equity_semantics() -> None:
         signal_type_max_concurrent_positions={},
         signal_type_max_notional_pct={},
         signal_type_blacklist=(),
+        use_signal_type_allowlist=False,
     )
     _monthly, summary, trades = _evaluate_oot_real_execution(pred, cfg=cfg)
     assert int(summary.iloc[0]["trade_count"]) == 2

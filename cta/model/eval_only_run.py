@@ -199,9 +199,24 @@ def _dump_cfg_fingerprint(
         "max_position_scale": float(getattr(cfg, "max_position_scale", 0.0)),
         "signal_type_size_multiplier": dict(getattr(cfg, "signal_type_size_multiplier", {})),
         "signal_type_blacklist": list(getattr(cfg, "signal_type_blacklist", ())),
+        "use_signal_type_allowlist": bool(getattr(cfg, "use_signal_type_allowlist", False)),
+        "signal_type_allowlist": list(getattr(cfg, "signal_type_allowlist", ())),
+        "disabled_intervals": list(getattr(cfg, "disabled_intervals", ())),
+        "disabled_cluster_signal_interval_cells": list(getattr(cfg, "disabled_cluster_signal_interval_cells", ())),
+        "enabled_cluster_signal_interval_cells": list(getattr(cfg, "enabled_cluster_signal_interval_cells", ())),
         "signal_type_max_concurrent_positions": dict(
             getattr(cfg, "signal_type_max_concurrent_positions", {})
         ),
+        "signal_type_min_reserved_slots": dict(getattr(cfg, "signal_type_min_reserved_slots", {})),
+        "use_minute30_positive_cell_gate": bool(getattr(cfg, "use_minute30_positive_cell_gate", False)),
+        "minute30_positive_cell_lookback_months": int(getattr(cfg, "minute30_positive_cell_lookback_months", 0)),
+        "minute30_positive_cell_min_trades": int(getattr(cfg, "minute30_positive_cell_min_trades", 0)),
+        "minute30_positive_cell_min_net_pnl": float(getattr(cfg, "minute30_positive_cell_min_net_pnl", 0.0)),
+        "use_hard_stop_entry_filter": bool(getattr(cfg, "use_hard_stop_entry_filter", False)),
+        "min_pred_mfe_mae_ratio_by_signal_type_interval": dict(getattr(cfg, "min_pred_mfe_mae_ratio_by_signal_type_interval", {})),
+        "max_pred_mae_atr_by_signal_type_interval": dict(getattr(cfg, "max_pred_mae_atr_by_signal_type_interval", {})),
+        "neutral_htf_size_multiplier_by_interval": dict(getattr(cfg, "neutral_htf_size_multiplier_by_interval", {})),
+        "high_mae_size_multiplier": float(getattr(cfg, "high_mae_size_multiplier", 0.0)),
         "max_symbol_notional_pct": float(getattr(cfg, "max_symbol_notional_pct", 0.0)),
         "max_concurrent_positions_per_symbol": int(
             getattr(cfg, "max_concurrent_positions_per_symbol", 0)

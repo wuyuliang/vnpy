@@ -12,6 +12,151 @@
 
 ---
 
+## 2026-07-05 (日) · symbol 汇总图 executed 标记上抬 + half-year return 修正
+
+### 任务
+继续优化 `cta/analysis/render_symbol_bull_pullback_charts.py`：
+1. `execution_status=executed` 的买卖标记从价格位置上抬到 K 线价格区上沿上方，方便和普通机会区分；
+2. `index.csv` 里的 `symbol_expected_return` 改为当前 `symbol + half_year` 分组收益，而不是该 symbol 全周期总收益。
+
+### 改动
+- 更新 `cta/analysis/render_symbol_bull_pullback_charts.py`：
+  - 新增 `EXECUTED_MARKER_Y_OFFSET` 与 `_marker_y(...)`；
+  - executed marker 使用上抬位置，竖线从 marker 位置贯穿到成交量区，普通未执行 marker 仍按价格位置绘制；
+  - 图例文案改为 `lifted marker + thicker line = executed`；
+  - 新增 `trade_rows_expected_return(...)`，并在每个 half-year 分组写入 `symbol_expected_return`。
+- 更新 `cta/analysis/tests/test_render_symbol_bull_pullback_charts.py`：
+  - 覆盖 executed marker 上抬规则；
+  - 覆盖当前分组收益汇总规则。
+
+### 输出
+- 输出目录：`cta/analysis/20260628_bigger_01_allowlist_trade_charts/symbols/`
+- 全量重建结果：`input_rows=4695`，`symbols=64`，`groups=226`，`rendered_images=226`，`skipped_images=0`。
+- 抽查 `IC0_2025H1`：
+  - `symbol_expected_return=-19794.276000`
+  - `trade_rows=21`
+  - `executed_rows=1`
+
+### 验证
+```bash
+python3 -m pytest -q cta/analysis/tests/test_render_symbol_bull_pullback_charts.py
+python3 -m pytest -q cta/analysis/tests
+python3 cta/analysis/render_symbol_bull_pullback_charts.py --overwrite
+```
+
+结果：
+- `cta/analysis/tests/test_render_symbol_bull_pullback_charts.py` → 7 passed。
+- `cta/analysis/tests` → 12 passed。
+- symbols 输出目录 → 226 张 PNG，64 个 symbol 文件夹。
+
+### 风险与后续
+- `symbol_expected_return` 字段名保持不变以兼容现有索引读取逻辑，但语义已改为当前 half-year 分组收益。
+
+---
+
+## 2026-07-05 (日) · bull pullback symbol 半年汇总图升级为三周期 + 四类买卖标记
+
+### 任务
+按最新要求调整 `cta/analysis/render_symbol_bull_pullback_charts.py`：
+1. 每个 `symbol + 半年` 时间段仍输出一张汇总图，但图内恢复为周K、日K、小时K三段；
+2. 买卖线区分 `long buy`、`long sell`、`short buy`、`short sell` 四类；
+3. symbol 输出排序按该 symbol 的 `net_pnl` 汇总预期收益从高到低。
+
+### 改动
+- 更新 `cta/analysis/render_symbol_bull_pullback_charts.py`：
+  - 新增 `CHART_PANELS`，每张 symbol 半年图包含 Weekly K、Daily K、Hourly K 三个面板；
+  - 新增四类 marker 样式：做多买入、做多卖出、做空买入、做空卖出；
+  - 成交机会竖线使用更粗线宽，未成交/阻塞机会保留细线；
+  - `symbol_expected_returns()` 按 symbol 汇总 `net_pnl`，输出目录改为 `001_LU0/` 这类收益排名前缀；
+  - `--overwrite` 时清理旧版生成 PNG、`index.csv`、`render_summary.json`，避免单日K旧图与三周期新图混放。
+- 更新 `cta/analysis/tests/test_render_symbol_bull_pullback_charts.py`：
+  - 覆盖三面板契约；
+  - 覆盖四类 long/short buy/sell marker；
+  - 覆盖 symbol 预期收益汇总逻辑。
+
+### 输出
+- 输出目录：`cta/analysis/20260628_bigger_01_allowlist_trade_charts/symbols/`
+- `input_rows=4695`
+- `symbols=64`
+- `groups=226`
+- `rendered_images=226`
+- `skipped_images=0`
+- 排序校验：index 中 symbol expected return 降序为 `True`，前 10 名：
+  `LU0, CU0, LH0, IF0, P0, PR0, IH0, AU0, PF0, BU0`。
+
+### 验证
+```bash
+python3 -m pytest -q cta/analysis/tests/test_render_symbol_bull_pullback_charts.py
+python3 -m pytest -q cta/analysis/tests
+python3 cta/analysis/render_symbol_bull_pullback_charts.py --overwrite
+```
+
+结果：
+- `cta/analysis/tests/test_render_symbol_bull_pullback_charts.py` → 5 passed。
+- `cta/analysis/tests` → 10 passed。
+- 全量重建 symbols 输出 → 226 张 PNG，64 个 symbol 文件夹，0 跳过。
+
+### 风险与后续
+- 图例文字使用英文短标签（`long buy` 等）以避免本地 Pillow 字体缺少中文字形；颜色和方向已对应四类中文动作。
+
+---
+
+## 2026-07-04 (六) · 交易机会全量 K 线复盘卡片
+
+### 任务
+根据 `cta/docs/superpowers/specs/2026-07-04-trade-opportunity-chart-cards-design.md`，
+将 `all_trade_details.csv` 中全部 16,238 条交易机会按收益从高到低排序，生成周K、日K、小时K复盘图片。
+
+### 改动
+- 新增 `cta/analysis/render_trade_opportunity_charts.py`：
+  - 读取交易明细并按 `net_pnl` 降序排序，缺失时回退 `trade_return_pct`。
+  - 优先读取 `cta/data/feature/{day,minute60}/_all_symbols.parquet`，避免逐日期小 parquet 全量扫描。
+  - 使用 Pillow 生成 PNG 复盘卡片，包含周K、日K、小时K、成交量、入场/出场标记、执行状态和收益/模型信息。
+  - 输出 `index.csv` 和 `render_summary.json`。
+- 新增 `cta/analysis/tests/test_render_trade_opportunity_charts.py`：
+  - 覆盖收益排序、文件名清洗、周线 OHLCV 聚合、合并 parquet 读取。
+- 新增 `cta/analysis/order_trade_charts_by_time.py`：
+  - 读取已生成的 `index.csv` 与原始交易明细，按 `signal_type` 分目录重排图片；
+  - 每个 `signal_type` 目录内按 `entry_fill_datetime` 从早到晚排序；
+  - `entry_fill_datetime` 为空时回退 `entry_datetime`；
+  - 输出到 `charts_order_time/`，默认使用硬链接，避免重复复制约 1.5GB PNG。
+- 新增 `cta/analysis/render_symbol_bull_pullback_charts.py`：
+  - 仅筛选 `signal_type=bull_pullback_continuation`；
+  - 按 `symbol + 半年` 汇总到一张日线 K 线图；
+  - 使用绿色三角标记买点、红色三角标记卖点；
+  - 输出到 `symbols/<symbol>/<symbol>_<YYYYH1|YYYYH2>_bull_pullback_continuation.png`。
+- 新增 `cta/analysis/tests/test_order_trade_charts_by_time.py`：
+  - 覆盖按 `signal_type` 分目录、按成交时间正序生成排序文件名。
+- 新增 `cta/analysis/tests/test_render_symbol_bull_pullback_charts.py`：
+  - 覆盖 bull pullback 筛选、半年分桶、买卖 marker 生成。
+- 新增实现计划文档 `cta/docs/superpowers/plans/2026-07-04-trade-opportunity-chart-cards-implementation.md`。
+- 输出目录：
+  - `cta/analysis/20260628_bigger_01_allowlist_trade_charts/`
+  - `signal_type` 分组时间正序输出：`cta/analysis/20260628_bigger_01_allowlist_trade_charts/charts_order_time/`
+  - bull pullback symbol 半年汇总输出：`cta/analysis/20260628_bigger_01_allowlist_trade_charts/symbols/`
+  - smoke 输出：`cta/analysis/20260628_bigger_01_allowlist_trade_charts_smoke/`
+
+### 验证
+- `python3 -m pytest cta/analysis/tests/test_render_trade_opportunity_charts.py -q` → 4 passed。
+- smoke：`--limit 5 --overwrite` → 5 张 PNG，`total_input_rows=16238`。
+- 全量：`--overwrite` → `processed_rows=16238`，`rendered_images=16238`，`skipped_images=0`，
+  `missing_weekly_panels=0`，`missing_daily_panels=0`，`missing_hourly_panels=0`。
+- 独立校验：`index.csv` 16,238 行，`charts/*.png` 16,238 张。
+- `signal_type` 分组时间正序：
+  - `breakout_pullback_continuation/` 5,743 张；
+  - `bull_pullback_continuation/` 4,695 张；
+  - `cross_sectional_momentum/` 3,341 张；
+  - `tight_range_breakout/` 2,459 张；
+  - 合计 16,238 张，组内文件名时间严格正序；硬链接输出，避免重复占用 PNG 空间。
+- symbol 半年汇总：bull pullback 4,695 条机会，64 个 symbol，226 张半年图，
+  `rendered_images=226`，`skipped_images=0`。
+
+### 风险与后续
+- 全量 PNG 目录约 1.5GB；如需长期归档，可后续压缩或生成缩略图索引。
+- 当前图片由本地 OHLCV 数据渲染，不是 GUI 交易软件截图。
+
+---
+
 ## 2026-06-02 (二) · 新增防爆仓 / 生存层风控设计文档 `cta/docs/risk2.md`
 
 ### 任务

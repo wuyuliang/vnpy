@@ -312,9 +312,12 @@ def _build_cfg_from_args(args: argparse.Namespace) -> OotEvaluationConfig:
             pyramid_patch = nested.get("pyramid")
             if isinstance(pyramid_patch, dict):
                 nested["pyramid"] = replace(pl_cfg.pyramid, **pyramid_patch)
-            trailing_patch = nested.get("trailing_exit")
+            trailing_patch = nested.get("trailing")
+            if trailing_patch is None:
+                trailing_patch = nested.get("trailing_exit")
             if isinstance(trailing_patch, dict):
-                nested["trailing_exit"] = replace(pl_cfg.trailing_exit, **trailing_patch)
+                nested.pop("trailing_exit", None)
+                nested["trailing"] = replace(pl_cfg.trailing, **trailing_patch)
             horizon_patch = nested.get("horizon_extend")
             if isinstance(horizon_patch, dict):
                 nested["horizon_extend"] = replace(pl_cfg.horizon_extend, **horizon_patch)

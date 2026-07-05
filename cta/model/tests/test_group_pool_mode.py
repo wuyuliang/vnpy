@@ -95,6 +95,14 @@ class TestGroupPoolHelpers(unittest.TestCase):
         ns = mp._parse_args(["--group-pool", "--use-portfolio-logic-runtime"])
         self.assertTrue(bool(ns.use_portfolio_logic_runtime))
 
+    def test_group_pool_train_defaults_to_unified_eval_enabled(self) -> None:
+        ns = mp._parse_args(["--group-pool", "--group-by", "cluster"])
+        self.assertTrue(bool(ns.unified_portfolio_eval))
+
+    def test_group_pool_train_can_skip_unified_eval(self) -> None:
+        ns = mp._parse_args(["--group-pool", "--no-unified-portfolio-eval"])
+        self.assertFalse(bool(ns.unified_portfolio_eval))
+
     def test_effective_oot_cfg_replaced_when_flag_on(self) -> None:
         """OotEvaluationConfig 的 use_portfolio_logic_runtime 被正确设为 True。"""
         from cta.config.model_oot_eval_config import DEFAULT_OOT_EVAL_CONFIG
@@ -188,6 +196,12 @@ class TestGroupPoolHelpers(unittest.TestCase):
             self.assertIsNotNone(bundle_dir)
             assert bundle_dir is not None
             self.assertTrue(bundle_dir.exists())
+            readme = bundle_dir / "README.md"
+            self.assertTrue(readme.exists())
+            self.assertIn(
+                "diagnostic only and is not final account PnL",
+                readme.read_text(encoding="utf-8"),
+            )
 
             agg_csv = bundle_dir / "20260516_group_pool_cluster_both_all_symbol_group_oot_trade_details.csv"
             self.assertTrue(agg_csv.exists())
@@ -226,7 +240,7 @@ class TestGroupPoolHelpers(unittest.TestCase):
                         "symbol": ["RB0"],
                         "exchange": ["SHFE"],
                         "interval": [interval],
-                        "signal_type": ["donchian_breakout"],
+                        "signal_type": ["bull_pullback_continuation"],
                         "side": ["long"],
                         "pred_regime_label": ["trend_up"],
                         "pred_split": ["test"],
@@ -273,6 +287,7 @@ class TestGroupPoolHelpers(unittest.TestCase):
                 use_portfolio_constraints=False,
                 use_position_sizing=False,
                 use_portfolio_logic_runtime=True,
+                use_signal_type_allowlist=False,
                 portfolio_logic=PortfolioLogicConfig(
                     enable_htf_gate=True,
                     enable_ranker=False,
@@ -313,37 +328,78 @@ class TestGroupPoolCliDispatch(unittest.TestCase):
                 }
             )
             return mock.MagicMock(
+                output_dir="/tmp/model_dir",
                 report_path="/tmp/x",
                 prediction_path="/tmp/y",
                 metrics_path="/tmp/z",
                 top_feature_importance_path="/tmp/f",
             )
 
-        argv = [
-            "--group-pool",
-            "--group-by",
-            "tier",
-            "--symbols-ranking-path",
-            "cta/feature/symbols_research_ranking.csv",
-            "--interval",
-            "day",
-            "60min",
-        ]
-        # W4 重构后 `run_model_pipeline` / `_load_symbol_groups_from_ranking` 的真实定义在
-        # `cta.model.orchestration.pipeline_orchestrator`，而 `cta.model.model_pipeline` 只是 shim。
-        # `pipeline_orchestrator.main()` 内部按模块本地名字查找这两个符号，因此必须 patch
-        # 到 orchestrator 上才能生效；patch shim 是无效操作（会让真模型走真训练）。
-        import cta.model.orchestration.pipeline_orchestrator as _impl
-        with mock.patch.object(_impl, "_load_symbol_groups_from_ranking", return_value=fake_groups), \
-             mock.patch.object(_impl, "run_model_pipeline", side_effect=fake_run), \
-             redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            mp.main(argv)
+        with tempfile.TemporaryDirectory(prefix="cta_group_pool_cli_") as td:
+            argv = [
+                "--group-pool",
+                "--group-by",
+                "tier",
+                "--symbols-ranking-path",
+                "cta/feature/symbols_research_ranking.csv",
+                "--output-root",
+                td,
+                "--interval",
+                "day",
+                "60min",
+            ]
+            # W4 重构后 `run_model_pipeline` / `_load_symbol_groups_from_ranking` 的真实定义在
+            # `cta.model.orchestration.pipeline_orchestrator`，而 `cta.model.model_pipeline` 只是 shim。
+            # `pipeline_orchestrator.main()` 内部按模块本地名字查找这两个符号，因此必须 patch
+            # 到 orchestrator 上才能生效；patch shim 是无效操作（会让真模型走真训练）。
+            import cta.model.orchestration.pipeline_orchestrator as _impl
+            with mock.patch.object(_impl, "_load_symbol_groups_from_ranking", return_value=fake_groups), \
+                 mock.patch.object(_impl, "run_model_pipeline", side_effect=fake_run), \
+                 mock.patch.object(_impl, "run_oot_eval_batch", return_value=Path("/tmp/unified")) as eval_mock, \
+                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                mp.main(argv)
 
         self.assertEqual(len(captured), 4)
+        self.assertTrue(eval_mock.called)
+        self.assertTrue(bool(eval_mock.call_args.kwargs["unified_portfolio"]))
         pool_names = {str(c.get("pool_name")) for c in captured}
         self.assertIn("GRP_TIER_A", pool_names)
         self.assertIn("GRP_TIER_B", pool_names)
         self.assertTrue(all(c.get("pool_symbols") for c in captured))
+
+    def test_group_pool_dispatch_can_skip_unified_eval(self) -> None:
+        fake_groups = [("tier_a", [("RB0", "SHFE"), ("HC0", "SHFE")])]
+
+        def fake_run(*, symbol, exchange, interval, **kwargs):
+            return mock.MagicMock(
+                output_dir="/tmp/model_dir",
+                report_path="/tmp/x",
+                prediction_path="/tmp/y",
+                metrics_path="/tmp/z",
+                top_feature_importance_path="/tmp/f",
+            )
+
+        with tempfile.TemporaryDirectory(prefix="cta_group_pool_cli_skip_") as td:
+            argv = [
+                "--group-pool",
+                "--group-by",
+                "tier",
+                "--no-unified-portfolio-eval",
+                "--symbols-ranking-path",
+                "cta/feature/symbols_research_ranking.csv",
+                "--output-root",
+                td,
+                "--interval",
+                "day",
+            ]
+            import cta.model.orchestration.pipeline_orchestrator as _impl
+            with mock.patch.object(_impl, "_load_symbol_groups_from_ranking", return_value=fake_groups), \
+                 mock.patch.object(_impl, "run_model_pipeline", side_effect=fake_run), \
+                 mock.patch.object(_impl, "run_oot_eval_batch", return_value=Path("/tmp/unified")) as eval_mock, \
+                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                mp.main(argv)
+
+        self.assertFalse(eval_mock.called)
 
 
 if __name__ == "__main__":

@@ -187,6 +187,13 @@ class TestOotReportWriter(unittest.TestCase):
                 run_tag="prod",
             )
             self.assertTrue(report_dir.exists())
+            executive_summary = (report_dir / "00_overview" / "executive_summary.md").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn(
+                "This is a diagnostic group-pool aggregate. It is not a unified account replay.",
+                executive_summary,
+            )
 
             must_dirs = [
                 "00_overview",

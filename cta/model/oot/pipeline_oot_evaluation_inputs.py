@@ -425,7 +425,11 @@ def apply_risk_orchestrator_columns(
         return out
 
     out["risk_effective_threshold"] = np.nan
-    out["risk_lots_mult"] = 1.0
+    if "risk_lots_mult" in out.columns:
+        base_risk_lots_mult = pd.to_numeric(out["risk_lots_mult"], errors="coerce").fillna(1.0).clip(lower=0.0)
+    else:
+        base_risk_lots_mult = pd.Series(1.0, index=out.index, dtype=float)
+    out["risk_lots_mult"] = base_risk_lots_mult.astype(float)
     out["risk_block_reason"] = ""
     orchestrator = _build_risk_orchestrator_from_cfg(cfg)
     if orchestrator is not None:
@@ -459,7 +463,9 @@ def apply_risk_orchestrator_columns(
             out.at[idx, "risk_effective_threshold"] = float(decision.effective_threshold)
             out.at[idx, "risk_block_reason"] = str(decision.block_reason or "")
             if decision.passed and original_lots > 0:
-                out.at[idx, "risk_lots_mult"] = float(decision.adjusted_lots / original_lots)
+                out.at[idx, "risk_lots_mult"] = float(out.at[idx, "risk_lots_mult"]) * float(
+                    decision.adjusted_lots / original_lots
+                )
             else:
                 out.at[idx, "risk_lots_mult"] = 0.0
     out = _apply_oot_guard_chain_columns(out, cfg)

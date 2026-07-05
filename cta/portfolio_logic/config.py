@@ -205,6 +205,8 @@ class IntervalTrailingParams:
     atr_multiplier: float
     activation_profit_atr: float
     fallback_hard_stop_pct: float
+    breakeven_profit_atr: float = 0.0
+    breakeven_lock_atr: float = 0.0
 
 
 def _default_interval_trailing() -> dict[str, IntervalTrailingParams]:
@@ -227,6 +229,37 @@ class TrailingExitConfig:
     interval_params: dict[str, IntervalTrailingParams] = field(default_factory=_default_interval_trailing)
     update_only_in_favor: bool = True
     default_interval_params_key: str = "30min"
+
+    def __post_init__(self) -> None:
+        norm_params: dict[str, IntervalTrailingParams] = {}
+        for key, raw in dict(self.interval_params).items():
+            interval = normalize_portfolio_interval(key)
+            if isinstance(raw, IntervalTrailingParams):
+                params = raw
+            elif isinstance(raw, dict):
+                params = IntervalTrailingParams(**raw)
+            else:
+                raise ValueError(f"interval_params[{key}] must be IntervalTrailingParams or dict")
+            if float(params.atr_multiplier) <= 0.0:
+                raise ValueError(f"interval_params[{key}].atr_multiplier must be > 0")
+            if float(params.activation_profit_atr) < 0.0:
+                raise ValueError(f"interval_params[{key}].activation_profit_atr must be >= 0")
+            if float(params.fallback_hard_stop_pct) < 0.0:
+                raise ValueError(f"interval_params[{key}].fallback_hard_stop_pct must be >= 0")
+            if float(params.breakeven_profit_atr) < 0.0:
+                raise ValueError(f"interval_params[{key}].breakeven_profit_atr must be >= 0")
+            norm_params[interval] = params
+        object.__setattr__(self, "interval_params", norm_params)
+        object.__setattr__(
+            self,
+            "activate_only_when_regime",
+            tuple(str(x).strip().lower() for x in self.activate_only_when_regime if str(x).strip()),
+        )
+        object.__setattr__(
+            self,
+            "default_interval_params_key",
+            normalize_portfolio_interval(self.default_interval_params_key),
+        )
 
 
 @dataclass(frozen=True)
@@ -262,6 +295,11 @@ class PyramidConfig:
     apply_model_size_multiplier: bool = False
     min_model_size_multiplier: float = 0.0
     max_model_size_multiplier: float = 1.0
+    allowed_signal_type_interval: tuple[str, ...] = (
+        "bull_pullback_continuation|day",
+        "bull_pullback_continuation|60min",
+        "cross_sectional_momentum|day",
+    )
 
     def __post_init__(self) -> None:
         if self.max_active_layers > self.max_lifetime_layers:
@@ -288,8 +326,17 @@ class PyramidConfig:
             if int(v) <= 0:
                 raise ValueError(f"interval_to_minutes[{k}] must be > 0")
             norm_minutes[normalize_portfolio_interval(k)] = int(v)
+        norm_allowed: list[str] = []
+        for raw in self.allowed_signal_type_interval:
+            parts = str(raw).strip().lower().split("|")
+            if len(parts) != 2 or not parts[0] or not parts[1]:
+                raise ValueError(
+                    f"allowed_signal_type_interval key must be 'signal_type|interval', got {raw!r}"
+                )
+            norm_allowed.append(f"{parts[0]}|{normalize_portfolio_interval(parts[1])}")
         object.__setattr__(self, "cooldown_bars_per_interval", MappingProxyType(norm_cooldown))
         object.__setattr__(self, "interval_to_minutes", MappingProxyType(norm_minutes))
+        object.__setattr__(self, "allowed_signal_type_interval", tuple(dict.fromkeys(norm_allowed)))
 
 
 @dataclass(frozen=True)

@@ -259,6 +259,7 @@ def _compute_summary(
         "net_pnl_total": float(pnl.sum()),
         "total_return_pct": float(pnl.sum() / cfg.initial_capital) if cfg.initial_capital else float("nan"),
         "initial_capital": float(cfg.initial_capital),
+        "is_final_account_pnl": False,
         "group_count": int(trades["group_name"].nunique()) if "group_name" in trades.columns else 0,
         "interval_count": int(trades["group_interval"].nunique()) if "group_interval" in trades.columns else 0,
         "risk_free_annual_return": float(cfg.risk_free_annual_return),

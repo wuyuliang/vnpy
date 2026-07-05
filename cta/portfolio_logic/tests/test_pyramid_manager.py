@@ -52,6 +52,72 @@ class TestPyramidManager(unittest.TestCase):
         )
         self.assertTrue(can_new_interval)
 
+    def test_pyramid_rejects_disallowed_signal_interval(self) -> None:
+        manager = PyramidManager(
+            PyramidConfig(
+                cooldown_bars_per_interval={"30min": 0},
+                one_layer_per_interval=False,
+                allowed_signal_type_interval=("bull_pullback_continuation|day",),
+            )
+        )
+        pos = manager.open_first_layer(
+            symbol="RB0",
+            exchange="SHFE",
+            direction="long",
+            interval="60min",
+            entry_time=pd.Timestamp("2024-01-02 09:00:00"),
+            entry_price=100.0,
+            notional=100000.0,
+            atr_pct_at_entry=0.01,
+            signal_score=0.8,
+            trade_filter_prob=0.7,
+            trade_filter_prob_pctl=75.0,
+            trailing_cfg=TrailingExitConfig(),
+        )
+        can_add = manager.decide_add_layer(
+            pos=pos,
+            new_interval="30min",
+            new_signal_type="bull_pullback_continuation",
+            current_time=pd.Timestamp("2024-01-02 10:00:00"),
+            current_price=102.0,
+            min_profit_atr_to_add=1.2,
+            htf_aligned=True,
+        )
+        self.assertFalse(can_add)
+
+    def test_pyramid_allows_bull_day_after_profit_threshold(self) -> None:
+        manager = PyramidManager(
+            PyramidConfig(
+                cooldown_bars_per_interval={"day": 0},
+                one_layer_per_interval=False,
+                allowed_signal_type_interval=("bull_pullback_continuation|day",),
+            )
+        )
+        pos = manager.open_first_layer(
+            symbol="RB0",
+            exchange="SHFE",
+            direction="long",
+            interval="60min",
+            entry_time=pd.Timestamp("2024-01-02 09:00:00"),
+            entry_price=100.0,
+            notional=100000.0,
+            atr_pct_at_entry=0.01,
+            signal_score=0.8,
+            trade_filter_prob=0.7,
+            trade_filter_prob_pctl=75.0,
+            trailing_cfg=TrailingExitConfig(),
+        )
+        can_add = manager.decide_add_layer(
+            pos=pos,
+            new_interval="day",
+            new_signal_type="bull_pullback_continuation",
+            current_time=pd.Timestamp("2024-01-05 09:00:00"),
+            current_price=101.3,
+            min_profit_atr_to_add=1.2,
+            htf_aligned=True,
+        )
+        self.assertTrue(can_add)
+
     def test_cooldown_and_max_layers(self) -> None:
         manager = PyramidManager(
             PyramidConfig(

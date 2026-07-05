@@ -66,6 +66,7 @@ def _empty_result(
         "trailing_tp_active": 0,
         "trailing_tp_highwater": float("nan"),
         "horizon_extended_to": 0,
+        "breakeven_stop_lifted": 0,
     }
 
 
@@ -124,6 +125,12 @@ class TrailingExitSimulator:
                 if trailing_allowed:
                     if str(pos.direction).lower() == "short":
                         profit_atr = (float(layer.entry_price) - float(pos.running_low)) / atr_abs
+                        if (
+                            float(interval_params.breakeven_profit_atr) > 0.0
+                            and profit_atr >= float(interval_params.breakeven_profit_atr)
+                        ):
+                            be_stop = float(layer.entry_price) - float(interval_params.breakeven_lock_atr) * atr_abs
+                            layer.trail_stop_price = min(float(layer.trail_stop_price), float(be_stop))
                         if profit_atr >= float(interval_params.activation_profit_atr):
                             layer.trailing_activated = True
                             new_stop = float(pos.running_low) + float(interval_params.atr_multiplier) * atr_abs
@@ -133,6 +140,12 @@ class TrailingExitSimulator:
                                 layer.trail_stop_price = float(new_stop)
                     else:
                         profit_atr = (float(pos.running_high) - float(layer.entry_price)) / atr_abs
+                        if (
+                            float(interval_params.breakeven_profit_atr) > 0.0
+                            and profit_atr >= float(interval_params.breakeven_profit_atr)
+                        ):
+                            be_stop = float(layer.entry_price) + float(interval_params.breakeven_lock_atr) * atr_abs
+                            layer.trail_stop_price = max(float(layer.trail_stop_price), float(be_stop))
                         if profit_atr >= float(interval_params.activation_profit_atr):
                             layer.trailing_activated = True
                             new_stop = float(pos.running_high) - float(interval_params.atr_multiplier) * atr_abs
@@ -240,6 +253,7 @@ def simulate_trailing_exit(
         trail_stop = float("-inf")
 
     trailing_activated = False
+    breakeven_stop_lifted = False
     running_high = float(entry_fill_price)
     running_low = float(entry_fill_price)
     trailing_allowed = (
@@ -311,12 +325,30 @@ def simulate_trailing_exit(
         if trailing_allowed and np.isfinite(atr_abs) and atr_abs > 0.0:
             if side_l == "short":
                 profit_atr = (entry_fill_price - running_low) / atr_abs
+                if (
+                    float(interval_params.breakeven_profit_atr) > 0.0
+                    and profit_atr >= float(interval_params.breakeven_profit_atr)
+                ):
+                    be_stop = entry_fill_price - float(interval_params.breakeven_lock_atr) * atr_abs
+                    prev_stop = trail_stop
+                    trail_stop = min(trail_stop, float(be_stop))
+                    if trail_stop != prev_stop:
+                        breakeven_stop_lifted = True
                 if profit_atr >= float(interval_params.activation_profit_atr):
                     trailing_activated = True
                     new_stop = running_low + float(interval_params.atr_multiplier) * atr_abs
                     trail_stop = min(trail_stop, float(new_stop)) if cfg.update_only_in_favor else float(new_stop)
             else:
                 profit_atr = (running_high - entry_fill_price) / atr_abs
+                if (
+                    float(interval_params.breakeven_profit_atr) > 0.0
+                    and profit_atr >= float(interval_params.breakeven_profit_atr)
+                ):
+                    be_stop = entry_fill_price + float(interval_params.breakeven_lock_atr) * atr_abs
+                    prev_stop = trail_stop
+                    trail_stop = max(trail_stop, float(be_stop))
+                    if trail_stop != prev_stop:
+                        breakeven_stop_lifted = True
                 if profit_atr >= float(interval_params.activation_profit_atr):
                     trailing_activated = True
                     new_stop = running_high - float(interval_params.atr_multiplier) * atr_abs
@@ -393,6 +425,7 @@ def simulate_trailing_exit(
         "trailing_tp_active": int(trailing_tp_active),
         "trailing_tp_highwater": float(trailing_tp_highwater) if np.isfinite(trailing_tp_highwater) else float("nan"),
         "horizon_extended_to": int(horizon_extended_to),
+        "breakeven_stop_lifted": int(breakeven_stop_lifted),
     }
 
 

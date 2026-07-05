@@ -1,0 +1,8 @@
+{
+  "use_minute30_positive_cell_gate": true,
+  "minute30_positive_cell_lookback_months": 6,
+  "minute30_positive_cell_min_trades": 20,
+  "minute30_positive_cell_min_net_pnl": 0.0,
+  "use_signal_type_allowlist": true,
+  "signal_type_allowlist": ["bull_pullback_continuation", "cross_sectional_momentum"]
+}

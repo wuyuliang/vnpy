@@ -1,0 +1,28 @@
+{
+  "use_signal_type_allowlist": true,
+  "signal_type_allowlist": ["bull_pullback_continuation", "cross_sectional_momentum"],
+  "stacking_score_threshold": 0.50,
+  "trade_filter_raw_threshold_delta_by_signal_type": {
+    "bull_pullback_continuation": -0.10,
+    "cross_sectional_momentum": -0.04
+  },
+  "trade_filter_percentile_threshold_delta_by_signal_type": {
+    "bull_pullback_continuation": -28.0,
+    "cross_sectional_momentum": -12.0
+  },
+  "ranker_prob_pctl_delta_by_signal_type": {
+    "bull_pullback_continuation": -30.0,
+    "cross_sectional_momentum": -8.0
+  },
+  "signal_type_max_concurrent_positions": {
+    "bull_pullback_continuation": 12,
+    "cross_sectional_momentum": 4
+  },
+  "signal_type_min_reserved_slots": {
+    "cross_sectional_momentum": 3
+  },
+  "signal_type_max_notional_pct": {
+    "cross_sectional_momentum": 0.18
+  },
+  "max_concurrent_positions_total": 12
+}

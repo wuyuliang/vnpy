@@ -74,6 +74,49 @@ class TestTrailingExit(unittest.TestCase):
         self.assertEqual(str(sim["exit_reason"]), "horizon_exit")
         self.assertEqual(int(sim["trailing_activated"]), 0)
 
+    def test_breakeven_stop_lift_for_long_position(self) -> None:
+        bars = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(
+                    [
+                        "2024-01-02 09:00:00",
+                        "2024-01-02 10:00:00",
+                        "2024-01-02 11:00:00",
+                    ]
+                ),
+                "open": [100.0, 101.7, 100.2],
+                "high": [100.0, 101.8, 100.4],
+                "low": [100.0, 101.6, 100.1],
+                "close": [100.0, 101.7, 100.2],
+            }
+        )
+        cfg = TrailingExitConfig(
+            interval_params={
+                "60min": IntervalTrailingParams(
+                    atr_multiplier=10.0,
+                    activation_profit_atr=99.0,
+                    fallback_hard_stop_pct=0.03,
+                    breakeven_profit_atr=0.8,
+                    breakeven_lock_atr=0.05,
+                )
+            },
+            default_interval_params_key="60min",
+        )
+        sim = simulate_trailing_exit(
+            side="long",
+            entry_ts=pd.Timestamp("2024-01-02 09:00:00"),
+            planned_exit_ts=pd.Timestamp("2024-01-02 12:00:00"),
+            entry_price_hint=100.0,
+            stop_loss_pct=0.03,
+            bars=bars,
+            interval="60min",
+            atr_pct_at_entry=0.02,
+            regime_label="trend_up",
+            cfg=cfg,
+        )
+        self.assertEqual(int(sim["breakeven_stop_lifted"]), 1)
+        self.assertGreaterEqual(float(sim["trailing_stop_price"]), 100.10)
+
     def test_horizon_extension_uses_hold_extend_score_and_recommended_bars(self) -> None:
         bars = pd.DataFrame(
             {
