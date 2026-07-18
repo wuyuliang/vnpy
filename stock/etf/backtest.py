@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .capture import calculate_trend_capture
 from .config import StrategyConfig
 from .data import prepare_a_share_index_metadata
 from .indicators import add_indicators
@@ -1488,7 +1489,13 @@ def run_backtest(
         portfolio_risk_records,
         columns=PORTFOLIO_RISK_COLUMNS,
     )
-    trend_capture = pd.DataFrame()
+    trend_capture = calculate_trend_capture(
+        candidates=candidates,
+        trades=trades,
+        positions=positions,
+        equity_curve=equity_curve,
+        config=cfg,
+    )
     summary = _build_summary(equity_curve, trades, cfg.initial_capital)
     return BacktestResult(
         candidates,
@@ -1577,6 +1584,10 @@ def write_backtest_outputs(
     result.equity_curve.to_csv(output_dir / "equity_curve.csv", index=False)
     result.position_states.to_csv(output_dir / "position_state_log.csv", index=False)
     result.portfolio_risk.to_csv(output_dir / "portfolio_risk_log.csv", index=False)
+    result.trend_capture.to_csv(
+        output_dir / "trend_episode_capture.csv",
+        index=False,
+    )
     payload = dict(result.summary)
     payload["parameters"] = asdict(config)
     payload.update(run_metadata or {})

@@ -109,7 +109,7 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             self.assertTrue((output_path / "summary.json").exists())
-            self.assertEqual(len(list(output_path.iterdir())), 8)
+            self.assertEqual(len(list(output_path.iterdir())), 9)
             with (output_path / "summary.json").open(encoding="utf-8") as file:
                 summary = json.load(file)
             self.assertEqual(summary["parameters"]["atr_period"], 10)

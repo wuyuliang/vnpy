@@ -300,6 +300,7 @@ class BacktestTests(unittest.TestCase):
                 "equity_curve.csv",
                 "position_state_log.csv",
                 "portfolio_risk_log.csv",
+                "trend_episode_capture.csv",
                 "summary.json",
             }
             self.assertEqual(
