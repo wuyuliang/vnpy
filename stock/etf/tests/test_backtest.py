@@ -16,6 +16,48 @@ from stock.etf.portfolio import Position
 
 
 class BacktestTests(unittest.TestCase):
+    def test_enabled_market_state_writes_caution_and_confirmed_risk_on(self) -> None:
+        dates = pd.bdate_range("2025-01-02", periods=130)
+        benchmark = self._bars(
+            "000300.SH",
+            dates,
+            np.linspace(100.0, 160.0, len(dates)),
+            turnover=0,
+        )
+        benchmark.loc[:99, "open"] = benchmark.loc[:99, "close"] - 2.0
+        benchmark.loc[:99, "low"] = benchmark.loc[:99, "open"] - 0.1
+        etfs = self._bars("A.SH", dates, np.linspace(10.0, 20.0, len(dates)))
+        metadata = pd.DataFrame(
+            {
+                "symbol": ["A.SH"],
+                "name": ["中证A股ETF"],
+                "list_date": [pd.Timestamp("2020-01-01")],
+                "fund_type": ["股票型ETF"],
+                "benchmark": ["中证A股指数收益率×100%"],
+            }
+        )
+        config = StrategyConfig(
+            initial_capital=100_000,
+            market_state_enabled=True,
+            commission_rate=0,
+            min_commission=0,
+            slippage_rate=0,
+        )
+
+        result = run_backtest(benchmark, etfs, metadata, config)
+
+        market_actions = result.signals.loc[
+            result.signals["symbol"] == "000300.SH",
+            "action",
+        ]
+        self.assertIn("market_caution", market_actions.values)
+        self.assertIn("market_risk_on", market_actions.values)
+        caution_plans = result.signals.loc[
+            (result.signals["action"] == "buy_planned")
+            & (result.signals["risk_fraction"] == 0.5)
+        ]
+        self.assertFalse(caution_plans.empty)
+
     def test_winner_rank_exit_requires_confirmation_and_ema10_weakness(self) -> None:
         config = StrategyConfig(
             winner_holding_enabled=True,

@@ -74,12 +74,18 @@ def calculate_order_quantity(
     config: StrategyConfig,
     *,
     max_additional_notional: float | None = None,
+    risk_fraction: float = 1.0,
 ) -> int:
     """Calculate a long order under risk, weight, cash and lot constraints."""
+    if not 0 < risk_fraction <= 1:
+        raise ValueError("risk_fraction must be in (0, 1]")
     if equity <= 0 or available_cash <= 0 or estimated_fill_price <= 0 or risk_atr <= 0:
         return 0
     risk_units = floor(
-        equity * config.risk_per_trade / (config.atr_stop_multiple * risk_atr)
+        equity
+        * config.risk_per_trade
+        * risk_fraction
+        / (config.atr_stop_multiple * risk_atr)
     )
     weight_units = floor(equity * config.max_position_weight / estimated_fill_price)
     cash_units = floor(available_cash / estimated_fill_price)

@@ -18,6 +18,12 @@ from .ranking import (
     entry_symbols,
     is_risk_on,
 )
+from .risk import (
+    MarketState,
+    MarketStateTracker,
+    calculate_breadth,
+    classify_market_candidate,
+)
 
 TRADE_COLUMNS = [
     "datetime",
@@ -116,6 +122,8 @@ class PendingEntry:
     signal_date: pd.Timestamp
     industry: str
     benchmark_key: str
+    risk_fraction: float
+    entry_rank_limit: int
 
 
 def _prepare_etfs(
@@ -279,7 +287,10 @@ def _reasons_for_exit(
             config,
         )
     reasons: list[str] = []
-    if benchmark_row["close"] < benchmark_row["ema10"]:
+    if (
+        not config.market_state_enabled
+        and benchmark_row["close"] < benchmark_row["ema10"]
+    ):
         reasons.append("market_below_ema10")
     if etf_row is not None and etf_row["close"] < etf_row["ema10"]:
         reasons.append("etf_below_ema10")
@@ -292,6 +303,7 @@ def _reasons_for_exit(
 
 def _primary_reason(reasons: list[str]) -> str:
     priority = [
+        "portfolio_risk_off",
         "etf_below_ema20",
         "confirmed_rank_and_ema10_weakness",
         "market_below_ema10",
@@ -371,6 +383,10 @@ def run_backtest(
     equity_records: list[dict[str, Any]] = []
     last_close: dict[str, float] = {}
     previous_equity = cfg.initial_capital
+    market_tracker = MarketStateTracker(
+        state=MarketState.CAUTION,
+        confirmation_days=cfg.market_state_confirmation_days,
+    )
 
     for index, benchmark_row in benchmark.iterrows():
         date = pd.Timestamp(benchmark_row["datetime"])
@@ -470,6 +486,7 @@ def run_backtest(
                 estimated_fill,
                 risk_atr,
                 cfg,
+                risk_fraction=pending_entry.risk_fraction,
             )
             constraint_caps: dict[str, float] = {}
             if industry != "broad_or_other":
@@ -511,6 +528,7 @@ def run_backtest(
                 risk_atr,
                 cfg,
                 max_additional_notional=max_additional_notional,
+                risk_fraction=pending_entry.risk_fraction,
             )
             if quantity:
                 trade = portfolio.buy(
@@ -519,7 +537,7 @@ def run_backtest(
                     raw_open,
                     quantity,
                     risk_atr,
-                    f"rs_top{cfg.entry_rank}",
+                    f"rs_top{pending_entry.entry_rank_limit}",
                 )
                 industry_weight_after_entry: float | None = None
                 if industry != "broad_or_other":
@@ -544,12 +562,13 @@ def run_backtest(
                         "execution_date": date,
                         "symbol": symbol,
                         "action": "buy_filled",
-                        "reason": f"rs_top{cfg.entry_rank}",
+                        "reason": f"rs_top{pending_entry.entry_rank_limit}",
                         "industry": industry,
                         "benchmark_key": benchmark_key,
                         "industry_weight_after_entry": industry_weight_after_entry,
                         "correlation_weight_after_entry": correlation_weight_after_entry,
                         "correlated_symbols": "|".join(sorted(correlated_symbols)),
+                        "risk_fraction": pending_entry.risk_fraction,
                     }
                 )
             elif uncapped_quantity and binding_constraint is not None:
@@ -647,6 +666,60 @@ def run_backtest(
             else pd.DataFrame()
         )
         current_rows = daily
+        previous_ema5 = benchmark_row["previous_ema5"]
+        broad_risk_on = is_risk_on(benchmark_row, previous_ema5, cfg)
+        if cfg.market_state_enabled:
+            breadth = calculate_breadth(daily)
+            candidate_state = classify_market_candidate(
+                benchmark_row,
+                broad_risk_on,
+                breadth,
+                cfg,
+            )
+            market_state = market_tracker.advance(candidate_state)
+            entry_allowed = market_state != MarketState.RISK_OFF
+            entry_rank_limit = (
+                cfg.entry_rank
+                if market_state == MarketState.RISK_ON
+                else cfg.caution_entry_rank
+            )
+            entry_risk_fraction = (
+                1.0
+                if market_state == MarketState.RISK_ON
+                else cfg.caution_risk_fraction
+            )
+            signal_records.append(
+                {
+                    "signal_date": date,
+                    "execution_date": benchmark.iloc[index + 1]["datetime"]
+                    if index + 1 < len(benchmark)
+                    else pd.NaT,
+                    "symbol": cfg.benchmark_symbol,
+                    "action": f"market_{market_state.value}",
+                    "reason": "confirmed_market_state",
+                    "breadth": breadth,
+                    "candidate_state": candidate_state.value,
+                    "state_confirmation_days": market_tracker.candidate_days,
+                }
+            )
+        else:
+            market_state = (
+                MarketState.RISK_ON if broad_risk_on else MarketState.RISK_OFF
+            )
+            entry_allowed = broad_risk_on
+            entry_rank_limit = cfg.entry_rank
+            entry_risk_fraction = 1.0
+            signal_records.append(
+                {
+                    "signal_date": date,
+                    "execution_date": benchmark.iloc[index + 1]["datetime"]
+                    if index + 1 < len(benchmark)
+                    else pd.NaT,
+                    "symbol": cfg.benchmark_symbol,
+                    "action": "risk_on" if broad_risk_on else "risk_off",
+                    "reason": "market_filter",
+                }
+            )
         planned_exits: dict[str, list[str]] = dict(pending_exits)
         for symbol, position in portfolio.positions.items():
             row = current_rows.loc[symbol] if symbol in current_rows.index else None
@@ -668,6 +741,8 @@ def run_backtest(
             reasons = _reasons_for_exit(
                 position, benchmark_row, ranking_by_symbol, row, cfg
             )
+            if cfg.market_state_enabled and market_state == MarketState.RISK_OFF:
+                reasons.insert(0, "portfolio_risk_off")
             if reasons:
                 planned_exits[symbol] = reasons
                 signal_records.append(
@@ -693,33 +768,26 @@ def run_backtest(
                 )
         pending_exits = planned_exits
 
-        previous_ema5 = benchmark_row["previous_ema5"]
-        risk_on = is_risk_on(benchmark_row, previous_ema5, cfg)
-        signal_records.append(
-            {
-                "signal_date": date,
-                "execution_date": benchmark.iloc[index + 1]["datetime"]
-                if index + 1 < len(benchmark)
-                else pd.NaT,
-                "symbol": cfg.benchmark_symbol,
-                "action": "risk_on" if risk_on else "risk_off",
-                "reason": "market_filter",
-            }
-        )
-        ranked_entries = entry_symbols(ranking, cfg) if risk_on else []
+        ranked_entries = entry_symbols(ranking, cfg) if entry_allowed else []
+        if cfg.market_state_enabled and ranked_entries:
+            ranked_entries = [
+                symbol
+                for symbol in ranked_entries
+                if int(ranking_by_symbol.loc[symbol, "entry_rank"]) <= entry_rank_limit
+            ]
         qualified_entries = {
             symbol
             for symbol in ranked_entries
             if symbol not in portfolio.positions and symbol not in pending_exits
         }
-        if risk_on:
+        if entry_allowed:
             for symbol in set(entry_streaks) - qualified_entries:
                 entry_streaks.pop(symbol, None)
             for symbol in qualified_entries:
                 entry_streaks[symbol] = entry_streaks.get(symbol, 0) + 1
         else:
             entry_streaks.clear()
-        if risk_on and index + 1 < len(benchmark):
+        if entry_allowed and index + 1 < len(benchmark):
             for symbol in ranked_entries:
                 if symbol in portfolio.positions or symbol in pending_exits:
                     continue
@@ -739,6 +807,8 @@ def run_backtest(
                         signal_date=date,
                         industry=industry,
                         benchmark_key=benchmark_key,
+                        risk_fraction=entry_risk_fraction,
+                        entry_rank_limit=entry_rank_limit,
                     )
                 )
                 signal_records.append(
@@ -747,10 +817,11 @@ def run_backtest(
                         "execution_date": benchmark.iloc[index + 1]["datetime"],
                         "symbol": symbol,
                         "action": "buy_planned",
-                        "reason": f"rs_top{cfg.entry_rank}",
+                        "reason": f"rs_top{entry_rank_limit}",
                         "industry": industry,
                         "benchmark_key": benchmark_key,
                         "confirmation_days": entry_streaks[symbol],
+                        "risk_fraction": entry_risk_fraction,
                     }
                 )
 

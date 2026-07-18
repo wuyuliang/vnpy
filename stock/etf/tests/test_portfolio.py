@@ -64,6 +64,18 @@ class PortfolioTests(unittest.TestCase):
 
         self.assertEqual(quantity, 0)
 
+    def test_quantity_scales_risk_budget_for_caution_entries(self) -> None:
+        quantity = calculate_order_quantity(
+            equity=100_000,
+            available_cash=100_000,
+            estimated_fill_price=10,
+            risk_atr=0.5,
+            config=self.config,
+            risk_fraction=0.5,
+        )
+
+        self.assertEqual(quantity, 500)
+
     def test_industry_weight_must_be_a_positive_fraction(self) -> None:
         with self.assertRaises(ValueError):
             StrategyConfig(max_industry_weight=0)
