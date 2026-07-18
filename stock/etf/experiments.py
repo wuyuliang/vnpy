@@ -317,10 +317,11 @@ def _selection_audit(
     annual: pd.DataFrame,
     baseline_run_id: str,
     candidate_run_id: str,
+    cost_stress_run_id: str | None = None,
 ) -> dict[str, Any]:
     indexed = summary.set_index("run_id")
-    baseline = indexed.loc[baseline_run_id]
     candidate = indexed.loc[candidate_run_id]
+    stressed = indexed.loc[cost_stress_run_id or candidate_run_id]
     annual_pivot = annual.pivot(
         index="year", columns="run_id", values="net_return"
     ).dropna()
@@ -331,24 +332,31 @@ def _selection_audit(
         if not positive_excess.empty
         else float("nan")
     )
+    bull_episode_count = int(candidate.get("bull_episode_count", 0))
+    median_capture = float(candidate.get("median_bull_capture_ratio", float("nan")))
     gates = {
-        "net_return_and_sharpe_above_baseline": bool(
-            candidate["total_return"] > baseline["total_return"]
-            and candidate["sharpe"] > baseline["sharpe"]
+        "max_drawdown_at_least_minus_20": bool(
+            np.isfinite(candidate["max_drawdown"])
+            and candidate["max_drawdown"] >= -0.20
         ),
-        "drawdown_not_worse_than_risk_matched_benchmark": bool(
-            candidate["max_drawdown"]
-            >= candidate["risk_matched_benchmark_max_drawdown"]
+        "annual_one_way_turnover_at_most_8": bool(
+            np.isfinite(candidate["annual_one_way_turnover"])
+            and candidate["annual_one_way_turnover"] <= 8.0
         ),
-        "annual_one_way_turnover_at_most_10": bool(
-            candidate["annual_one_way_turnover"] <= 10
+        "annual_return_at_least_4_percent": bool(
+            np.isfinite(candidate["annual_return"])
+            and candidate["annual_return"] >= 0.04
         ),
-        "cost_at_most_40_percent_of_positive_gross_profit": bool(
-            candidate["gross_profit_static"] > 0
-            and candidate["cost_to_gross_profit"] <= 0.40
+        "sharpe_at_least_point_50": bool(
+            np.isfinite(candidate["sharpe"]) and candidate["sharpe"] >= 0.50
         ),
-        "improvement_spans_multiple_years": bool(
-            len(positive_excess) >= 2 and dominant_year_share <= 0.75
+        "median_bull_capture_at_least_50_percent": bool(
+            bull_episode_count > 0
+            and np.isfinite(median_capture)
+            and median_capture >= 0.50
+        ),
+        "double_cost_annual_return_positive": bool(
+            np.isfinite(stressed["annual_return"]) and stressed["annual_return"] > 0.0
         ),
     }
     return {
@@ -372,10 +380,13 @@ def write_experiment_report(
     *,
     baseline_run_id: str,
     candidate_run_id: str,
+    cost_stress_run_id: str | None = None,
 ) -> dict[str, Any]:
     """Write comparable metrics and an explicit strategy-selection audit."""
     if baseline_run_id not in run_dirs or candidate_run_id not in run_dirs:
         raise ValueError("baseline and candidate run ids must be present")
+    if cost_stress_run_id is not None and cost_stress_run_id not in run_dirs:
+        raise ValueError("cost stress run id must be present")
     trial_count = len(run_dirs)
     metric_rows: list[dict[str, Any]] = []
     annual_frames: list[pd.DataFrame] = []
@@ -405,6 +416,7 @@ def write_experiment_report(
         annual_returns,
         baseline_run_id,
         candidate_run_id,
+        cost_stress_run_id,
     )
     report = {
         "trial_count": trial_count,
