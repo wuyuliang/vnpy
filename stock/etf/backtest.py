@@ -100,6 +100,35 @@ CANDIDATE_COLUMNS = [
     "entry_representative",
     "trend_confirmed",
 ]
+POSITION_STATE_COLUMNS = [
+    "datetime",
+    "symbol",
+    "state",
+    "highest_close",
+    "stop_price",
+    "weak_rank_days",
+    "transition",
+    "reason",
+]
+PORTFOLIO_RISK_COLUMNS = [
+    "datetime",
+    "market_state",
+    "breadth",
+    "gross_weight",
+    "gross_cap",
+    "total_stop_risk_weight",
+    "total_stop_risk_cap",
+    "max_industry_weight",
+    "industry_cap",
+    "max_correlation_weight",
+    "correlation_cap",
+    "max_cluster_stop_risk_weight",
+    "cluster_stop_risk_cap",
+    "planned_post_trim_gross_weight",
+    "planned_post_trim_stop_risk_weight",
+    "trim_symbols",
+    "trim_quantity",
+]
 
 
 @dataclass
@@ -111,6 +140,9 @@ class BacktestResult:
     trades: pd.DataFrame
     positions: pd.DataFrame
     equity_curve: pd.DataFrame
+    position_states: pd.DataFrame
+    portfolio_risk: pd.DataFrame
+    trend_capture: pd.DataFrame
     summary: dict[str, Any]
 
 
@@ -335,6 +367,58 @@ def _trim_reasons_by_symbol(
             if stop_risk > equity * cluster_stop_risk_cap + tolerance:
                 add_reason(cluster, "cluster_stop_risk_trim")
     return reasons
+
+
+def _risk_snapshot_metrics(
+    positions: list[RiskPosition],
+    equity: float,
+    clusters: list[set[str]],
+    trims: dict[str, int] | None = None,
+) -> dict[str, float]:
+    quantities = {
+        position.symbol: max(
+            position.quantity - (trims or {}).get(position.symbol, 0),
+            0,
+        )
+        for position in positions
+    }
+    divisor = equity if equity > 0 else 1.0
+    gross = sum(quantities[position.symbol] * position.price for position in positions)
+    stop_risk = sum(
+        quantities[position.symbol] * max(position.price - position.stop_price, 0.0)
+        for position in positions
+    )
+    industry_values: dict[str, float] = {}
+    for position in positions:
+        if position.industry == "broad_or_other":
+            continue
+        industry_values[position.industry] = (
+            industry_values.get(position.industry, 0.0)
+            + quantities[position.symbol] * position.price
+        )
+    cluster_values = [
+        sum(
+            quantities[position.symbol] * position.price
+            for position in positions
+            if position.symbol in cluster
+        )
+        for cluster in clusters
+    ]
+    cluster_stop_risks = [
+        sum(
+            quantities[position.symbol] * max(position.price - position.stop_price, 0.0)
+            for position in positions
+            if position.symbol in cluster
+        )
+        for cluster in clusters
+    ]
+    return {
+        "gross_weight": gross / divisor,
+        "total_stop_risk_weight": stop_risk / divisor,
+        "max_industry_weight": max(industry_values.values(), default=0.0) / divisor,
+        "max_correlation_weight": max(cluster_values, default=0.0) / divisor,
+        "max_cluster_stop_risk_weight": max(cluster_stop_risks, default=0.0) / divisor,
+    }
 
 
 def _current_stop_risk(
@@ -626,6 +710,8 @@ def run_backtest(
     signal_records: list[dict[str, Any]] = []
     position_records: list[dict[str, Any]] = []
     equity_records: list[dict[str, Any]] = []
+    position_state_records: list[dict[str, Any]] = []
+    portfolio_risk_records: list[dict[str, Any]] = []
     last_close: dict[str, float] = {}
     previous_equity = cfg.initial_capital
     market_tracker = MarketStateTracker(
@@ -636,6 +722,31 @@ def run_backtest(
     for index, benchmark_row in benchmark.iterrows():
         date = pd.Timestamp(benchmark_row["datetime"])
         daily = etfs_by_date.get(date, empty_daily)
+
+        # Opening gaps have absolute priority over all orders planned yesterday.
+        for symbol in list(portfolio.positions):
+            if symbol not in daily.index or pd.isna(daily.loc[symbol, "open"]):
+                continue
+            trade = portfolio.check_gap_stop(
+                symbol,
+                date,
+                float(daily.loc[symbol, "open"]),
+            )
+            if trade is None:
+                continue
+            pending_exits.pop(symbol, None)
+            pending_trims.pop(symbol, None)
+            pending_restores.pop(symbol, None)
+            signal_records.append(
+                {
+                    "signal_date": date,
+                    "execution_date": date,
+                    "symbol": symbol,
+                    "action": "stop_filled",
+                    "reason": trade.primary_reason,
+                    "quantity": trade.quantity,
+                }
+            )
 
         carried_exits: dict[str, list[str]] = {}
         for symbol, reasons in pending_exits.items():
@@ -956,10 +1067,9 @@ def run_backtest(
 
         for symbol in list(portfolio.positions):
             if symbol in daily.index:
-                portfolio.check_stop(
+                portfolio.check_intraday_stop(
                     symbol,
                     date,
-                    float(daily.loc[symbol, "open"]),
                     float(daily.loc[symbol, "low"]),
                 )
 
@@ -1030,6 +1140,7 @@ def run_backtest(
         current_rows = daily
         previous_ema5 = benchmark_row["previous_ema5"]
         broad_risk_on = is_risk_on(benchmark_row, previous_ema5, cfg)
+        breadth: float | None = None
         if cfg.market_state_enabled:
             breadth = calculate_breadth(daily)
             candidate_state = classify_market_candidate(
@@ -1085,6 +1196,7 @@ def run_backtest(
         planned_exits: dict[str, list[str]] = dict(pending_exits)
         for symbol, position in portfolio.positions.items():
             row = current_rows.loc[symbol] if symbol in current_rows.index else None
+            transition: str | None = None
             if (
                 cfg.winner_holding_enabled
                 and row is not None
@@ -1093,7 +1205,7 @@ def run_backtest(
                 and pd.notna(row.get("ema20"))
                 and pd.notna(row.get("atr5"))
             ):
-                portfolio.update_after_close(
+                transition = portfolio.update_after_close(
                     symbol,
                     float(row["close"]),
                     float(row["ema10"]),
@@ -1105,6 +1217,18 @@ def run_backtest(
             )
             if cfg.market_state_enabled and market_state == MarketState.RISK_OFF:
                 reasons.insert(0, "portfolio_risk_off")
+            position_state_records.append(
+                {
+                    "datetime": date,
+                    "symbol": symbol,
+                    "state": str(position.state),
+                    "highest_close": position.highest_close,
+                    "stop_price": position.stop_price,
+                    "weak_rank_days": position.weak_rank_days,
+                    "transition": transition,
+                    "reason": transition or "|".join(reasons) or "daily_mark",
+                }
+            )
             if reasons:
                 planned_exits[symbol] = reasons
                 signal_records.append(
@@ -1130,26 +1254,43 @@ def run_backtest(
                 )
         pending_exits = planned_exits
 
+        gross_cap = _gross_cap_for_state(market_state, cfg)
+        audit_positions = _risk_positions_at_close(
+            portfolio,
+            daily,
+            last_close,
+            ranking_by_symbol,
+            industry_by_symbol,
+            set(),
+        )
+        audit_clusters = correlation_clusters(
+            {position.symbol for position in audit_positions},
+            etf_returns,
+            date,
+            cfg,
+        )
+        risk_positions = _risk_positions_at_close(
+            portfolio,
+            daily,
+            last_close,
+            ranking_by_symbol,
+            industry_by_symbol,
+            set(pending_exits),
+        )
+        held_clusters = correlation_clusters(
+            {position.symbol for position in risk_positions},
+            etf_returns,
+            date,
+            cfg,
+        )
+        trim_plan: dict[str, int] = {
+            symbol: adjustment.quantity for symbol, adjustment in pending_trims.items()
+        }
         if cfg.dynamic_risk_enabled:
             if market_state == MarketState.RISK_OFF and cfg.market_state_enabled:
                 pending_trims.clear()
                 pending_restores.clear()
             elif index + 1 < len(benchmark):
-                gross_cap = _gross_cap_for_state(market_state, cfg)
-                risk_positions = _risk_positions_at_close(
-                    portfolio,
-                    daily,
-                    last_close,
-                    ranking_by_symbol,
-                    industry_by_symbol,
-                    set(pending_exits),
-                )
-                held_clusters = correlation_clusters(
-                    {position.symbol for position in risk_positions},
-                    etf_returns,
-                    date,
-                    cfg,
-                )
                 trim_plan = plan_trim_quantities(
                     risk_positions,
                     equity=equity,
@@ -1232,6 +1373,41 @@ def run_backtest(
                             }
                         )
 
+        actual_metrics = _risk_snapshot_metrics(
+            audit_positions,
+            equity,
+            audit_clusters,
+        )
+        planned_reductions = dict(trim_plan)
+        for position in audit_positions:
+            if position.symbol in pending_exits:
+                planned_reductions[position.symbol] = position.quantity
+        planned_metrics = _risk_snapshot_metrics(
+            audit_positions,
+            equity,
+            audit_clusters,
+            planned_reductions,
+        )
+        portfolio_risk_records.append(
+            {
+                "datetime": date,
+                "market_state": market_state.value,
+                "breadth": breadth,
+                **actual_metrics,
+                "gross_cap": gross_cap,
+                "total_stop_risk_cap": cfg.max_portfolio_stop_risk,
+                "industry_cap": cfg.max_industry_weight,
+                "correlation_cap": cfg.max_correlation_weight,
+                "cluster_stop_risk_cap": cfg.max_cluster_stop_risk,
+                "planned_post_trim_gross_weight": planned_metrics["gross_weight"],
+                "planned_post_trim_stop_risk_weight": planned_metrics[
+                    "total_stop_risk_weight"
+                ],
+                "trim_symbols": "|".join(sorted(planned_reductions)),
+                "trim_quantity": sum(planned_reductions.values()),
+            }
+        )
+
         ranked_entries = entry_symbols(ranking, cfg) if entry_allowed else []
         if cfg.market_state_enabled and ranked_entries:
             ranked_entries = [
@@ -1304,8 +1480,27 @@ def run_backtest(
         else pd.DataFrame(columns=CANDIDATE_COLUMNS)
     )
     signals = pd.DataFrame(signal_records)
+    position_states = pd.DataFrame(
+        position_state_records,
+        columns=POSITION_STATE_COLUMNS,
+    )
+    portfolio_risk = pd.DataFrame(
+        portfolio_risk_records,
+        columns=PORTFOLIO_RISK_COLUMNS,
+    )
+    trend_capture = pd.DataFrame()
     summary = _build_summary(equity_curve, trades, cfg.initial_capital)
-    return BacktestResult(candidates, signals, trades, positions, equity_curve, summary)
+    return BacktestResult(
+        candidates,
+        signals,
+        trades,
+        positions,
+        equity_curve,
+        position_states,
+        portfolio_risk,
+        trend_capture,
+        summary,
+    )
 
 
 def _build_summary(
@@ -1380,6 +1575,8 @@ def write_backtest_outputs(
     result.trades.to_csv(output_dir / "trades.csv", index=False)
     result.positions.to_csv(output_dir / "positions.csv", index=False)
     result.equity_curve.to_csv(output_dir / "equity_curve.csv", index=False)
+    result.position_states.to_csv(output_dir / "position_state_log.csv", index=False)
+    result.portfolio_risk.to_csv(output_dir / "portfolio_risk_log.csv", index=False)
     payload = dict(result.summary)
     payload["parameters"] = asdict(config)
     payload.update(run_metadata or {})

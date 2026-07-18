@@ -296,6 +296,30 @@ class Portfolio:
             position.stop_price = max(position.stop_price, candidate_stop)
         return transition
 
+    def check_gap_stop(
+        self,
+        symbol: str,
+        datetime: object,
+        open_price: float,
+    ) -> Trade | None:
+        """Execute an opening gap through the active stop at the open."""
+        position = self.positions.get(symbol)
+        if position is None or open_price > position.stop_price:
+            return None
+        return self.sell(symbol, datetime, open_price, "atr_stop_gap")
+
+    def check_intraday_stop(
+        self,
+        symbol: str,
+        datetime: object,
+        low_price: float,
+    ) -> Trade | None:
+        """Execute a non-gap intraday stop at the active stop price."""
+        position = self.positions.get(symbol)
+        if position is None or low_price > position.stop_price:
+            return None
+        return self.sell(symbol, datetime, position.stop_price, "atr_stop_intraday")
+
     def check_stop(
         self,
         symbol: str,
@@ -304,14 +328,10 @@ class Portfolio:
         low_price: float,
     ) -> Trade | None:
         """Execute a conservative daily gap or intraday hard stop."""
-        position = self.positions.get(symbol)
-        if position is None:
-            return None
-        if open_price <= position.stop_price:
-            return self.sell(symbol, datetime, open_price, "atr_stop_gap")
-        if low_price <= position.stop_price:
-            return self.sell(symbol, datetime, position.stop_price, "atr_stop_intraday")
-        return None
+        gap_trade = self.check_gap_stop(symbol, datetime, open_price)
+        if gap_trade is not None:
+            return gap_trade
+        return self.check_intraday_stop(symbol, datetime, low_price)
 
     def equity(self, close_prices: Mapping[str, float]) -> float:
         """Mark open positions to supplied close prices."""

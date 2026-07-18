@@ -16,6 +16,54 @@ from stock.etf.portfolio import Position
 
 
 class BacktestTests(unittest.TestCase):
+    def test_gap_stop_preempts_pending_full_exit_and_restore(self) -> None:
+        dates = pd.bdate_range("2025-01-02", periods=130)
+        benchmark_close = np.linspace(100.0, 160.0, len(dates))
+        benchmark_close[110] = 80.0
+        benchmark = self._bars(
+            "000300.SH",
+            dates,
+            benchmark_close,
+            turnover=0,
+        )
+        etfs = self._bars("A.SH", dates, np.linspace(10.0, 20.0, len(dates)))
+        etfs.loc[etfs["datetime"] == dates[111], ["open", "low"]] = [5.0, 4.8]
+        metadata = pd.DataFrame(
+            {
+                "symbol": ["A.SH"],
+                "name": ["中证A股ETF"],
+                "list_date": [pd.Timestamp("2020-01-01")],
+                "fund_type": ["股票型ETF"],
+                "benchmark": ["中证A股指数收益率×100%"],
+            }
+        )
+
+        result = run_backtest(
+            benchmark,
+            etfs,
+            metadata,
+            StrategyConfig(
+                initial_capital=100_000,
+                commission_rate=0,
+                min_commission=0,
+                slippage_rate=0,
+            ),
+        )
+
+        sells = result.trades.loc[
+            (result.trades["datetime"] == dates[111])
+            & (result.trades["symbol"] == "A.SH")
+            & (result.trades["side"] == "sell")
+        ]
+        self.assertEqual(len(sells), 1)
+        self.assertEqual(sells.iloc[0]["primary_reason"], "atr_stop_gap")
+        same_day_restores = result.signals.loc[
+            (result.signals["execution_date"] == dates[111])
+            & (result.signals["symbol"] == "A.SH")
+            & (result.signals["action"] == "restore_filled")
+        ]
+        self.assertTrue(same_day_restores.empty)
+
     def test_enabled_market_state_writes_caution_and_confirmed_risk_on(self) -> None:
         dates = pd.bdate_range("2025-01-02", periods=130)
         benchmark = self._bars(
@@ -250,6 +298,8 @@ class BacktestTests(unittest.TestCase):
                 "trades.csv",
                 "positions.csv",
                 "equity_curve.csv",
+                "position_state_log.csv",
+                "portfolio_risk_log.csv",
                 "summary.json",
             }
             self.assertEqual(
@@ -628,6 +678,21 @@ class BacktestTests(unittest.TestCase):
 
         result = run_backtest(benchmark, etfs, metadata, config)
 
+        self.assertEqual(
+            set(result.position_states.columns),
+            {
+                "datetime",
+                "symbol",
+                "state",
+                "highest_close",
+                "stop_price",
+                "weak_rank_days",
+                "transition",
+                "reason",
+            },
+        )
+        self.assertIn("market_state", result.portfolio_risk.columns)
+        self.assertIn("total_stop_risk_weight", result.portfolio_risk.columns)
         trims = result.signals.loc[result.signals["action"] == "trim_filled"]
         self.assertFalse(trims.empty)
         daily_cluster_weight = result.positions.groupby("datetime")["weight"].sum()

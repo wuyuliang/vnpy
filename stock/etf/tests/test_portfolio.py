@@ -235,6 +235,19 @@ class PortfolioTests(unittest.TestCase):
         self.assertEqual(intraday.raw_price, 9.0)
         self.assertEqual(intraday.primary_reason, "atr_stop_intraday")
 
+    def test_gap_and_intraday_stop_checks_are_independently_callable(self) -> None:
+        portfolio = Portfolio(100_000, self.config)
+        portfolio.buy("A.SH", "2026-01-02", 10.0, 1000, 0.5, "entry")
+
+        self.assertIsNone(
+            portfolio.check_gap_stop("A.SH", "2026-01-03", open_price=9.5)
+        )
+        intraday = portfolio.check_intraday_stop("A.SH", "2026-01-03", low_price=8.9)
+
+        self.assertIsNotNone(intraday)
+        assert intraday is not None
+        self.assertEqual(intraday.primary_reason, "atr_stop_intraday")
+
     def test_winner_promotion_and_trailing_stop_are_monotonic(self) -> None:
         config = StrategyConfig(
             initial_capital=100_000,
