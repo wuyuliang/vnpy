@@ -1,7 +1,12 @@
 import unittest
 
 from stock.etf.config import StrategyConfig
-from stock.etf.portfolio import Portfolio, Position, calculate_order_quantity
+from stock.etf.portfolio import (
+    Portfolio,
+    Position,
+    PositionState,
+    calculate_order_quantity,
+)
 
 
 class PortfolioTests(unittest.TestCase):
@@ -217,6 +222,47 @@ class PortfolioTests(unittest.TestCase):
         assert intraday is not None
         self.assertEqual(intraday.raw_price, 9.0)
         self.assertEqual(intraday.primary_reason, "atr_stop_intraday")
+
+    def test_winner_promotion_and_trailing_stop_are_monotonic(self) -> None:
+        config = StrategyConfig(
+            initial_capital=100_000,
+            commission_rate=0,
+            min_commission=0,
+            slippage_rate=0,
+            atr_stop_multiple=3,
+            winner_holding_enabled=True,
+        )
+        portfolio = Portfolio(100_000, config)
+        portfolio.buy(
+            "A.SH",
+            "2026-01-02",
+            10.0,
+            1000,
+            risk_atr=1.0,
+            reason="entry",
+        )
+
+        transition = portfolio.update_after_close(
+            "A.SH",
+            close=12.1,
+            ema10=11.5,
+            ema20=11.0,
+            atr5=1.0,
+        )
+        first_stop = portfolio.positions["A.SH"].stop_price
+        portfolio.update_after_close(
+            "A.SH",
+            close=11.8,
+            ema10=11.6,
+            ema20=11.1,
+            atr5=2.0,
+        )
+
+        position = portfolio.positions["A.SH"]
+        self.assertEqual(transition, "winner_promoted")
+        self.assertEqual(position.state, PositionState.WINNER)
+        self.assertAlmostEqual(first_stop, 9.1)
+        self.assertEqual(position.stop_price, first_stop)
 
 
 if __name__ == "__main__":

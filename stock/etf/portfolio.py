@@ -260,6 +260,36 @@ class Portfolio:
             all_reasons,
         )
 
+    def update_after_close(
+        self,
+        symbol: str,
+        close: float,
+        ema10: float,
+        ema20: float,
+        atr5: float,
+    ) -> str | None:
+        """Advance winner state and tighten its close-based trailing stop."""
+        position = self.positions[symbol]
+        position.highest_close = max(position.highest_close, close)
+        transition: str | None = None
+        assert position.entry_price is not None
+        promotion_price = position.entry_price + (
+            self.config.winner_promotion_atr_multiple * position.entry_atr5
+        )
+        if (
+            position.state == PositionState.TRIAL
+            and position.highest_close >= promotion_price
+            and close > ema10 > ema20
+        ):
+            position.state = PositionState.WINNER
+            transition = "winner_promoted"
+        if position.state == PositionState.WINNER:
+            candidate_stop = (
+                position.highest_close - self.config.atr_stop_multiple * atr5
+            )
+            position.stop_price = max(position.stop_price, candidate_stop)
+        return transition
+
     def check_stop(
         self,
         symbol: str,
