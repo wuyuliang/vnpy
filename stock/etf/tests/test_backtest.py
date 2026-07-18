@@ -580,6 +580,86 @@ class BacktestTests(unittest.TestCase):
         )
         self.assertIn("correlation_cap", first_entries["reason"].values)
 
+    def test_dynamic_risk_trims_correlated_exposure_without_same_day_restore(
+        self,
+    ) -> None:
+        dates = pd.bdate_range("2025-01-02", periods=140)
+        benchmark = self._bars(
+            "000300.SH",
+            dates,
+            np.linspace(100.0, 170.0, len(dates)),
+            turnover=0,
+        )
+        symbols = ["A.SH", "B.SH", "C.SH"]
+        identical_close = np.linspace(10.0, 22.0, len(dates))
+        etfs = pd.concat(
+            [self._bars(symbol, dates, identical_close) for symbol in symbols],
+            ignore_index=True,
+        )
+        etfs["open"] = etfs["close"]
+        metadata = pd.DataFrame(
+            {
+                "symbol": symbols,
+                "name": ["沪深300ETF", "中证500ETF", "中证1000ETF"],
+                "list_date": [pd.Timestamp("2020-01-01")] * len(symbols),
+                "fund_type": ["股票型ETF"] * len(symbols),
+                "benchmark": [
+                    "沪深300指数收益率×100%",
+                    "中证500指数收益率×100%",
+                    "中证1000指数收益率×100%",
+                ],
+            }
+        )
+        config = StrategyConfig(
+            initial_capital=100_000,
+            entry_rank=3,
+            risk_per_trade=1,
+            atr_stop_multiple=3.0,
+            max_industry_weight=1.0,
+            correlation_threshold=0.90,
+            max_correlation_weight=0.30,
+            max_portfolio_stop_risk=0.03,
+            max_cluster_stop_risk=0.015,
+            dynamic_risk_enabled=True,
+            commission_rate=0,
+            min_commission=0,
+            slippage_rate=0,
+        )
+
+        result = run_backtest(benchmark, etfs, metadata, config)
+
+        trims = result.signals.loc[result.signals["action"] == "trim_filled"]
+        self.assertFalse(trims.empty)
+        daily_cluster_weight = result.positions.groupby("datetime")["weight"].sum()
+        self.assertLessEqual(daily_cluster_weight.max(), 0.300001)
+        position_stop_risk = (
+            result.positions["market_value"] / result.positions["quantity"]
+            - result.positions["stop_price"]
+        ).clip(lower=0) * result.positions["quantity"]
+        stop_risk_by_date = position_stop_risk.groupby(
+            result.positions["datetime"]
+        ).sum()
+        equity_by_date = result.equity_curve.set_index("datetime")["equity"]
+        cluster_stop_risk_weight = stop_risk_by_date / equity_by_date
+        breach_dates = set(
+            cluster_stop_risk_weight.loc[
+                cluster_stop_risk_weight > config.max_cluster_stop_risk
+            ].index
+        )
+        planned_trim_dates = set(
+            result.signals.loc[
+                result.signals["action"] == "trim_planned", "signal_date"
+            ]
+        )
+        self.assertTrue(breach_dates)
+        self.assertTrue(breach_dates.issubset(planned_trim_dates))
+        restores = result.signals.loc[result.signals["action"] == "restore_filled"]
+        trim_keys = set(zip(trims["execution_date"], trims["symbol"], strict=True))
+        restore_keys = set(
+            zip(restores["execution_date"], restores["symbol"], strict=True)
+        )
+        self.assertTrue(trim_keys.isdisjoint(restore_keys))
+
     def test_untradeable_delisted_position_is_written_off(self) -> None:
         dates = pd.bdate_range("2025-01-02", periods=130)
         benchmark = self._bars(

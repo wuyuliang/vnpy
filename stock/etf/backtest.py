@@ -21,8 +21,11 @@ from .ranking import (
 from .risk import (
     MarketState,
     MarketStateTracker,
+    RiskPosition,
     calculate_breadth,
     classify_market_candidate,
+    correlation_clusters,
+    plan_trim_quantities,
 )
 
 TRADE_COLUMNS = [
@@ -124,6 +127,20 @@ class PendingEntry:
     benchmark_key: str
     risk_fraction: float
     entry_rank_limit: int
+    gross_cap: float
+
+
+@dataclass(frozen=True)
+class PendingAdjustment:
+    """A portfolio trim or restore decided at a prior signal close."""
+
+    symbol: str
+    quantity: int
+    action: str
+    reason: str
+    signal_date: pd.Timestamp
+    risk_fraction: float = 1.0
+    gross_cap: float = 1.0
 
 
 def _prepare_etfs(
@@ -209,6 +226,244 @@ def _position_market_values(
     return values
 
 
+def _risk_positions_at_close(
+    portfolio: Portfolio,
+    daily: pd.DataFrame,
+    last_close: dict[str, float],
+    ranking_by_symbol: pd.DataFrame,
+    industry_by_symbol: dict[str, str],
+    excluded_symbols: set[str],
+) -> list[RiskPosition]:
+    snapshots: list[RiskPosition] = []
+    for symbol, position in sorted(portfolio.positions.items()):
+        if symbol in excluded_symbols:
+            continue
+        row = daily.loc[symbol] if symbol in daily.index else None
+        price = (
+            float(row["close"])
+            if row is not None and pd.notna(row.get("close"))
+            else last_close.get(symbol, position.average_price)
+        )
+        holding_rank = 1_000_000
+        ema5_slope = float("-inf")
+        if symbol in ranking_by_symbol.index:
+            rank_value = ranking_by_symbol.loc[symbol, "holding_rank"]
+            slope_value = ranking_by_symbol.loc[symbol, "ema5_slope"]
+            if pd.notna(rank_value):
+                holding_rank = int(rank_value)
+            if pd.notna(slope_value):
+                ema5_slope = float(slope_value)
+        snapshots.append(
+            RiskPosition(
+                symbol=symbol,
+                quantity=position.quantity,
+                price=price,
+                stop_price=position.stop_price,
+                state=str(position.state),
+                holding_rank=holding_rank,
+                ema5_slope=ema5_slope,
+                industry=industry_by_symbol.get(symbol, "broad_or_other"),
+            )
+        )
+    return snapshots
+
+
+def _trim_reasons_by_symbol(
+    positions: list[RiskPosition],
+    *,
+    equity: float,
+    gross_cap: float,
+    industry_cap: float,
+    clusters: list[set[str]],
+    correlation_cap: float | None,
+    portfolio_stop_risk_cap: float | None,
+    cluster_stop_risk_cap: float | None,
+) -> dict[str, list[str]]:
+    reasons: dict[str, list[str]] = {position.symbol: [] for position in positions}
+    tolerance = max(equity, 1.0) * 1e-12
+
+    def add_reason(symbols: set[str], reason: str) -> None:
+        for symbol in sorted(symbols):
+            reasons[symbol].append(reason)
+
+    all_symbols = {position.symbol for position in positions}
+    if (
+        sum(position.market_value for position in positions)
+        > equity * gross_cap + tolerance
+    ):
+        add_reason(all_symbols, "gross_exposure_trim")
+    industries = sorted(
+        {
+            position.industry
+            for position in positions
+            if position.industry != "broad_or_other"
+        }
+    )
+    for industry in industries:
+        members = {
+            position.symbol for position in positions if position.industry == industry
+        }
+        exposure = sum(
+            position.market_value
+            for position in positions
+            if position.symbol in members
+        )
+        if exposure > equity * industry_cap + tolerance:
+            add_reason(members, "industry_cap_trim")
+    if correlation_cap is not None:
+        for cluster in clusters:
+            exposure = sum(
+                position.market_value
+                for position in positions
+                if position.symbol in cluster
+            )
+            if exposure > equity * correlation_cap + tolerance:
+                add_reason(cluster, "correlation_cap_trim")
+    if portfolio_stop_risk_cap is not None:
+        if (
+            sum(position.stop_risk for position in positions)
+            > equity * portfolio_stop_risk_cap + tolerance
+        ):
+            add_reason(all_symbols, "portfolio_stop_risk_trim")
+    if cluster_stop_risk_cap is not None:
+        for cluster in clusters:
+            stop_risk = sum(
+                position.stop_risk
+                for position in positions
+                if position.symbol in cluster
+            )
+            if stop_risk > equity * cluster_stop_risk_cap + tolerance:
+                add_reason(cluster, "cluster_stop_risk_trim")
+    return reasons
+
+
+def _current_stop_risk(
+    portfolio: Portfolio,
+    position_values: dict[str, float],
+    symbols: set[str] | None = None,
+) -> float:
+    selected = symbols if symbols is not None else set(portfolio.positions)
+    return sum(
+        position.quantity
+        * max(
+            position_values.get(symbol, position.quantity * position.average_price)
+            / position.quantity
+            - position.stop_price,
+            0.0,
+        )
+        for symbol, position in portfolio.positions.items()
+        if symbol in selected and position.quantity > 0
+    )
+
+
+def _gross_cap_for_state(
+    market_state: MarketState,
+    config: StrategyConfig,
+) -> float:
+    if config.market_state_enabled and market_state == MarketState.CAUTION:
+        return config.caution_max_gross_weight
+    if config.market_state_enabled and market_state == MarketState.RISK_OFF:
+        return 0.0
+    return 1.0
+
+
+def _calculate_restore_quantity(
+    portfolio: Portfolio,
+    symbol: str,
+    raw_open: float,
+    equity: float,
+    daily: pd.DataFrame,
+    last_close: dict[str, float],
+    industry_by_symbol: dict[str, str],
+    returns: pd.DataFrame,
+    signal_date: pd.Timestamp,
+    adjustment: PendingAdjustment,
+    config: StrategyConfig,
+) -> tuple[int, int]:
+    position = portfolio.positions[symbol]
+    estimated_fill = raw_open * (1 + config.slippage_rate)
+    stop_distance = estimated_fill - position.stop_price
+    if stop_distance <= 0:
+        return 0, 0
+    risk_target = int(
+        equity * config.risk_per_trade * adjustment.risk_fraction / stop_distance
+    )
+    weight_target = int(equity * config.max_position_weight / estimated_fill)
+    target_quantity = min(risk_target, weight_target)
+    target_quantity = target_quantity // config.lot_size * config.lot_size
+    desired_quantity = max(target_quantity - position.quantity, 0)
+    if desired_quantity < config.lot_size:
+        return 0, desired_quantity
+
+    position_values = _position_market_values(portfolio, daily, last_close)
+    industry_values = _industry_market_values(
+        portfolio,
+        industry_by_symbol,
+        daily,
+        last_close,
+    )
+    correlated_symbols = _correlated_cluster_symbols(
+        symbol,
+        set(portfolio.positions) - {symbol},
+        returns,
+        signal_date,
+        config,
+    )
+    cluster_symbols = correlated_symbols | {symbol}
+    capacity_units = [
+        int(portfolio.cash / estimated_fill),
+        int(
+            max(
+                equity * adjustment.gross_cap - sum(position_values.values()),
+                0.0,
+            )
+            / estimated_fill
+        ),
+    ]
+    industry = industry_by_symbol.get(symbol, "broad_or_other")
+    if industry != "broad_or_other":
+        capacity_units.append(
+            int(
+                max(
+                    equity * config.max_industry_weight
+                    - industry_values.get(industry, 0.0),
+                    0.0,
+                )
+                / estimated_fill
+            )
+        )
+    if config.max_correlation_weight is not None:
+        cluster_value = sum(
+            position_values.get(member, 0.0) for member in cluster_symbols
+        )
+        capacity_units.append(
+            int(
+                max(
+                    equity * config.max_correlation_weight - cluster_value,
+                    0.0,
+                )
+                / estimated_fill
+            )
+        )
+    if config.max_portfolio_stop_risk is not None:
+        remaining_risk = max(
+            equity * config.max_portfolio_stop_risk
+            - _current_stop_risk(portfolio, position_values),
+            0.0,
+        )
+        capacity_units.append(int(remaining_risk / stop_distance))
+    if config.max_cluster_stop_risk is not None:
+        remaining_cluster_risk = max(
+            equity * config.max_cluster_stop_risk
+            - _current_stop_risk(portfolio, position_values, cluster_symbols),
+            0.0,
+        )
+        capacity_units.append(int(remaining_cluster_risk / stop_distance))
+    quantity = min(desired_quantity, *capacity_units)
+    quantity = quantity // config.lot_size * config.lot_size
+    return max(quantity, 0), desired_quantity
+
+
 def _correlated_cluster_symbols(
     candidate: str,
     held_symbols: set[str],
@@ -218,28 +473,16 @@ def _correlated_cluster_symbols(
 ) -> set[str]:
     if config.correlation_threshold is None or not held_symbols:
         return set()
-    nodes = [candidate, *sorted(held_symbols)]
-    available = [symbol for symbol in nodes if symbol in returns.columns]
-    adjacency = {symbol: set() for symbol in available}
-    history = returns.loc[returns.index <= signal_date]
-    for left_index, left in enumerate(available):
-        for right in available[left_index + 1 :]:
-            pair = history[[left, right]].dropna().tail(config.correlation_lookback)
-            if len(pair) < config.min_correlation_observations:
-                continue
-            correlation = pair[left].corr(pair[right])
-            if pd.notna(correlation) and correlation >= config.correlation_threshold:
-                adjacency[left].add(right)
-                adjacency[right].add(left)
-    if candidate not in adjacency:
-        return set()
-    cluster = {candidate}
-    frontier = [candidate]
-    while frontier:
-        current = frontier.pop()
-        for neighbour in adjacency[current] - cluster:
-            cluster.add(neighbour)
-            frontier.append(neighbour)
+    clusters = correlation_clusters(
+        [candidate, *held_symbols],
+        returns,
+        signal_date,
+        config,
+    )
+    cluster = next(
+        (component for component in clusters if candidate in component),
+        set(),
+    )
     return cluster & held_symbols
 
 
@@ -375,6 +618,8 @@ def run_backtest(
 
     portfolio = Portfolio(cfg.initial_capital, cfg)
     pending_exits: dict[str, list[str]] = {}
+    pending_trims: dict[str, PendingAdjustment] = {}
+    pending_restores: dict[str, PendingAdjustment] = {}
     pending_entries: list[PendingEntry] = []
     entry_streaks: dict[str, int] = {}
     candidate_frames: list[pd.DataFrame] = []
@@ -418,6 +663,90 @@ def run_backtest(
             ):
                 portfolio.sell(symbol, date, 0.0, "delisted_writeoff")
                 pending_exits.pop(symbol, None)
+
+        carried_trims: dict[str, PendingAdjustment] = {}
+        trimmed_today: set[str] = set()
+        for symbol, adjustment in pending_trims.items():
+            if symbol not in portfolio.positions or symbol in pending_exits:
+                continue
+            if symbol not in daily.index or pd.isna(daily.loc[symbol, "open"]):
+                carried_trims[symbol] = adjustment
+                continue
+            position = portfolio.positions[symbol]
+            quantity = min(adjustment.quantity, position.quantity)
+            quantity = quantity // cfg.lot_size * cfg.lot_size
+            if quantity <= 0:
+                continue
+            trade = portfolio.sell_quantity(
+                symbol,
+                date,
+                float(daily.loc[symbol, "open"]),
+                quantity,
+                adjustment.reason.split("|")[0],
+                adjustment.reason,
+            )
+            trimmed_today.add(symbol)
+            if symbol in portfolio.positions:
+                portfolio.positions[symbol].restore_eligible = True
+            signal_records.append(
+                {
+                    "signal_date": adjustment.signal_date,
+                    "execution_date": date,
+                    "symbol": symbol,
+                    "action": "trim_filled",
+                    "reason": adjustment.reason,
+                    "quantity": trade.quantity,
+                }
+            )
+        pending_trims = carried_trims
+
+        carried_restores: dict[str, PendingAdjustment] = {}
+        for symbol, adjustment in pending_restores.items():
+            if (
+                symbol not in portfolio.positions
+                or symbol in pending_exits
+                or symbol in trimmed_today
+            ):
+                continue
+            if symbol not in daily.index or pd.isna(daily.loc[symbol, "open"]):
+                carried_restores[symbol] = adjustment
+                continue
+            raw_open = float(daily.loc[symbol, "open"])
+            quantity, desired_quantity = _calculate_restore_quantity(
+                portfolio,
+                symbol,
+                raw_open,
+                previous_equity,
+                daily,
+                last_close,
+                industry_by_symbol,
+                etf_returns,
+                adjustment.signal_date,
+                adjustment,
+                cfg,
+            )
+            if quantity > 0:
+                trade = portfolio.increase(
+                    symbol,
+                    date,
+                    raw_open,
+                    quantity,
+                    "position_restore",
+                )
+                portfolio.positions[symbol].restore_eligible = (
+                    quantity < desired_quantity
+                )
+                signal_records.append(
+                    {
+                        "signal_date": adjustment.signal_date,
+                        "execution_date": date,
+                        "symbol": symbol,
+                        "action": "restore_filled",
+                        "reason": "position_restore",
+                        "quantity": trade.quantity,
+                    }
+                )
+        pending_restores = carried_restores
 
         industry_values = _industry_market_values(
             portfolio,
@@ -511,6 +840,39 @@ def run_backtest(
                     previous_equity * cfg.max_correlation_weight - correlated_exposure,
                     0.0,
                 )
+            if cfg.dynamic_risk_enabled:
+                gross_exposure = sum(execution_position_values.values())
+                constraint_caps["gross_exposure_cap"] = max(
+                    previous_equity * pending_entry.gross_cap - gross_exposure,
+                    0.0,
+                )
+                candidate_stop_risk = cfg.atr_stop_multiple * risk_atr
+                if cfg.max_portfolio_stop_risk is not None:
+                    current_stop_risk = _current_stop_risk(
+                        portfolio,
+                        execution_position_values,
+                    )
+                    remaining_stop_risk = max(
+                        previous_equity * cfg.max_portfolio_stop_risk
+                        - current_stop_risk,
+                        0.0,
+                    )
+                    constraint_caps["portfolio_stop_risk_cap"] = (
+                        remaining_stop_risk / candidate_stop_risk * estimated_fill
+                    )
+                if cfg.max_cluster_stop_risk is not None:
+                    cluster_stop_risk = _current_stop_risk(
+                        portfolio,
+                        execution_position_values,
+                        correlated_symbols,
+                    )
+                    remaining_cluster_risk = max(
+                        previous_equity * cfg.max_cluster_stop_risk - cluster_stop_risk,
+                        0.0,
+                    )
+                    constraint_caps["cluster_stop_risk_cap"] = (
+                        remaining_cluster_risk / candidate_stop_risk * estimated_fill
+                    )
             binding_constraint = (
                 min(constraint_caps, key=constraint_caps.get)
                 if constraint_caps
@@ -768,6 +1130,108 @@ def run_backtest(
                 )
         pending_exits = planned_exits
 
+        if cfg.dynamic_risk_enabled:
+            if market_state == MarketState.RISK_OFF and cfg.market_state_enabled:
+                pending_trims.clear()
+                pending_restores.clear()
+            elif index + 1 < len(benchmark):
+                gross_cap = _gross_cap_for_state(market_state, cfg)
+                risk_positions = _risk_positions_at_close(
+                    portfolio,
+                    daily,
+                    last_close,
+                    ranking_by_symbol,
+                    industry_by_symbol,
+                    set(pending_exits),
+                )
+                held_clusters = correlation_clusters(
+                    {position.symbol for position in risk_positions},
+                    etf_returns,
+                    date,
+                    cfg,
+                )
+                trim_plan = plan_trim_quantities(
+                    risk_positions,
+                    equity=equity,
+                    lot_size=cfg.lot_size,
+                    gross_cap=gross_cap,
+                    industry_cap=cfg.max_industry_weight,
+                    correlation_clusters=held_clusters,
+                    correlation_cap=cfg.max_correlation_weight,
+                    portfolio_stop_risk_cap=cfg.max_portfolio_stop_risk,
+                    cluster_stop_risk_cap=cfg.max_cluster_stop_risk,
+                )
+                trim_reasons = _trim_reasons_by_symbol(
+                    risk_positions,
+                    equity=equity,
+                    gross_cap=gross_cap,
+                    industry_cap=cfg.max_industry_weight,
+                    clusters=held_clusters,
+                    correlation_cap=cfg.max_correlation_weight,
+                    portfolio_stop_risk_cap=cfg.max_portfolio_stop_risk,
+                    cluster_stop_risk_cap=cfg.max_cluster_stop_risk,
+                )
+                for symbol, quantity in trim_plan.items():
+                    if symbol in pending_trims:
+                        continue
+                    reason = "|".join(trim_reasons.get(symbol, []))
+                    adjustment = PendingAdjustment(
+                        symbol=symbol,
+                        quantity=quantity,
+                        action="trim",
+                        reason=reason or "portfolio_risk_trim",
+                        signal_date=date,
+                    )
+                    pending_trims[symbol] = adjustment
+                    pending_restores.pop(symbol, None)
+                    signal_records.append(
+                        {
+                            "signal_date": date,
+                            "execution_date": benchmark.iloc[index + 1]["datetime"],
+                            "symbol": symbol,
+                            "action": "trim_planned",
+                            "reason": adjustment.reason,
+                            "quantity": quantity,
+                        }
+                    )
+                if market_state == MarketState.RISK_ON:
+                    restore_candidates = sorted(
+                        (
+                            position
+                            for position in risk_positions
+                            if portfolio.positions[position.symbol].restore_eligible
+                            and position.symbol not in pending_exits
+                            and position.symbol not in pending_trims
+                        ),
+                        key=lambda position: (
+                            position.holding_rank,
+                            -position.ema5_slope,
+                            position.symbol,
+                        ),
+                    )
+                    for position in restore_candidates:
+                        if position.symbol in pending_restores:
+                            continue
+                        adjustment = PendingAdjustment(
+                            symbol=position.symbol,
+                            quantity=0,
+                            action="restore",
+                            reason="position_restore",
+                            signal_date=date,
+                            risk_fraction=1.0,
+                            gross_cap=gross_cap,
+                        )
+                        pending_restores[position.symbol] = adjustment
+                        signal_records.append(
+                            {
+                                "signal_date": date,
+                                "execution_date": benchmark.iloc[index + 1]["datetime"],
+                                "symbol": position.symbol,
+                                "action": "restore_planned",
+                                "reason": adjustment.reason,
+                            }
+                        )
+
         ranked_entries = entry_symbols(ranking, cfg) if entry_allowed else []
         if cfg.market_state_enabled and ranked_entries:
             ranked_entries = [
@@ -809,6 +1273,7 @@ def run_backtest(
                         benchmark_key=benchmark_key,
                         risk_fraction=entry_risk_fraction,
                         entry_rank_limit=entry_rank_limit,
+                        gross_cap=_gross_cap_for_state(market_state, cfg),
                     )
                 )
                 signal_records.append(
