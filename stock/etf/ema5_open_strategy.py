@@ -113,9 +113,7 @@ def prepare_symbol_bars(daily: pd.DataFrame, symbol: str) -> pd.DataFrame:
 def build_ema5_open_signals(bars: pd.DataFrame) -> pd.DataFrame:
     """Compare each open with the previous completed close EMA5."""
     result = bars.copy()
-    result["ema5"] = (
-        result["close"].ewm(span=5, adjust=False, min_periods=5).mean()
-    )
+    result["ema5"] = result["close"].ewm(span=5, adjust=False, min_periods=5).mean()
     result["previous_ema5"] = result["ema5"].shift(1)
     result["target_invested"] = result["previous_ema5"].notna() & (
         result["open"] > result["previous_ema5"]
@@ -254,27 +252,17 @@ def _build_summary(
     final_equity = float(equity_curve.iloc[-1]["equity"])
     total_return = final_equity / config.initial_capital - 1
     years = max(len(equity_curve) / 252, 1 / 252)
-    annual_return = (
-        (1 + total_return) ** (1 / years) - 1 if total_return > -1 else -1.0
-    )
+    annual_return = (1 + total_return) ** (1 / years) - 1 if total_return > -1 else -1.0
     returns = equity_curve["daily_return"]
     daily_std = float(returns.std(ddof=0))
     annual_volatility = daily_std * np.sqrt(252)
-    sharpe = (
-        float(returns.mean() / daily_std * np.sqrt(252))
-        if daily_std > 0
-        else 0.0
-    )
+    sharpe = float(returns.mean() / daily_std * np.sqrt(252)) if daily_std > 0 else 0.0
     sells = trades.loc[trades["side"].eq("sell")]
     return {
         "symbol": config.symbol,
         "requested_period": "recent_10_years",
-        "actual_start_date": str(
-            pd.Timestamp(equity_curve.iloc[0]["datetime"]).date()
-        ),
-        "actual_end_date": str(
-            pd.Timestamp(equity_curve.iloc[-1]["datetime"]).date()
-        ),
+        "actual_start_date": str(pd.Timestamp(equity_curve.iloc[0]["datetime"]).date()),
+        "actual_end_date": str(pd.Timestamp(equity_curve.iloc[-1]["datetime"]).date()),
         "initial_capital": config.initial_capital,
         "final_equity": final_equity,
         "total_return": total_return,

@@ -52,9 +52,7 @@ class Ema5OpenStrategyTests(unittest.TestCase):
         )
 
     def test_signal_uses_previous_close_ema5_without_lookahead(self) -> None:
-        result = build_ema5_open_signals(
-            prepare_symbol_bars(self._bars(), "159915.SZ")
-        )
+        result = build_ema5_open_signals(prepare_symbol_bars(self._bars(), "159915.SZ"))
 
         self.assertTrue(result.loc[:4, "previous_ema5"].isna().all())
         self.assertAlmostEqual(result.loc[5, "previous_ema5"], 10.0)
@@ -63,9 +61,7 @@ class Ema5OpenStrategyTests(unittest.TestCase):
         self.assertTrue(result.loc[6, "target_invested"])
 
     def test_open_equal_to_previous_ema5_stays_empty(self) -> None:
-        result = build_ema5_open_signals(
-            prepare_symbol_bars(self._bars(), "159915.SZ")
-        )
+        result = build_ema5_open_signals(prepare_symbol_bars(self._bars(), "159915.SZ"))
 
         self.assertEqual(result.loc[5, "open"], result.loc[5, "previous_ema5"])
         self.assertFalse(result.loc[5, "target_invested"])
