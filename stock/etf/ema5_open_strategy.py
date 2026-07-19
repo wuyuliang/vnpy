@@ -89,6 +89,9 @@ def prepare_symbol_bars(daily: pd.DataFrame, symbol: str) -> pd.DataFrame:
     if frame.empty:
         raise ValueError(f"ETF daily data missing symbol: {symbol}")
     frame["datetime"] = pd.to_datetime(frame["datetime"], errors="raise")
+    if frame["datetime"].isna().any():
+        raise ValueError(f"ETF daily data contains missing dates for {symbol}")
+    frame["datetime"] = frame["datetime"].dt.normalize()
     for column in BAR_COLUMNS[2:]:
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
     if frame["datetime"].duplicated().any():

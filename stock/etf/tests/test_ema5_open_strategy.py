@@ -67,9 +67,18 @@ class Ema5OpenStrategyTests(unittest.TestCase):
         self.assertFalse(result.loc[5, "target_invested"])
 
     def test_prepare_rejects_duplicate_dates(self) -> None:
-        bars = pd.concat([self._bars(), self._bars().iloc[[0]]], ignore_index=True)
+        duplicate = self._bars().iloc[[0]].copy()
+        duplicate["datetime"] += pd.Timedelta(hours=12)
+        bars = pd.concat([self._bars(), duplicate], ignore_index=True)
 
         with self.assertRaisesRegex(ValueError, "duplicate dates"):
+            prepare_symbol_bars(bars, "159915.SZ")
+
+    def test_prepare_rejects_missing_dates(self) -> None:
+        bars = self._bars()
+        bars.loc[2, "datetime"] = pd.NaT
+
+        with self.assertRaisesRegex(ValueError, "missing dates"):
             prepare_symbol_bars(bars, "159915.SZ")
 
     def test_prepare_rejects_non_finite_or_invalid_ohlc(self) -> None:
