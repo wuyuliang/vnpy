@@ -10,9 +10,11 @@
 
 - ETF 日线：`stock/etf/data/20260717_2018_20260717_point_in_time_live/etfs_lifecycle_clean.csv`。
 - ETF 元数据：同目录 `metadata.csv`，使用现有 `industry` 分类。
-- 输出范围与显式 `--start/--end` 或日线有效范围一致。
+- 输出范围与显式 `--start/--end` 或日线有效范围一致；计算时保留 `--start` 之前、
+  `--end` 之前的可用历史，保证上一日权重和长周期指标充分预热。
 - 保留全部 21 个现有行业分类，包括 `broad_or_other`。
 - 默认路径不读取 `etf_share_size.csv`，也不创建 Tushare 客户端。
+- ETF 日线出现重复 `symbol, datetime` 时失败关闭，不按文件顺序静默覆盖。
 
 现有份额标准化和下载代码保留为独立、已测试的未来能力，但不参与默认行业文件构建。
 
@@ -36,7 +38,7 @@
 
 ```text
 weight_i,T = turnover_i,T-1 / sum(turnover_T-1)
-field_relative_i,T = field_i,T / pre_close_i,T
+field_relative_i,T = field_i,T / close_i,T-1
 industry_field_T = industry_close_T-1
                    × sum(weight_i,T × field_relative_i,T)
 ```
@@ -45,7 +47,9 @@ industry_field_T = industry_close_T-1
 
 - 在行业上一交易日和当日都有日线，禁止使用停牌前陈旧成交额。
 - 上一交易日成交额为正且有限。
-- 当日 `pre_close` 和 OHLC 均为正且有效。
+- 严格上一行业交易日的前复权 `close` 与当日 OHLC 均为正、有限且有效。现有生命周期
+  缓存仅对 OHLC 做前复权，保留的 `pre_close` 是未复权价，因此不得将它与前复权
+  OHLC 混合计算收益。
 
 符合条件的 ETF 在行业内重新归一化。新上市 ETF 至少有一个严格上一行业交易日成交额
 后才参与。若某日无有效成分，行业 OHLC 留空；下一有效日继续以上一有效行业收盘指数
@@ -108,6 +112,7 @@ python3 -m stock.etf.build_industry_data
 - 输出不包含三个市值相关字段。
 - 所有指数权重严格来自上一行业交易日成交额，无停牌陈旧权重和当日权重。
 - 行业 OHLC 合法；价格缺口日技术指标为空并重新预热。
+- 输出所有数值均为有限值，ETF 日线重复主键直接报错。
 - 滚动窗口、EMA、ATR、ADX 与参考实现逐周期一致。
 - 对真实 1,047,360 行、1,302 只 ETF、21 个行业缓存完成构建并输出质量摘要。
 - 全部 ETF 测试、Ruff lint/format 和编译检查通过。

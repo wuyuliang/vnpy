@@ -54,7 +54,7 @@ Add `_prepare_industry_components(daily, metadata)` that validates these columns
 
 ```python
 required = {
-    "symbol", "datetime", "pre_close", "open", "high", "low", "close",
+    "symbol", "datetime", "open", "high", "low", "close",
     "volume", "turnover",
 }
 ```
@@ -71,10 +71,13 @@ Eligibility must include:
 ```python
 previous_turnover > 0
 previous_bar_datetime == previous_industry_datetime
+np.isfinite(current_ohlc).all()
 ```
 
 Normalize `previous_turnover` within each industry/date and reuse the existing base-100
-recursive OHLC construction and OHLC-bound enforcement.
+recursive OHLC construction and OHLC-bound enforcement. Use each ETF's strictly
+previous industry-trading-day adjusted `close` as the return denominator; the local
+lifecycle cache's `pre_close` is unadjusted and must not be mixed with adjusted OHLC.
 
 - [ ] **Step 5: Update new-listing and suspension tests**
 
@@ -212,7 +215,9 @@ daily_path, metadata_path, output_path, start=None, end=None
 ```
 
 Call `build_industry_daily(daily, metadata)` directly, add indicators, and atomically
-write output. Preserve unique sibling temporary files.
+write output. Reject duplicate ETF symbol/date input. Retain all source history through
+`end` for index and indicator calculation, then trim the finished output to `start`.
+Preserve unique sibling temporary files.
 
 - [ ] **Step 4: Simplify parser arguments**
 
