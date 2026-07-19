@@ -1,6 +1,8 @@
+import numpy as np
 import pandas as pd
 import pytest
 
+from stock.etf import ema_trend_allocation_strategy as trend_strategy
 from stock.etf.ema_trend_allocation_strategy import (
     TrendAllocationConfig,
     build_trend_signals,
@@ -35,6 +37,23 @@ def _bars(closes: list[float], opens: list[float] | None = None) -> pd.DataFrame
 
 def _rising_bars(periods: int = 40) -> pd.DataFrame:
     return _bars([10.0 + index * 0.5 for index in range(periods)])
+
+
+def _manual_signals(
+    conditions: list[dict[str, bool]],
+    *,
+    opens: list[float] | None = None,
+    closes: list[float] | None = None,
+) -> pd.DataFrame:
+    periods = len(conditions)
+    actual_opens = opens or [10.0] * periods
+    actual_closes = closes or actual_opens
+    signals = _bars(actual_closes, actual_opens)
+    for column in CONDITION_COLUMNS:
+        signals[column] = [condition.get(column, False) for condition in conditions]
+    signals["target_weight"] = 0.0
+    signals["action"] = "flat"
+    return signals
 
 
 @pytest.mark.parametrize(
@@ -319,3 +338,332 @@ def test_current_close_cannot_change_current_open_conditions() -> None:
         changed_signals.loc[target, CONDITION_COLUMNS],
         baseline.loc[target, CONDITION_COLUMNS],
     )
+
+
+@pytest.mark.parametrize(
+    ("equity", "raw_price", "weight", "expected"),
+    [
+        (100_000.0, 10.0, 0.0, 0),
+        (100_000.0, 10.0, 0.5, 5_000),
+        (100_000.0, 10.0, 1.0, 10_000),
+        (99_999.0, 12.0, 0.5, 4_100),
+    ],
+)
+def test_target_quantity_uses_raw_price_and_whole_lots(
+    equity: float,
+    raw_price: float,
+    weight: float,
+    expected: int,
+) -> None:
+    assert (
+        trend_strategy.calculate_target_quantity(equity, raw_price, weight, 100)
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("equity", "raw_price", "weight", "lot_size", "message"),
+    [
+        (0.0, 10.0, 0.5, 100, "equity"),
+        (-1.0, 10.0, 0.5, 100, "equity"),
+        (True, 10.0, 0.5, 100, "equity"),
+        (float("nan"), 10.0, 0.5, 100, "equity"),
+        (float("inf"), 10.0, 0.5, 100, "equity"),
+        (float("-inf"), 10.0, 0.5, 100, "equity"),
+        (100_000.0, 0.0, 0.5, 100, "raw_price"),
+        (100_000.0, -1.0, 0.5, 100, "raw_price"),
+        (100_000.0, True, 0.5, 100, "raw_price"),
+        (100_000.0, float("nan"), 0.5, 100, "raw_price"),
+        (100_000.0, float("inf"), 0.5, 100, "raw_price"),
+        (100_000.0, float("-inf"), 0.5, 100, "raw_price"),
+        (100_000.0, 10.0, 0.25, 100, "weight"),
+        (100_000.0, 10.0, True, 100, "weight"),
+        (100_000.0, 10.0, float("nan"), 100, "weight"),
+        (100_000.0, 10.0, float("inf"), 100, "weight"),
+        (100_000.0, 10.0, float("-inf"), 100, "weight"),
+        (100_000.0, 10.0, 0.5, 50, "lot_size"),
+        (100_000.0, 10.0, 0.5, 100.0, "lot_size"),
+    ],
+)
+def test_target_quantity_rejects_invalid_inputs(
+    equity: float,
+    raw_price: float,
+    weight: float,
+    lot_size: object,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        trend_strategy.calculate_target_quantity(equity, raw_price, weight, lot_size)
+
+
+def test_execute_target_weights_trades_all_three_levels_and_records_actions() -> None:
+    signals = _manual_signals(
+        [
+            {"enter_half": True},
+            {"enter_full": True},
+            {},
+            {"reduce_half": True},
+            {},
+            {"exit_flat": True},
+            {},
+        ]
+    )
+    config = TrendAllocationConfig(
+        initial_capital=100_000.0,
+        commission_rate=0.0,
+        min_commission=0.0,
+        slippage_rate=0.0,
+    )
+
+    result = trend_strategy.execute_target_weights(signals, config)
+
+    assert result.trades["side"].tolist() == ["buy", "buy", "sell", "sell"]
+    assert result.trades["quantity"].tolist() == [5_000, 5_000, 5_000, 5_000]
+    assert (result.trades["quantity"] % 100 == 0).all()
+    assert result.trades["primary_reason"].tolist() == [
+        "target_weight_0_to_0.5",
+        "target_weight_0.5_to_1",
+        "target_weight_1_to_0.5",
+        "target_weight_0.5_to_0",
+    ]
+    assert result.signals["target_weight"].tolist() == [
+        0.5,
+        1.0,
+        1.0,
+        0.5,
+        0.5,
+        0.0,
+        0.0,
+    ]
+    assert result.signals["action"].tolist() == [
+        "buy_to_half",
+        "buy_to_full",
+        "hold_full",
+        "sell_to_half",
+        "hold_half",
+        "sell_to_flat",
+        "flat",
+    ]
+    assert result.positions["quantity"].tolist() == [
+        5_000,
+        10_000,
+        10_000,
+        5_000,
+        5_000,
+    ]
+    assert result.positions["target_weight"].tolist() == [0.5, 1.0, 1.0, 0.5, 0.5]
+    assert result.equity_curve["cash"].min() >= 0.0
+
+
+def test_buy_quantity_steps_down_until_commission_is_affordable() -> None:
+    signals = _manual_signals(
+        [{"enter_half": True}, {"enter_full": True}], opens=[1.0, 1.0]
+    )
+    config = TrendAllocationConfig(
+        initial_capital=100_000.0,
+        commission_rate=0.0,
+        min_commission=600.0,
+        slippage_rate=0.0,
+    )
+
+    result = trend_strategy.execute_target_weights(signals, config)
+
+    assert result.trades["quantity"].tolist() == [50_000, 48_800]
+    assert result.positions.iloc[-1]["quantity"] == 98_800
+    assert result.equity_curve["cash"].min() == pytest.approx(0.0)
+
+
+def test_target_transition_without_a_whole_lot_is_not_a_fake_trade() -> None:
+    signals = _manual_signals(
+        [{"enter_half": True}, {"exit_flat": True}],
+        opens=[1_000.0, 1_000.0],
+    )
+    config = TrendAllocationConfig(
+        initial_capital=10_000.0,
+        commission_rate=0.0,
+        min_commission=0.0,
+        slippage_rate=0.0,
+    )
+
+    result = trend_strategy.execute_target_weights(signals, config)
+
+    assert result.trades.empty
+    assert result.positions.empty
+    assert result.signals["target_weight"].tolist() == [0.5, 0.0]
+    assert result.signals["action"].tolist() == ["hold_half", "flat"]
+
+
+def test_partial_sell_allocates_entry_commission_and_keeps_half_position() -> None:
+    signals = _manual_signals(
+        [{"enter_half": True}, {"enter_full": True}, {"reduce_half": True}],
+        opens=[10.0, 10.0, 12.0],
+    )
+    config = TrendAllocationConfig(
+        initial_capital=100_000.0,
+        commission_rate=0.001,
+        min_commission=0.0,
+        slippage_rate=0.0,
+    )
+
+    result = trend_strategy.execute_target_weights(signals, config)
+
+    assert result.trades["quantity"].tolist() == [5_000, 4_900, 5_000]
+    assert result.trades["commission"].tolist() == pytest.approx([50.0, 49.0, 60.0])
+    assert result.trades.iloc[-1]["realized_pnl"] == pytest.approx(9_890.0)
+    assert result.positions.iloc[-1]["quantity"] == 4_900
+    assert result.positions.iloc[-1]["average_price"] == pytest.approx(10.0)
+    assert result.positions.iloc[-1]["target_weight"] == pytest.approx(0.5)
+
+
+def test_backtest_leaves_last_position_open_and_marks_it_at_close() -> None:
+    config = TrendAllocationConfig(
+        initial_capital=100_000.0,
+        commission_rate=0.0,
+        min_commission=0.0,
+        slippage_rate=0.0,
+    )
+
+    result = trend_strategy.run_trend_allocation_backtest(_rising_bars(), config)
+
+    assert isinstance(result, trend_strategy.TrendAllocationResult)
+    assert result.trades["side"].tolist() == ["buy", "buy"]
+    assert result.trades["primary_reason"].tolist() == [
+        "target_weight_0_to_0.5",
+        "target_weight_0.5_to_1",
+    ]
+    last_date = result.equity_curve.iloc[-1]["datetime"]
+    last_position = result.positions.iloc[-1]
+    assert last_position["datetime"] == last_date
+    assert result.summary["is_open"] is True
+    assert result.summary["target_weight"] == pytest.approx(1.0)
+    assert result.summary["final_equity"] == pytest.approx(
+        last_position["market_value"] + result.equity_curve.iloc[-1]["cash"]
+    )
+    assert result.summary["final_equity"] == pytest.approx(
+        last_position["quantity"] * _rising_bars().iloc[-1]["close"]
+        + result.equity_curve.iloc[-1]["cash"]
+    )
+    assert {
+        "symbol",
+        "start_date",
+        "end_date",
+        "initial_equity",
+        "final_equity",
+        "total_return",
+        "annual_return",
+        "annual_volatility",
+        "sharpe",
+        "max_drawdown",
+        "annual_one_way_turnover",
+        "trade_count",
+        "total_commission",
+        "total_slippage_cost",
+        "target_weight",
+        "is_open",
+    } <= result.summary.keys()
+
+
+def test_summary_uses_full_period_metric_conventions() -> None:
+    signals = _manual_signals(
+        [{"enter_half": True}, {}, {}],
+        opens=[10.0, 10.0, 10.0],
+        closes=[12.0, 12.0, 11.0],
+    )
+    config = TrendAllocationConfig(
+        initial_capital=100_000.0,
+        commission_rate=0.0,
+        min_commission=0.0,
+        slippage_rate=0.0,
+    )
+
+    result = trend_strategy.execute_target_weights(signals, config)
+    expected = trend_strategy.calculate_period_metrics(
+        result.equity_curve,
+        result.trades,
+        result.equity_curve.iloc[0]["datetime"],
+        result.equity_curve.iloc[-1]["datetime"],
+    )
+
+    for key, value in expected.items():
+        assert result.summary[key] == pytest.approx(value)
+
+
+def test_period_metrics_reset_returns_drawdown_and_filter_trades() -> None:
+    dates = pd.bdate_range("2026-01-02", periods=6)
+    equity_curve = pd.DataFrame(
+        {
+            "datetime": dates,
+            "equity": [100.0, 110.0, 99.0, 108.0, 90.0, 120.0],
+        }
+    )
+    trades = pd.DataFrame(
+        {
+            "datetime": [dates[0], dates[2], dates[4], dates[5]],
+            "fill_price": [5.0, 10.0, 12.0, 20.0],
+            "quantity": [10, 10, 5, 10],
+        }
+    )
+    period_equity = np.array([110.0, 99.0, 108.0, 90.0])
+    period_returns = np.array([0.0, -0.1, 108.0 / 99.0 - 1, 90.0 / 108.0 - 1])
+
+    metrics = trend_strategy.calculate_period_metrics(
+        equity_curve,
+        trades,
+        dates[1],
+        dates[4],
+    )
+
+    assert metrics["start_date"] == str(dates[1].date())
+    assert metrics["end_date"] == str(dates[4].date())
+    assert metrics["days"] == 4
+    assert metrics["trading_days"] == 4
+    assert metrics["total_return"] == pytest.approx(90.0 / 110.0 - 1)
+    assert metrics["annual_return"] == pytest.approx((90.0 / 110.0) ** (252 / 4) - 1)
+    assert metrics["annual_volatility"] == pytest.approx(
+        period_returns.std(ddof=0) * np.sqrt(252)
+    )
+    assert metrics["sharpe"] == pytest.approx(
+        period_returns.mean() / period_returns.std(ddof=0) * np.sqrt(252)
+    )
+    assert metrics["max_drawdown"] == pytest.approx(90.0 / 110.0 - 1)
+    assert metrics["annual_one_way_turnover"] == pytest.approx(
+        0.5 * (10.0 * 10 + 12.0 * 5) / period_equity.mean() / (4 / 252)
+    )
+    assert metrics["trade_count"] == 2
+
+
+def test_period_metrics_reject_an_empty_date_range() -> None:
+    dates = pd.bdate_range("2026-01-02", periods=2)
+    equity_curve = pd.DataFrame({"datetime": dates, "equity": [100.0, 101.0]})
+    trades = pd.DataFrame(columns=["datetime", "fill_price", "quantity"])
+
+    with pytest.raises(ValueError, match="no equity rows"):
+        trend_strategy.calculate_period_metrics(
+            equity_curve,
+            trades,
+            "2027-01-01",
+            "2027-01-31",
+        )
+
+
+def test_period_metrics_include_full_endpoint_dates() -> None:
+    dates = pd.to_datetime(["2026-01-02 15:00", "2026-01-05 15:00"])
+    equity_curve = pd.DataFrame({"datetime": dates, "equity": [100.0, 110.0]})
+    trades = pd.DataFrame(
+        {
+            "datetime": [pd.Timestamp("2026-01-05 09:30")],
+            "fill_price": [10.0],
+            "quantity": [10],
+        }
+    )
+
+    metrics = trend_strategy.calculate_period_metrics(
+        equity_curve,
+        trades,
+        "2026-01-02",
+        "2026-01-05",
+    )
+
+    assert metrics["days"] == 2
+    assert metrics["trade_count"] == 1
+    assert metrics["total_return"] == pytest.approx(0.1)

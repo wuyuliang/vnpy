@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import isfinite
+from math import floor, isfinite, sqrt
+from typing import Any
 
 import pandas as pd
 
+from .config import StrategyConfig
 from .ema5_open_strategy import BAR_COLUMNS, prepare_symbol_bars
+from .portfolio import Portfolio
 
 SIGNAL_COLUMNS = BAR_COLUMNS + [
     "ema5",
@@ -25,6 +28,37 @@ SIGNAL_COLUMNS = BAR_COLUMNS + [
     "ready",
     "target_weight",
     "action",
+]
+TRADE_COLUMNS = [
+    "datetime",
+    "symbol",
+    "side",
+    "quantity",
+    "raw_price",
+    "fill_price",
+    "commission",
+    "slippage_cost",
+    "primary_reason",
+    "all_reasons",
+    "realized_pnl",
+]
+POSITION_COLUMNS = [
+    "datetime",
+    "symbol",
+    "quantity",
+    "average_price",
+    "market_value",
+    "equity",
+    "weight",
+    "target_weight",
+]
+EQUITY_COLUMNS = [
+    "datetime",
+    "cash",
+    "market_value",
+    "equity",
+    "daily_return",
+    "drawdown",
 ]
 
 
@@ -70,6 +104,17 @@ class TrendAllocationConfig:
             raise ValueError("confirmation_days must be 1 or 2")
         if type(self.slope_lookback) is not int or self.slope_lookback not in {3, 5}:
             raise ValueError("slope_lookback must be 3 or 5")
+
+
+@dataclass
+class TrendAllocationResult:
+    """Auditable strategy signals, executions, holdings and performance."""
+
+    signals: pd.DataFrame
+    trades: pd.DataFrame
+    positions: pd.DataFrame
+    equity_curve: pd.DataFrame
+    summary: dict[str, Any]
 
 
 def transition_target_weight(
@@ -194,3 +239,285 @@ def build_trend_signals(
     result["target_weight"] = 0.0
     result["action"] = "flat"
     return result[SIGNAL_COLUMNS]
+
+
+def calculate_target_quantity(
+    equity: float,
+    raw_price: float,
+    weight: float,
+    lot_size: int,
+) -> int:
+    """Convert a target portfolio weight to a raw-price whole-lot quantity."""
+    if isinstance(equity, bool) or not isfinite(equity) or equity <= 0:
+        raise ValueError("equity must be finite and positive")
+    if isinstance(raw_price, bool) or not isfinite(raw_price) or raw_price <= 0:
+        raise ValueError("raw_price must be finite and positive")
+    if isinstance(weight, bool) or weight not in {0.0, 0.5, 1.0}:
+        raise ValueError("weight must be 0.0, 0.5, or 1.0")
+    if type(lot_size) is not int or lot_size != 100:
+        raise ValueError("lot_size must be Python int 100")
+    return floor(equity * weight / raw_price / lot_size) * lot_size
+
+
+def _portfolio_config(config: TrendAllocationConfig) -> StrategyConfig:
+    return StrategyConfig(
+        initial_capital=config.initial_capital,
+        lot_size=config.lot_size,
+        commission_rate=config.commission_rate,
+        min_commission=config.min_commission,
+        slippage_rate=config.slippage_rate,
+        max_position_weight=1.0,
+    )
+
+
+def _affordable_buy_quantity(
+    cash: float,
+    raw_price: float,
+    desired_quantity: int,
+    config: TrendAllocationConfig,
+) -> int:
+    fill_price = raw_price * (1 + config.slippage_rate)
+    quantity = desired_quantity
+    while quantity > 0:
+        notional = fill_price * quantity
+        commission = max(notional * config.commission_rate, config.min_commission)
+        if notional + commission <= cash:
+            return quantity
+        quantity -= config.lot_size
+    return 0
+
+
+def execute_target_weights(
+    signals: pd.DataFrame,
+    config: TrendAllocationConfig,
+) -> TrendAllocationResult:
+    """Execute precomputed trend conditions as a daily three-level state machine."""
+    audited_signals = signals.copy()
+    portfolio = Portfolio(config.initial_capital, _portfolio_config(config))
+    position_rows: list[dict[str, object]] = []
+    equity_rows: list[dict[str, object]] = []
+    current_weight = 0.0
+    previous_equity = config.initial_capital
+    peak_equity = config.initial_capital
+
+    for index, row in audited_signals.iterrows():
+        target_weight = transition_target_weight(
+            current_weight,
+            exit_flat=bool(row["exit_flat"]),
+            reduce_half=bool(row["reduce_half"]),
+            enter_half=bool(row["enter_half"]),
+            enter_full=bool(row["enter_full"]),
+        )
+        position = portfolio.positions.get(config.symbol)
+        held_quantity = position.quantity if position is not None else 0
+        raw_open = float(row["open"])
+        pre_trade_equity = portfolio.cash + held_quantity * raw_open
+        target_quantity = calculate_target_quantity(
+            pre_trade_equity,
+            raw_open,
+            target_weight,
+            config.lot_size,
+        )
+        reason = f"target_weight_{current_weight:g}_to_{target_weight:g}"
+        action = {
+            0.0: "flat",
+            0.5: "hold_half",
+            1.0: "hold_full",
+        }[target_weight]
+
+        if target_quantity > held_quantity:
+            buy_quantity = _affordable_buy_quantity(
+                portfolio.cash,
+                raw_open,
+                target_quantity - held_quantity,
+                config,
+            )
+            if buy_quantity > 0:
+                if position is None:
+                    portfolio.buy(
+                        config.symbol,
+                        row["datetime"],
+                        raw_open,
+                        buy_quantity,
+                        0.0,
+                        reason,
+                    )
+                else:
+                    portfolio.increase(
+                        config.symbol,
+                        row["datetime"],
+                        raw_open,
+                        buy_quantity,
+                        reason,
+                    )
+                action = "buy_to_half" if target_weight == 0.5 else "buy_to_full"
+        elif target_quantity < held_quantity:
+            portfolio.sell_quantity(
+                config.symbol,
+                row["datetime"],
+                raw_open,
+                held_quantity - target_quantity,
+                reason,
+            )
+            action = "sell_to_flat" if target_weight == 0.0 else "sell_to_half"
+
+        current_weight = target_weight
+        audited_signals.loc[index, "target_weight"] = target_weight
+        audited_signals.loc[index, "action"] = action
+
+        position = portfolio.positions.get(config.symbol)
+        market_value = (
+            position.quantity * float(row["close"]) if position is not None else 0.0
+        )
+        equity = portfolio.cash + market_value
+        daily_return = equity / previous_equity - 1
+        peak_equity = max(peak_equity, equity)
+        equity_rows.append(
+            {
+                "datetime": row["datetime"],
+                "cash": portfolio.cash,
+                "market_value": market_value,
+                "equity": equity,
+                "daily_return": daily_return,
+                "drawdown": equity / peak_equity - 1,
+            }
+        )
+        if position is not None:
+            position_rows.append(
+                {
+                    "datetime": row["datetime"],
+                    "symbol": config.symbol,
+                    "quantity": position.quantity,
+                    "average_price": position.average_price,
+                    "market_value": market_value,
+                    "equity": equity,
+                    "weight": market_value / equity,
+                    "target_weight": target_weight,
+                }
+            )
+        previous_equity = equity
+
+    trades = pd.DataFrame(
+        [trade.to_dict() for trade in portfolio.trades],
+        columns=TRADE_COLUMNS,
+    )
+    positions = pd.DataFrame(position_rows, columns=POSITION_COLUMNS)
+    equity_curve = pd.DataFrame(equity_rows, columns=EQUITY_COLUMNS)
+    summary = _build_summary(
+        equity_curve,
+        trades,
+        config,
+        current_weight,
+        config.symbol in portfolio.positions,
+    )
+    return TrendAllocationResult(
+        audited_signals,
+        trades,
+        positions,
+        equity_curve,
+        summary,
+    )
+
+
+def run_trend_allocation_backtest(
+    bars: pd.DataFrame,
+    config: TrendAllocationConfig | None = None,
+) -> TrendAllocationResult:
+    """Build trend conditions and execute the three-level allocation strategy."""
+    cfg = config or TrendAllocationConfig()
+    return execute_target_weights(build_trend_signals(bars, cfg), cfg)
+
+
+def calculate_period_metrics(
+    equity_curve: pd.DataFrame,
+    trades: pd.DataFrame,
+    start: object,
+    end: object,
+) -> dict[str, Any]:
+    """Calculate inclusive period metrics with returns and drawdown reset."""
+    start_date = pd.Timestamp(start).normalize()
+    end_date = pd.Timestamp(end).normalize()
+    equity = equity_curve.copy()
+    equity["datetime"] = pd.to_datetime(equity["datetime"], errors="raise")
+    equity_dates = equity["datetime"].dt.normalize()
+    period = equity.loc[
+        equity_dates.between(start_date, end_date, inclusive="both")
+    ].copy()
+    if period.empty:
+        raise ValueError("no equity rows in requested period")
+
+    period_returns = period["equity"].pct_change().fillna(0.0)
+    drawdown = period["equity"] / period["equity"].cummax() - 1
+    days = len(period)
+    years = days / 252
+    initial_equity = float(period.iloc[0]["equity"])
+    final_equity = float(period.iloc[-1]["equity"])
+    total_return = final_equity / initial_equity - 1
+    annual_return = (1 + total_return) ** (1 / years) - 1 if total_return > -1 else -1.0
+    daily_std = float(period_returns.std(ddof=0))
+
+    period_trades = trades.copy()
+    if not period_trades.empty:
+        period_trades["datetime"] = pd.to_datetime(
+            period_trades["datetime"], errors="raise"
+        )
+        trade_dates = period_trades["datetime"].dt.normalize()
+        period_trades = period_trades.loc[
+            trade_dates.between(
+                start_date,
+                end_date,
+                inclusive="both",
+            )
+        ]
+    traded_notional = float(
+        (period_trades["fill_price"] * period_trades["quantity"]).abs().sum()
+    )
+    annual_one_way_turnover = (
+        0.5 * traded_notional / float(period["equity"].mean()) / years
+    )
+    return {
+        "start_date": str(pd.Timestamp(period.iloc[0]["datetime"]).date()),
+        "end_date": str(pd.Timestamp(period.iloc[-1]["datetime"]).date()),
+        "days": days,
+        "trading_days": days,
+        "total_return": total_return,
+        "annual_return": annual_return,
+        "annual_volatility": daily_std * sqrt(252),
+        "sharpe": (
+            float(period_returns.mean()) / daily_std * sqrt(252)
+            if daily_std > 0
+            else 0.0
+        ),
+        "max_drawdown": float(drawdown.min()),
+        "annual_one_way_turnover": annual_one_way_turnover,
+        "trade_count": int(len(period_trades)),
+    }
+
+
+def _build_summary(
+    equity_curve: pd.DataFrame,
+    trades: pd.DataFrame,
+    config: TrendAllocationConfig,
+    target_weight: float,
+    is_open: bool,
+) -> dict[str, Any]:
+    final_equity = float(equity_curve.iloc[-1]["equity"])
+    summary = calculate_period_metrics(
+        equity_curve,
+        trades,
+        equity_curve.iloc[0]["datetime"],
+        equity_curve.iloc[-1]["datetime"],
+    )
+    summary.update(
+        {
+            "symbol": config.symbol,
+            "initial_equity": config.initial_capital,
+            "initial_capital": config.initial_capital,
+            "final_equity": final_equity,
+            "total_commission": float(trades["commission"].sum()),
+            "total_slippage_cost": float(trades["slippage_cost"].sum()),
+            "target_weight": target_weight,
+            "is_open": is_open,
+        }
+    )
+    return summary
