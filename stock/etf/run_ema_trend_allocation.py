@@ -33,7 +33,7 @@ from .optimize_ema_trend_allocation import (
     evaluate_release,
     optimize_on_train_validation,
 )
-from .render_trade_charts import render_all_trade_charts
+from .render_trade_charts import make_chart_filename, render_all_trade_charts
 
 ETF_ROOT = Path(__file__).resolve().parent
 DEFAULT_SOURCE_ROOT = ETF_ROOT / "data/20260717_2018_20260717_point_in_time_live"
@@ -47,6 +47,15 @@ PERIODS = {
     "validation": (VALIDATION_START, VALIDATION_END),
     "oos": (OOS_START, OOS_END),
 }
+OWNED_OUTPUT_FILES = (
+    "candidate_results.csv",
+    "selected_parameters.json",
+    "summary.json",
+    "signals.csv",
+    "trades.csv",
+    "positions.csv",
+    "equity_curve.csv",
+)
 
 
 def select_ema_trend_allocation(
@@ -178,6 +187,20 @@ def _guard_output_directory(output_dir: Path, overwrite: bool) -> None:
     if output_dir.exists() and any(output_dir.iterdir()) and not overwrite:
         raise FileExistsError(f"output directory already contains output: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
+    if not overwrite:
+        return
+    for filename in OWNED_OUTPUT_FILES:
+        (output_dir / filename).unlink(missing_ok=True)
+    charts_dir = output_dir / "charts"
+    if charts_dir.is_symlink() or charts_dir.is_file():
+        charts_dir.unlink()
+    elif charts_dir.is_dir():
+        shutil.rmtree(charts_dir)
+    for staging in output_dir.glob(".charts.*.tmp"):
+        if staging.is_symlink() or staging.is_file():
+            staging.unlink()
+        elif staging.is_dir():
+            shutil.rmtree(staging)
 
 
 def _load_symbol_rows(frame: pd.DataFrame, symbol: str, source: str) -> pd.DataFrame:
@@ -222,6 +245,13 @@ def _full_strategy_metrics(
         "sharpe",
         "max_drawdown",
         "trade_count",
+        "initial_capital",
+        "initial_equity",
+        "final_equity",
+        "total_commission",
+        "total_slippage_cost",
+        "target_weight",
+        "is_open",
     ):
         if key in result_summary:
             metrics[key] = result_summary[key]
@@ -265,6 +295,8 @@ def _render_charts_atomically(
     output_dir: Path,
     report_start: object,
     report_end: object,
+    symbols: Sequence[str],
+    expected_filenames: Sequence[str],
 ) -> dict[str, Any]:
     staging = output_dir / f".charts.{uuid4().hex}.tmp"
     try:
@@ -276,14 +308,27 @@ def _render_charts_atomically(
             output_dir=staging,
             report_start=report_start,
             report_end=report_end,
+            symbols=symbols,
             overwrite=True,
         )
+        completed_images = int(render_summary["rendered_images"]) + int(
+            render_summary["existing_images"]
+        )
+        missing_images = [
+            filename
+            for filename in expected_filenames
+            if not (staging / filename).is_file()
+        ]
+        if completed_images < len(expected_filenames) or missing_images:
+            raise RuntimeError(
+                f"chart rendering incomplete for expected files: {missing_images}"
+            )
         charts_dir = output_dir / "charts"
         render_summary["output_dir"] = str(charts_dir)
         _atomic_write_json(render_summary, staging / "render_summary.json")
-        charts_dir.mkdir(parents=True, exist_ok=True)
-        for source in staging.iterdir():
-            source.replace(charts_dir / source.name)
+        if charts_dir.exists():
+            raise FileExistsError(f"chart output already exists: {charts_dir}")
+        staging.replace(charts_dir)
         return render_summary
     finally:
         shutil.rmtree(staging, ignore_errors=True)
@@ -419,6 +464,8 @@ def run_and_write(
         output_dir=output_dir,
         report_start=candidate_result.equity_curve.iloc[0]["datetime"],
         report_end=candidate_result.equity_curve.iloc[-1]["datetime"],
+        symbols=[cfg.symbol],
+        expected_filenames=[make_chart_filename(1, cfg.symbol, display_name)],
     )
     return summary
 

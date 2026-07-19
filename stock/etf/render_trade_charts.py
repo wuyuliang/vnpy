@@ -44,6 +44,9 @@ DOWN_COLOR = "#16835f"
 FLAT_COLOR = "#6b7280"
 BUY_COLOR = "#2563eb"
 SELL_COLOR = "#d97706"
+TARGET_WEIGHT_REASON = re.compile(
+    r"^target_weight_(?:0(?:\.0)?|0\.5|1(?:\.0)?)_to_(0(?:\.0)?|0\.5|1(?:\.0)?)$"
+)
 
 
 def normalize_bars(frame: pd.DataFrame) -> pd.DataFrame:
@@ -131,6 +134,9 @@ def build_trade_markers(trades: pd.DataFrame, *, weekly: bool) -> pd.DataFrame:
     markers["label"] = markers["side"].map(
         {"buy": "B", "sell": "S"}
     ) + side_number.astype(str)
+    if "primary_reason" in markers and not markers.empty:
+        targets = markers["primary_reason"].map(_target_weight_suffix)
+        markers["label"] += targets
     markers["datetime"] = markers["datetime"].dt.normalize()
 
     merged_rows: list[dict[str, Any]] = []
@@ -156,6 +162,11 @@ def build_trade_markers(trades: pd.DataFrame, *, weekly: bool) -> pd.DataFrame:
         merged_rows,
         columns=["datetime", "side", "fill_price", "quantity", "label", "source_order"],
     ).sort_values(["datetime", "source_order"], kind="stable")
+    if markers.empty:
+        markers["datetime"] = pd.to_datetime(markers["datetime"])
+        return markers[
+            ["datetime", "side", "fill_price", "quantity", "label", "source_order"]
+        ]
     if weekly:
         markers["datetime"] = (
             markers["datetime"].dt.to_period("W-FRI").dt.end_time.dt.normalize()
@@ -163,6 +174,16 @@ def build_trade_markers(trades: pd.DataFrame, *, weekly: bool) -> pd.DataFrame:
     return markers[
         ["datetime", "side", "fill_price", "quantity", "label", "source_order"]
     ].reset_index(drop=True)
+
+
+def _target_weight_suffix(reason: object) -> str:
+    if not isinstance(reason, str):
+        return ""
+    match = TARGET_WEIGHT_REASON.fullmatch(reason)
+    if match is None:
+        return ""
+    target = float(match.group(1))
+    return f"→{target:.0%}"
 
 
 def make_chart_filename(rank: int, symbol: str, name: str) -> str:
@@ -544,14 +565,16 @@ def render_all_trade_charts(
     report_start: object,
     report_end: object,
     limit: int | None = None,
+    symbols: Sequence[str] | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
-    """Render all traded ETF cards and write deterministic index/summary files."""
+    """Render traded or explicitly requested ETF cards and audit files."""
     daily = pd.read_csv(daily_csv, parse_dates=["datetime"])
     metadata = pd.read_csv(metadata_csv)
     trades = pd.read_csv(trades_csv, parse_dates=["datetime"])
     positions = pd.read_csv(positions_csv, parse_dates=["datetime"])
     output_dir.mkdir(parents=True, exist_ok=True)
+    trades["symbol"] = trades["symbol"].astype(str)
 
     for column in (
         "fill_price",
@@ -582,7 +605,18 @@ def render_all_trade_charts(
         }
 
     grouped_rows: list[dict[str, Any]] = []
-    for symbol, symbol_trades in trades.groupby("symbol", sort=True):
+    if symbols is None:
+        requested_symbols = list(trades.groupby("symbol", sort=True).groups)
+    else:
+        requested_symbols = []
+        for value in symbols:
+            symbol = str(value).strip()
+            if not symbol:
+                raise ValueError("symbols must not contain empty values")
+            if symbol not in requested_symbols:
+                requested_symbols.append(symbol)
+    for symbol in requested_symbols:
+        symbol_trades = trades.loc[trades["symbol"] == symbol]
         realized_pnl = float(symbol_trades["realized_pnl"].sum())
         grouped_rows.append(
             {
@@ -595,7 +629,10 @@ def render_all_trade_charts(
                 "last_trade_date": symbol_trades["datetime"].max(),
             }
         )
-    grouped_rows.sort(key=lambda row: (-float(row["realized_pnl"]), str(row["symbol"])))
+    if symbols is None:
+        grouped_rows.sort(
+            key=lambda row: (-float(row["realized_pnl"]), str(row["symbol"]))
+        )
     if limit is not None:
         grouped_rows = grouped_rows[: max(limit, 0)]
 
@@ -694,6 +731,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--report-start", required=True)
     parser.add_argument("--report-end", required=True)
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--symbols", nargs="*")
     parser.add_argument("--overwrite", action="store_true")
     return parser
 
@@ -710,6 +748,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         report_start=args.report_start,
         report_end=args.report_end,
         limit=args.limit,
+        symbols=args.symbols,
         overwrite=args.overwrite,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))

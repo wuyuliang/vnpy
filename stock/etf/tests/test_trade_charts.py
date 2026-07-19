@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 
 import numpy as np
 import pandas as pd
+from PIL import Image
 
 from stock.etf.render_trade_charts import (
     _assign_marker_label_levels,
@@ -97,6 +98,53 @@ class TradeChartTransformTests(unittest.TestCase):
         self.assertEqual(markers.loc[0, "datetime"], pd.Timestamp("2026-05-04"))
         self.assertEqual(markers.loc[0, "quantity"], 400)
         self.assertEqual(markers.loc[0, "fill_price"], 11.5)
+
+    def test_trade_markers_append_target_weights_when_same_day_trades_merge(
+        self,
+    ) -> None:
+        trades = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(
+                    [
+                        "2026-05-04 10:00",
+                        "2026-05-04 14:00",
+                        "2026-05-05 10:00",
+                        "2026-05-05 14:00",
+                    ]
+                ),
+                "side": ["buy", "buy", "sell", "sell"],
+                "fill_price": [10.0, 12.0, 13.0, 11.0],
+                "quantity": [100, 300, 200, 200],
+                "primary_reason": [
+                    "target_weight_0_to_0.5",
+                    "target_weight_0.5_to_1",
+                    "target_weight_1_to_0.5",
+                    "target_weight_0.5_to_0",
+                ],
+            }
+        )
+
+        markers = build_trade_markers(trades, weekly=False)
+
+        self.assertEqual(
+            markers["label"].tolist(),
+            ["B1→50%/B2→100%", "S1→50%/S2→0%"],
+        )
+
+    def test_trade_markers_keep_old_labels_for_unmatched_reasons(self) -> None:
+        trades = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2026-05-04", "2026-05-05"]),
+                "side": ["buy", "sell"],
+                "fill_price": [10.0, 12.0],
+                "quantity": [100, 100],
+                "primary_reason": ["rs_top5", "target_weight_invalid"],
+            }
+        )
+
+        markers = build_trade_markers(trades, weekly=False)
+
+        self.assertEqual(markers["label"].tolist(), ["B1", "S1"])
 
     def test_filename_keeps_chinese_and_sanitizes_punctuation(self) -> None:
         filename = make_chart_filename(1, "159659.SZ", "招商纳斯达克100ETF(QDII)")
@@ -259,6 +307,67 @@ class TradeChartTransformTests(unittest.TestCase):
             self.assertIn("symbol", index.columns)
             self.assertIn("render_status", index.columns)
             self.assertEqual(summary["input_symbols"], 0)
+
+    def test_batch_render_explicit_symbol_without_trades_creates_chart(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            dates = pd.bdate_range("2026-03-02", periods=60)
+            daily = self._bars(dates).assign(symbol="A.SH")
+            metadata = pd.DataFrame(
+                {
+                    "symbol": ["A.SH"],
+                    "name": ["测试ETF甲"],
+                    "fund_type": ["股票型ETF"],
+                }
+            )
+            trades = pd.DataFrame(
+                columns=[
+                    "datetime",
+                    "symbol",
+                    "side",
+                    "fill_price",
+                    "quantity",
+                    "commission",
+                    "slippage_cost",
+                    "realized_pnl",
+                    "primary_reason",
+                ]
+            )
+            positions = pd.DataFrame(
+                columns=["datetime", "symbol", "quantity", "average_price"]
+            )
+            daily_path = root / "daily.csv"
+            metadata_path = root / "metadata.csv"
+            trades_path = root / "trades.csv"
+            positions_path = root / "positions.csv"
+            output_dir = root / "charts"
+            daily.to_csv(daily_path, index=False)
+            metadata.to_csv(metadata_path, index=False)
+            trades.to_csv(trades_path, index=False)
+            positions.to_csv(positions_path, index=False)
+
+            summary = render_all_trade_charts(
+                daily_csv=daily_path,
+                metadata_csv=metadata_path,
+                trades_csv=trades_path,
+                positions_csv=positions_path,
+                output_dir=output_dir,
+                report_start=pd.Timestamp("2026-05-17"),
+                report_end=pd.Timestamp("2026-07-17"),
+                symbols=["A.SH"],
+                overwrite=True,
+            )
+
+            image_path = output_dir / "0001_A_SH_测试ETF甲.png"
+            self.assertTrue(image_path.is_file())
+            with Image.open(image_path) as image:
+                self.assertEqual(image.size, (1680, 1000))
+            index = pd.read_csv(output_dir / "index.csv")
+            self.assertEqual(index["symbol"].tolist(), ["A.SH"])
+            self.assertEqual(index["trade_count"].tolist(), [0])
+            self.assertEqual(summary["input_symbols"], 1)
+            self.assertEqual(summary["input_trades"], 0)
+            self.assertEqual(summary["rendered_images"], 1)
 
     @staticmethod
     def _bars(dates: pd.DatetimeIndex) -> pd.DataFrame:

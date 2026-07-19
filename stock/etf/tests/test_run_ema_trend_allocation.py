@@ -209,6 +209,15 @@ def test_run_and_write_hides_oos_from_selection_and_writes_complete_contract(
         "csi300_buy_hold",
     ):
         assert set(summary[comparison]) == {"training", "validation", "oos", "full"}
+    assert {
+        "initial_capital",
+        "initial_equity",
+        "final_equity",
+        "total_commission",
+        "total_slippage_cost",
+        "target_weight",
+        "is_open",
+    }.issubset(summary["candidate"]["full"])
     strict_json = json.loads(
         (output_dir / "summary.json").read_text(encoding="utf-8"),
         parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)),
@@ -261,3 +270,157 @@ def test_run_and_write_records_no_feasible_candidate_before_failing(
     assert selected["release"]["failed_checks"] == ["no_feasible_candidate"]
     assert summary["release"]["status"] == "rejected"
     assert summary["candidate"] is None
+
+
+def test_overwrite_rejection_removes_owned_success_outputs_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    daily_path, metadata_path, benchmark_path = _write_input_files(tmp_path)
+    output_dir = tmp_path / "overwritten"
+    config = TrendAllocationConfig(initial_capital=100_000.0)
+
+    monkeypatch.setattr(
+        runner,
+        "select_ema_trend_allocation",
+        lambda selection_bars, base_config: OptimizationResult(
+            _candidate_results(),
+            TrendAllocationConfig(
+                symbol=base_config.symbol,
+                initial_capital=base_config.initial_capital,
+                slow_period=20,
+                confirmation_days=1,
+                slope_lookback=3,
+            ),
+        ),
+    )
+    run_and_write(
+        daily_csv=daily_path,
+        metadata_csv=metadata_path,
+        benchmark_csv=benchmark_path,
+        output_dir=output_dir,
+        config=config,
+        overwrite=True,
+    )
+    assert (output_dir / "charts").is_dir()
+    unknown_file = output_dir / "user_notes.txt"
+    unknown_file.write_text("keep me", encoding="utf-8")
+
+    rejected = _candidate_results().assign(selected=False, rank=pd.NA)
+    monkeypatch.setattr(
+        runner,
+        "select_ema_trend_allocation",
+        lambda selection_bars, base_config: OptimizationResult(rejected, None),
+    )
+    with pytest.raises(RuntimeError, match="no feasible candidate"):
+        run_and_write(
+            daily_csv=daily_path,
+            metadata_csv=metadata_path,
+            benchmark_csv=benchmark_path,
+            output_dir=output_dir,
+            config=config,
+            overwrite=True,
+        )
+
+    assert {path.name for path in output_dir.iterdir()} == {
+        "candidate_results.csv",
+        "selected_parameters.json",
+        "summary.json",
+        "user_notes.txt",
+    }
+    assert unknown_file.read_text(encoding="utf-8") == "keep me"
+
+
+def test_run_and_write_renders_explicit_symbol_without_trades(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    daily_path, metadata_path, benchmark_path = _write_input_files(tmp_path)
+    daily = pd.read_csv(daily_path)
+    daily["open"] = 10.0
+    daily["high"] = 10.2
+    daily["low"] = 9.8
+    daily["close"] = 10.0
+    daily.to_csv(daily_path, index=False)
+    output_dir = tmp_path / "zero_trades"
+
+    monkeypatch.setattr(
+        runner,
+        "select_ema_trend_allocation",
+        lambda selection_bars, base_config: OptimizationResult(
+            _candidate_results(),
+            TrendAllocationConfig(
+                symbol=base_config.symbol,
+                initial_capital=base_config.initial_capital,
+                slow_period=20,
+                confirmation_days=1,
+                slope_lookback=3,
+            ),
+        ),
+    )
+
+    run_and_write(
+        daily_csv=daily_path,
+        metadata_csv=metadata_path,
+        benchmark_csv=benchmark_path,
+        output_dir=output_dir,
+        overwrite=True,
+    )
+
+    trades = pd.read_csv(output_dir / "trades.csv")
+    assert trades.empty
+    image_path = output_dir / "charts/0001_159915_SZ_易方达创业板ETF.png"
+    assert image_path.is_file()
+    with Image.open(image_path) as image:
+        assert image.size == (1680, 1000)
+    render_summary = json.loads(
+        (output_dir / "charts/render_summary.json").read_text(encoding="utf-8")
+    )
+    assert render_summary["input_symbols"] == 1
+    assert render_summary["input_trades"] == 0
+    assert render_summary["rendered_images"] == 1
+
+
+def test_atomic_chart_publish_leaves_no_partial_directory_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+
+    def fake_renderer(**kwargs: object) -> dict[str, object]:
+        staging = Path(kwargs["output_dir"])
+        staging.mkdir()
+        (staging / "first.png").write_bytes(b"first")
+        (staging / "second.png").write_bytes(b"second")
+        return {
+            "output_dir": str(staging),
+            "rendered_images": 2,
+            "existing_images": 0,
+        }
+
+    original_replace = Path.replace
+
+    def fail_during_publish(self: Path, target: Path) -> Path:
+        if self.name == "second.png" or self.name.startswith(".charts."):
+            raise OSError("simulated publish failure")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(runner, "render_all_trade_charts", fake_renderer)
+    monkeypatch.setattr(Path, "replace", fail_during_publish)
+
+    with pytest.raises(OSError, match="simulated publish failure"):
+        runner._render_charts_atomically(
+            daily_csv=tmp_path / "daily.csv",
+            metadata_csv=tmp_path / "metadata.csv",
+            trades_csv=tmp_path / "trades.csv",
+            positions_csv=tmp_path / "positions.csv",
+            output_dir=output_dir,
+            report_start="2026-01-01",
+            report_end="2026-01-02",
+            symbols=["159915.SZ"],
+            expected_filenames=["first.png", "second.png"],
+        )
+
+    assert not (output_dir / "charts").exists()
+    assert not list(output_dir.glob(".charts.*.tmp"))
