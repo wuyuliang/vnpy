@@ -329,7 +329,7 @@ def execute_target_weights(
             }[current_weight]
         )
         is_upgrade = target_weight > current_weight
-        upgrade_filled = False
+        upgrade_succeeded = target_quantity > 0 and held_quantity >= target_quantity
 
         if target_quantity > held_quantity:
             buy_quantity = _affordable_buy_quantity(
@@ -357,7 +357,7 @@ def execute_target_weights(
                         reason,
                     )
                 action = "buy_to_half" if target_weight == 0.5 else "buy_to_full"
-                upgrade_filled = True
+                upgrade_succeeded = True
         elif target_quantity < held_quantity:
             portfolio.sell_quantity(
                 config.symbol,
@@ -368,8 +368,11 @@ def execute_target_weights(
             )
             action = "sell_to_flat" if target_weight == 0.0 else "sell_to_half"
 
-        if is_upgrade and not upgrade_filled:
-            target_weight = current_weight
+        if is_upgrade:
+            if upgrade_succeeded and action not in {"buy_to_half", "buy_to_full"}:
+                action = "hold_half" if target_weight == 0.5 else "hold_full"
+            elif not upgrade_succeeded:
+                target_weight = current_weight
         current_weight = target_weight
         audited_signals.loc[index, "target_weight"] = target_weight
         audited_signals.loc[index, "action"] = action

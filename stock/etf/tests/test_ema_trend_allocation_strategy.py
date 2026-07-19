@@ -493,7 +493,7 @@ def test_target_transition_without_a_whole_lot_is_not_a_fake_trade() -> None:
     assert result.signals["action"].tolist() == ["flat", "flat"]
 
 
-def test_half_position_does_not_advance_when_full_target_needs_no_whole_lot() -> None:
+def test_half_position_advances_when_full_target_is_already_achieved() -> None:
     signals = _manual_signals(
         [{"enter_half": True}, {"enter_full": True}],
         opens=[10.0, 1_000.0],
@@ -508,8 +508,8 @@ def test_half_position_does_not_advance_when_full_target_needs_no_whole_lot() ->
     result = trend_strategy.execute_target_weights(signals, config)
 
     assert result.trades["quantity"].tolist() == [5_000]
-    assert result.signals["target_weight"].tolist() == [0.5, 0.5]
-    assert result.signals["action"].tolist() == ["buy_to_half", "hold_half"]
+    assert result.signals["target_weight"].tolist() == [0.5, 1.0]
+    assert result.signals["action"].tolist() == ["buy_to_half", "hold_full"]
 
 
 def test_partial_sell_allocates_entry_commission_and_keeps_half_position() -> None:
