@@ -1,6 +1,7 @@
 from itertools import product
 from types import SimpleNamespace
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -130,6 +131,74 @@ def test_selection_rejects_oos_rows_before_calling_backtest(
     assert called is False
 
 
+def _assert_datetime_rejected_before_backtest(
+    monkeypatch: pytest.MonkeyPatch,
+    datetimes: object,
+    message: str,
+) -> None:
+    called = False
+
+    def forbidden_backtest(*args: object, **kwargs: object) -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(
+        optimization,
+        "run_trend_allocation_backtest",
+        forbidden_backtest,
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        optimize_on_train_validation(pd.DataFrame({"datetime": datetimes}))
+
+    assert str(exc_info.value) == message
+    assert called is False
+
+
+def test_selection_rejects_nat_before_calling_backtest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _assert_datetime_rejected_before_backtest(
+        monkeypatch,
+        [TRAIN_START, pd.NaT],
+        "selection datetime contains NaT",
+    )
+
+
+def test_selection_rejects_uniform_timezone_before_calling_backtest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _assert_datetime_rejected_before_backtest(
+        monkeypatch,
+        pd.date_range("2024-12-30", periods=2, tz="Asia/Shanghai"),
+        "selection datetime must be timezone-naive",
+    )
+
+
+@pytest.mark.parametrize(
+    "datetimes",
+    [
+        [
+            pd.Timestamp("2024-12-30", tz="UTC"),
+            pd.Timestamp("2024-12-31", tz="Asia/Shanghai"),
+        ],
+        [
+            pd.Timestamp("2024-12-30"),
+            pd.Timestamp("2024-12-31", tz="UTC"),
+        ],
+    ],
+)
+def test_selection_rejects_mixed_timezones_before_calling_backtest(
+    monkeypatch: pytest.MonkeyPatch,
+    datetimes: list[pd.Timestamp],
+) -> None:
+    _assert_datetime_rejected_before_backtest(
+        monkeypatch,
+        datetimes,
+        "selection datetime must be timezone-naive",
+    )
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -223,6 +292,100 @@ def test_select_candidate_returns_none_without_feasible_candidate() -> None:
     )
 
     assert select_candidate(frame) is None
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "validation_total_return",
+        "train_max_drawdown",
+        "train_annual_one_way_turnover",
+        "validation_max_drawdown",
+        "validation_annual_one_way_turnover",
+    ],
+)
+@pytest.mark.parametrize("invalid_value", [np.nan, np.inf, -np.inf, "0.10"])
+def test_select_candidate_fail_closes_non_numeric_or_non_finite_metrics(
+    field: str,
+    invalid_value: object,
+) -> None:
+    invalid_values = {
+        "slow": 30,
+        "confirmation": 2,
+        "slope": 5,
+        "validation_total_return": 0.90,
+        field: invalid_value,
+    }
+    invalid = _candidate(**invalid_values)
+    valid = _candidate(validation_total_return=0.20)
+
+    selected = select_candidate(pd.DataFrame([invalid, valid]))
+
+    assert selected is not None
+    assert selected["validation_total_return"] == 0.20
+
+
+def test_optimizer_marks_non_finite_metrics_infeasible_and_unranked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invalid_metrics = {
+        (20, 1, 3): (TRAIN_START, "max_drawdown", np.nan),
+        (20, 1, 5): (TRAIN_START, "annual_one_way_turnover", np.inf),
+        (20, 2, 3): (VALIDATION_START, "total_return", np.inf),
+        (20, 2, 5): (VALIDATION_START, "max_drawdown", np.inf),
+        (30, 1, 3): (VALIDATION_START, "annual_one_way_turnover", -np.inf),
+    }
+
+    def fake_backtest(
+        bars: pd.DataFrame,
+        config: TrendAllocationConfig,
+    ) -> SimpleNamespace:
+        del bars
+        return SimpleNamespace(
+            equity_curve=pd.DataFrame(
+                {
+                    "slow": [config.slow_period],
+                    "confirmation": [config.confirmation_days],
+                    "slope": [config.slope_lookback],
+                }
+            ),
+            trades=pd.DataFrame(),
+        )
+
+    def fake_metrics(
+        equity_curve: pd.DataFrame,
+        trades: pd.DataFrame,
+        start: object,
+        end: object,
+    ) -> dict[str, float]:
+        del trades, end
+        key = tuple(int(value) for value in equity_curve.iloc[0])
+        metrics = {
+            "total_return": sum(key) / 100,
+            "max_drawdown": -0.20,
+            "annual_one_way_turnover": 4.0,
+        }
+        invalid_period, invalid_field, invalid_value = invalid_metrics.get(
+            key,
+            (None, None, None),
+        )
+        if str(start) == invalid_period:
+            metrics[invalid_field] = invalid_value
+        return metrics
+
+    monkeypatch.setattr(optimization, "run_trend_allocation_backtest", fake_backtest)
+    monkeypatch.setattr(optimization, "calculate_period_metrics", fake_metrics)
+    bars = pd.DataFrame(
+        {"datetime": [TRAIN_START, TRAIN_END, VALIDATION_START, VALIDATION_END]}
+    )
+
+    result = optimize_on_train_validation(bars)
+
+    invalid = result.candidate_results.iloc[:5]
+    assert invalid["selected"].eq(False).all()
+    assert invalid["rank"].isna().all()
+    assert invalid.iloc[:2]["train_feasible"].eq(False).all()
+    assert invalid.iloc[2:]["validation_feasible"].eq(False).all()
 
 
 def test_optimizer_evaluates_candidates_and_marks_one_deterministic_selection(
@@ -378,8 +541,16 @@ def _passing_release_metrics() -> tuple[
         "max_drawdown": -0.35,
         "annual_one_way_turnover": 8.0,
     }
-    baseline_full = {"total_return": 0.15}
-    baseline_oos = {"total_return": 0.05}
+    baseline_full = {
+        "total_return": 0.15,
+        "max_drawdown": -0.20,
+        "annual_one_way_turnover": 4.0,
+    }
+    baseline_oos = {
+        "total_return": 0.05,
+        "max_drawdown": -0.20,
+        "annual_one_way_turnover": 4.0,
+    }
     return candidate_full, candidate_oos, baseline_full, baseline_oos
 
 
@@ -445,16 +616,48 @@ def test_evaluate_release_reports_failures_in_fixed_check_order() -> None:
     assert result["failed_checks"] == RELEASE_CHECKS
 
 
-def test_evaluate_release_propagates_missing_numeric_key() -> None:
-    candidate_full, candidate_oos, baseline_full, baseline_oos = (
-        _passing_release_metrics()
-    )
-    del candidate_full["total_return"]
-
-    with pytest.raises(KeyError, match="total_return"):
-        evaluate_release(
-            candidate_full,
-            candidate_oos,
-            baseline_full,
-            baseline_oos,
+@pytest.mark.parametrize(
+    ("mapping_index", "field", "failed_check"),
+    [
+        (mapping_index, field, f"{period}_{check_suffix}")
+        for mapping_index, period in enumerate(("full", "oos", "full", "oos"))
+        for field, check_suffix in (
+            ("total_return", "return_improved"),
+            ("max_drawdown", "drawdown_within_limit"),
+            ("annual_one_way_turnover", "turnover_within_limit"),
         )
+    ],
+)
+@pytest.mark.parametrize("invalid_value", [np.nan, np.inf, -np.inf])
+def test_evaluate_release_rejects_every_non_finite_metric(
+    mapping_index: int,
+    field: str,
+    failed_check: str,
+    invalid_value: float,
+) -> None:
+    metrics = _passing_release_metrics()
+    metrics[mapping_index][field] = invalid_value
+
+    result = evaluate_release(*metrics)
+
+    assert result["status"] == "rejected"
+    assert result["checks"][failed_check] is False
+    assert result["failed_checks"] == [failed_check]
+
+
+@pytest.mark.parametrize(
+    ("mapping_index", "field"),
+    product(
+        range(4),
+        ("total_return", "max_drawdown", "annual_one_way_turnover"),
+    ),
+)
+def test_evaluate_release_propagates_every_missing_numeric_key(
+    mapping_index: int,
+    field: str,
+) -> None:
+    metrics = _passing_release_metrics()
+    del metrics[mapping_index][field]
+
+    with pytest.raises(KeyError, match=field):
+        evaluate_release(*metrics)

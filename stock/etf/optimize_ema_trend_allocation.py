@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from itertools import product
+from math import isfinite
+from numbers import Number
 
 import pandas as pd
 
@@ -45,12 +47,35 @@ def preregistered_configs(
     ]
 
 
+def _is_finite_number(value: object) -> bool:
+    if isinstance(value, bool) or not isinstance(value, Number):
+        return False
+    try:
+        return isfinite(value)
+    except TypeError:
+        return False
+
+
+def _finite_metric(frame: pd.DataFrame, column: str) -> pd.Series:
+    values = frame[column]
+    return pd.to_numeric(values.where(values.map(_is_finite_number)), errors="coerce")
+
+
 def _feasible_candidates(frame: pd.DataFrame) -> pd.Series:
+    validation_return = _finite_metric(frame, "validation_total_return")
+    train_drawdown = _finite_metric(frame, "train_max_drawdown")
+    train_turnover = _finite_metric(frame, "train_annual_one_way_turnover")
+    validation_drawdown = _finite_metric(frame, "validation_max_drawdown")
+    validation_turnover = _finite_metric(
+        frame,
+        "validation_annual_one_way_turnover",
+    )
     feasible = (
-        frame["train_max_drawdown"].ge(-0.35)
-        & frame["train_annual_one_way_turnover"].le(8.0)
-        & frame["validation_max_drawdown"].ge(-0.35)
-        & frame["validation_annual_one_way_turnover"].le(8.0)
+        validation_return.notna()
+        & train_drawdown.ge(-0.35)
+        & train_turnover.le(8.0)
+        & validation_drawdown.ge(-0.35)
+        & validation_turnover.le(8.0)
     )
     if "train_feasible" in frame:
         feasible &= frame["train_feasible"].eq(True)
@@ -83,13 +108,22 @@ def select_candidate(frame: pd.DataFrame) -> pd.Series | None:
     return ordered.iloc[0].copy()
 
 
+def _parse_selection_datetimes(values: pd.Series) -> pd.Series:
+    parsed = [pd.to_datetime(value, errors="raise") for value in values]
+    if any(pd.isna(value) for value in parsed):
+        raise ValueError("selection datetime contains NaT")
+    if any(value.tzinfo is not None for value in parsed):
+        raise ValueError("selection datetime must be timezone-naive")
+    return pd.Series(pd.DatetimeIndex(parsed), index=values.index)
+
+
 def optimize_on_train_validation(
     selection_bars: pd.DataFrame,
     base_config: TrendAllocationConfig | None = None,
 ) -> OptimizationResult:
     """Evaluate and select candidates using train and validation data only."""
     bars = selection_bars.copy()
-    bars["datetime"] = pd.to_datetime(bars["datetime"], errors="raise")
+    bars["datetime"] = _parse_selection_datetimes(bars["datetime"])
     if bars["datetime"].dt.normalize().gt(pd.Timestamp(SELECTION_CUTOFF)).any():
         raise ValueError("selection data ends after 2024-12-31")
 
@@ -119,11 +153,16 @@ def optimize_on_train_validation(
             {f"validation_{key}": value for key, value in validation_metrics.items()}
         )
         row["train_feasible"] = bool(
-            train_metrics["max_drawdown"] >= -0.35
+            _is_finite_number(train_metrics["max_drawdown"])
+            and train_metrics["max_drawdown"] >= -0.35
+            and _is_finite_number(train_metrics["annual_one_way_turnover"])
             and train_metrics["annual_one_way_turnover"] <= 8.0
         )
         row["validation_feasible"] = bool(
-            validation_metrics["max_drawdown"] >= -0.35
+            _is_finite_number(validation_metrics["total_return"])
+            and _is_finite_number(validation_metrics["max_drawdown"])
+            and validation_metrics["max_drawdown"] >= -0.35
+            and _is_finite_number(validation_metrics["annual_one_way_turnover"])
             and validation_metrics["annual_one_way_turnover"] <= 8.0
         )
         rows.append(row)
@@ -153,19 +192,50 @@ def evaluate_release(
     baseline_oos: Mapping[str, float],
 ) -> dict[str, object]:
     """Evaluate the six fixed return, drawdown, and turnover release gates."""
+    candidate_full_return = candidate_full["total_return"]
+    candidate_full_drawdown = candidate_full["max_drawdown"]
+    candidate_full_turnover = candidate_full["annual_one_way_turnover"]
+    candidate_oos_return = candidate_oos["total_return"]
+    candidate_oos_drawdown = candidate_oos["max_drawdown"]
+    candidate_oos_turnover = candidate_oos["annual_one_way_turnover"]
+    baseline_full_return = baseline_full["total_return"]
+    baseline_full_drawdown = baseline_full["max_drawdown"]
+    baseline_full_turnover = baseline_full["annual_one_way_turnover"]
+    baseline_oos_return = baseline_oos["total_return"]
+    baseline_oos_drawdown = baseline_oos["max_drawdown"]
+    baseline_oos_turnover = baseline_oos["annual_one_way_turnover"]
+
     checks = {
         "full_return_improved": (
-            candidate_full["total_return"] > baseline_full["total_return"]
+            _is_finite_number(candidate_full_return)
+            and _is_finite_number(baseline_full_return)
+            and candidate_full_return > baseline_full_return
         ),
-        "full_drawdown_within_limit": candidate_full["max_drawdown"] >= -0.35,
+        "full_drawdown_within_limit": (
+            _is_finite_number(candidate_full_drawdown)
+            and _is_finite_number(baseline_full_drawdown)
+            and candidate_full_drawdown >= -0.35
+        ),
         "full_turnover_within_limit": (
-            candidate_full["annual_one_way_turnover"] <= 8.0
+            _is_finite_number(candidate_full_turnover)
+            and _is_finite_number(baseline_full_turnover)
+            and candidate_full_turnover <= 8.0
         ),
         "oos_return_improved": (
-            candidate_oos["total_return"] > baseline_oos["total_return"]
+            _is_finite_number(candidate_oos_return)
+            and _is_finite_number(baseline_oos_return)
+            and candidate_oos_return > baseline_oos_return
         ),
-        "oos_drawdown_within_limit": candidate_oos["max_drawdown"] >= -0.35,
-        "oos_turnover_within_limit": (candidate_oos["annual_one_way_turnover"] <= 8.0),
+        "oos_drawdown_within_limit": (
+            _is_finite_number(candidate_oos_drawdown)
+            and _is_finite_number(baseline_oos_drawdown)
+            and candidate_oos_drawdown >= -0.35
+        ),
+        "oos_turnover_within_limit": (
+            _is_finite_number(candidate_oos_turnover)
+            and _is_finite_number(baseline_oos_turnover)
+            and candidate_oos_turnover <= 8.0
+        ),
     }
     failed_checks = [name for name, passed in checks.items() if not passed]
     return {
