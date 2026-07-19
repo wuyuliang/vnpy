@@ -541,16 +541,8 @@ def _passing_release_metrics() -> tuple[
         "max_drawdown": -0.35,
         "annual_one_way_turnover": 8.0,
     }
-    baseline_full = {
-        "total_return": 0.15,
-        "max_drawdown": -0.20,
-        "annual_one_way_turnover": 4.0,
-    }
-    baseline_oos = {
-        "total_return": 0.05,
-        "max_drawdown": -0.20,
-        "annual_one_way_turnover": 4.0,
-    }
+    baseline_full = {"total_return": 0.15}
+    baseline_oos = {"total_return": 0.05}
     return candidate_full, candidate_oos, baseline_full, baseline_oos
 
 
@@ -616,17 +608,21 @@ def test_evaluate_release_reports_failures_in_fixed_check_order() -> None:
     assert result["failed_checks"] == RELEASE_CHECKS
 
 
+REQUIRED_RELEASE_METRICS = [
+    (0, "total_return", "full_return_improved"),
+    (0, "max_drawdown", "full_drawdown_within_limit"),
+    (0, "annual_one_way_turnover", "full_turnover_within_limit"),
+    (1, "total_return", "oos_return_improved"),
+    (1, "max_drawdown", "oos_drawdown_within_limit"),
+    (1, "annual_one_way_turnover", "oos_turnover_within_limit"),
+    (2, "total_return", "full_return_improved"),
+    (3, "total_return", "oos_return_improved"),
+]
+
+
 @pytest.mark.parametrize(
     ("mapping_index", "field", "failed_check"),
-    [
-        (mapping_index, field, f"{period}_{check_suffix}")
-        for mapping_index, period in enumerate(("full", "oos", "full", "oos"))
-        for field, check_suffix in (
-            ("total_return", "return_improved"),
-            ("max_drawdown", "drawdown_within_limit"),
-            ("annual_one_way_turnover", "turnover_within_limit"),
-        )
-    ],
+    REQUIRED_RELEASE_METRICS,
 )
 @pytest.mark.parametrize("invalid_value", [np.nan, np.inf, -np.inf])
 def test_evaluate_release_rejects_every_non_finite_metric(
@@ -648,9 +644,28 @@ def test_evaluate_release_rejects_every_non_finite_metric(
 @pytest.mark.parametrize(
     ("mapping_index", "field"),
     product(
-        range(4),
-        ("total_return", "max_drawdown", "annual_one_way_turnover"),
+        (2, 3),
+        ("max_drawdown", "annual_one_way_turnover"),
     ),
+)
+@pytest.mark.parametrize("invalid_value", [np.nan, np.inf, -np.inf])
+def test_evaluate_release_ignores_non_contract_baseline_risk_metrics(
+    mapping_index: int,
+    field: str,
+    invalid_value: float,
+) -> None:
+    metrics = _passing_release_metrics()
+    metrics[mapping_index][field] = invalid_value
+
+    result = evaluate_release(*metrics)
+
+    assert result["status"] == "accepted"
+    assert result["failed_checks"] == []
+
+
+@pytest.mark.parametrize(
+    ("mapping_index", "field"),
+    [(mapping_index, field) for mapping_index, field, _ in REQUIRED_RELEASE_METRICS],
 )
 def test_evaluate_release_propagates_every_missing_numeric_key(
     mapping_index: int,
@@ -661,3 +676,20 @@ def test_evaluate_release_propagates_every_missing_numeric_key(
 
     with pytest.raises(KeyError, match=field):
         evaluate_release(*metrics)
+
+
+@pytest.mark.parametrize(
+    ("mapping_index", "field"),
+    product(
+        (2, 3),
+        ("max_drawdown", "annual_one_way_turnover"),
+    ),
+)
+def test_evaluate_release_does_not_require_baseline_risk_metrics(
+    mapping_index: int,
+    field: str,
+) -> None:
+    metrics = _passing_release_metrics()
+
+    assert field not in metrics[mapping_index]
+    assert evaluate_release(*metrics)["status"] == "accepted"

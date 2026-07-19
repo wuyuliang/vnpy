@@ -199,11 +199,7 @@ def evaluate_release(
     candidate_oos_drawdown = candidate_oos["max_drawdown"]
     candidate_oos_turnover = candidate_oos["annual_one_way_turnover"]
     baseline_full_return = baseline_full["total_return"]
-    baseline_full_drawdown = baseline_full["max_drawdown"]
-    baseline_full_turnover = baseline_full["annual_one_way_turnover"]
     baseline_oos_return = baseline_oos["total_return"]
-    baseline_oos_drawdown = baseline_oos["max_drawdown"]
-    baseline_oos_turnover = baseline_oos["annual_one_way_turnover"]
 
     checks = {
         "full_return_improved": (
@@ -213,12 +209,10 @@ def evaluate_release(
         ),
         "full_drawdown_within_limit": (
             _is_finite_number(candidate_full_drawdown)
-            and _is_finite_number(baseline_full_drawdown)
             and candidate_full_drawdown >= -0.35
         ),
         "full_turnover_within_limit": (
             _is_finite_number(candidate_full_turnover)
-            and _is_finite_number(baseline_full_turnover)
             and candidate_full_turnover <= 8.0
         ),
         "oos_return_improved": (
@@ -228,13 +222,10 @@ def evaluate_release(
         ),
         "oos_drawdown_within_limit": (
             _is_finite_number(candidate_oos_drawdown)
-            and _is_finite_number(baseline_oos_drawdown)
             and candidate_oos_drawdown >= -0.35
         ),
         "oos_turnover_within_limit": (
-            _is_finite_number(candidate_oos_turnover)
-            and _is_finite_number(baseline_oos_turnover)
-            and candidate_oos_turnover <= 8.0
+            _is_finite_number(candidate_oos_turnover) and candidate_oos_turnover <= 8.0
         ),
     }
     failed_checks = [name for name, passed in checks.items() if not passed]
