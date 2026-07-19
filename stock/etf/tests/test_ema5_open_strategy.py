@@ -93,6 +93,37 @@ class Ema5OpenStrategyTests(unittest.TestCase):
         self.assertFalse(result.loc[10, "entry_signal"])
         self.assertFalse(result.loc[10, "exit_signal"])
 
+    def test_open_equal_to_previous_ema5_does_not_enter(self) -> None:
+        bars = self._bars()
+        reference = build_ema5_open_signals(prepare_symbol_bars(bars, "159915.SZ"))
+        previous_ema5 = reference.loc[10, "previous_ema5"]
+        bars.loc[10, "open"] = previous_ema5
+        bars.loc[10, "high"] = max(previous_ema5, bars.loc[10, "close"]) + 0.2
+        bars.loc[10, "low"] = min(previous_ema5, bars.loc[10, "close"]) - 0.2
+
+        result = build_ema5_open_signals(prepare_symbol_bars(bars, "159915.SZ"))
+
+        self.assertGreater(
+            result.loc[10, "previous_ema5"], result.loc[10, "previous_ema10"]
+        )
+        self.assertFalse(result.loc[10, "entry_signal"])
+        self.assertFalse(result.loc[10, "exit_signal"])
+
+    def test_equal_ema5_and_ema10_exits_even_when_open_is_high(self) -> None:
+        bars = self._bars()
+        bars["close"] = 10.0
+        bars["open"] = 20.0
+        bars["high"] = 20.2
+        bars["low"] = 9.8
+
+        result = build_ema5_open_signals(prepare_symbol_bars(bars, "159915.SZ"))
+
+        self.assertEqual(
+            result.loc[10, "previous_ema5"], result.loc[10, "previous_ema10"]
+        )
+        self.assertFalse(result.loc[10, "entry_signal"])
+        self.assertTrue(result.loc[10, "exit_signal"])
+
     def test_ema_dead_cross_exits_even_when_open_is_high(self) -> None:
         bars = self._bars()
         descending = list(reversed(range(10, 23)))
@@ -138,7 +169,13 @@ class Ema5OpenStrategyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "at least 11 rows"):
             prepare_symbol_bars(self._bars().iloc[:10], "159915.SZ")
 
-    def test_backtest_executes_full_position_round_trip_and_keeps_final_position(
+    def test_config_requires_exactly_one_hundred_share_lots(self) -> None:
+        for invalid_lot_size in (50, 100.0, 100.5):
+            with self.subTest(lot_size=invalid_lot_size):
+                with self.assertRaisesRegex(ValueError, "lot_size must be integer 100"):
+                    Ema5OpenConfig(lot_size=invalid_lot_size)
+
+    def test_backtest_executes_full_position_round_trip_and_closes_position(
         self,
     ) -> None:
         config = Ema5OpenConfig(
@@ -184,7 +221,7 @@ class Ema5OpenStrategyTests(unittest.TestCase):
         self.assertLessEqual(cost, 100_000.0)
         self.assertGreater(next_cost, 100_000.0)
 
-    def test_unchanged_long_signal_does_not_repeat_buy(self) -> None:
+    def test_open_position_is_not_rebought_or_forced_closed_at_end(self) -> None:
         bars = self._round_trip_bars()
         bars.loc[12, "open"] = 17.0
         bars.loc[12, "high"] = 17.2
@@ -200,6 +237,20 @@ class Ema5OpenStrategyTests(unittest.TestCase):
         )
 
         self.assertEqual(result.trades["side"].tolist(), ["buy"])
+        self.assertEqual(result.trades.loc[0, "quantity"], 500)
+        self.assertEqual(
+            result.signals.loc[10:12, "action"].tolist(), ["buy", "hold", "hold"]
+        )
+        self.assertTrue(result.signals.loc[12, "target_invested"])
+        self.assertEqual(
+            result.positions.iloc[-1]["datetime"],
+            result.equity_curve.iloc[-1]["datetime"],
+        )
+        self.assertEqual(result.positions.iloc[-1]["quantity"], 500)
+        self.assertAlmostEqual(result.positions.iloc[-1]["market_value"], 8_000.0)
+        self.assertAlmostEqual(result.equity_curve.iloc[-1]["equity"], 9_000.0)
+        self.assertAlmostEqual(result.summary["final_equity"], 9_000.0)
+        self.assertTrue(result.summary["is_open"])
 
 
 if __name__ == "__main__":

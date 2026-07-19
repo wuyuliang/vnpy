@@ -67,8 +67,10 @@ class Ema5OpenConfig:
     def __post_init__(self) -> None:
         if not self.symbol.strip():
             raise ValueError("symbol must not be empty")
-        if self.initial_capital <= 0 or self.lot_size <= 0:
-            raise ValueError("initial_capital and lot_size must be positive")
+        if self.initial_capital <= 0:
+            raise ValueError("initial_capital must be positive")
+        if not isinstance(self.lot_size, int) or self.lot_size != 100:
+            raise ValueError("lot_size must be integer 100")
         if min(self.commission_rate, self.min_commission, self.slippage_rate) < 0:
             raise ValueError("execution costs must not be negative")
 
