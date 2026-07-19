@@ -1,4 +1,4 @@
-"""Run the single-ETF previous-day EMA5 open strategy from local CSV data."""
+"""Run the single-ETF previous-day EMA5/EMA10 open strategy from local CSV data."""
 
 from __future__ import annotations
 
@@ -76,7 +76,10 @@ def run_and_write(
         "metadata_csv": str(metadata_csv),
         "output_dir": str(output_dir),
         "parameters": {
-            "ema_period": 5,
+            "ema_fast_period": 5,
+            "ema_slow_period": 10,
+            "entry_rule": "open>previous_ema5 and previous_ema5>previous_ema10",
+            "exit_rule": "open<previous_ema10 or previous_ema5<=previous_ema10",
             "initial_capital": cfg.initial_capital,
             "lot_size": cfg.lot_size,
             "commission_rate": cfg.commission_rate,

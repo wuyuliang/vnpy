@@ -17,12 +17,40 @@ class RunEma5OpenStrategyTests(unittest.TestCase):
             daily_path = root / "daily.csv"
             metadata_path = root / "metadata.csv"
             output_dir = root / "output"
-            dates = pd.bdate_range("2026-01-02", periods=8)
-            opens = [10.0, 10.0, 10.0, 10.0, 10.0, 11.0, 9.0, 12.0]
-            closes = [10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 13.0]
+            dates = pd.bdate_range("2026-01-02", periods=13)
+            opens = [
+                10.0,
+                11.0,
+                12.0,
+                13.0,
+                14.0,
+                15.0,
+                16.0,
+                17.0,
+                18.0,
+                19.0,
+                18.0,
+                16.5,
+                15.5,
+            ]
+            closes = [
+                10.0,
+                11.0,
+                12.0,
+                13.0,
+                14.0,
+                15.0,
+                16.0,
+                17.0,
+                18.0,
+                19.0,
+                18.0,
+                17.0,
+                16.0,
+            ]
             pd.DataFrame(
                 {
-                    "symbol": ["159915.SZ"] * 8,
+                    "symbol": ["159915.SZ"] * 13,
                     "datetime": dates,
                     "open": opens,
                     "high": [
@@ -34,7 +62,7 @@ class RunEma5OpenStrategyTests(unittest.TestCase):
                         for open_, close in zip(opens, closes, strict=True)
                     ],
                     "close": closes,
-                    "volume": [1_000.0] * 8,
+                    "volume": [1_000.0] * 13,
                 }
             ).to_csv(daily_path, index=False)
             pd.DataFrame(
@@ -71,11 +99,21 @@ class RunEma5OpenStrategyTests(unittest.TestCase):
             with Image.open(image_path) as image:
                 self.assertEqual(image.size, (1680, 1000))
             self.assertEqual(summary["actual_start_date"], "2026-01-02")
-            self.assertEqual(summary["actual_end_date"], "2026-01-13")
+            self.assertEqual(summary["actual_end_date"], "2026-01-20")
             written_summary = json.loads(
                 (output_dir / "summary.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(written_summary["trade_count"], 3)
+            self.assertEqual(written_summary["trade_count"], 2)
+            self.assertEqual(written_summary["parameters"]["ema_fast_period"], 5)
+            self.assertEqual(written_summary["parameters"]["ema_slow_period"], 10)
+            self.assertEqual(
+                written_summary["parameters"]["entry_rule"],
+                "open>previous_ema5 and previous_ema5>previous_ema10",
+            )
+            self.assertEqual(
+                written_summary["parameters"]["exit_rule"],
+                "open<previous_ema10 or previous_ema5<=previous_ema10",
+            )
 
 
 if __name__ == "__main__":

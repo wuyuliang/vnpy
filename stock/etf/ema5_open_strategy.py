@@ -13,7 +13,11 @@ from .portfolio import Portfolio
 BAR_COLUMNS = ["symbol", "datetime", "open", "high", "low", "close", "volume"]
 SIGNAL_COLUMNS = BAR_COLUMNS + [
     "ema5",
+    "ema10",
     "previous_ema5",
+    "previous_ema10",
+    "entry_signal",
+    "exit_signal",
     "target_invested",
     "action",
 ]
@@ -108,19 +112,28 @@ def prepare_symbol_bars(daily: pd.DataFrame, symbol: str) -> pd.DataFrame:
     if not valid.all():
         raise ValueError(f"ETF daily data contains invalid OHLCV rows for {symbol}")
     frame = frame.sort_values("datetime", ignore_index=True)
-    if len(frame) < 6:
-        raise ValueError("ETF daily data requires at least 6 rows for previous EMA5")
+    if len(frame) < 11:
+        raise ValueError("ETF daily data requires at least 11 rows for previous EMA10")
     return frame
 
 
 def build_ema5_open_signals(bars: pd.DataFrame) -> pd.DataFrame:
-    """Compare each open with the previous completed close EMA5."""
+    """Build prior-day EMA5/EMA10 entry and exit conditions."""
     result = bars.copy()
     result["ema5"] = result["close"].ewm(span=5, adjust=False, min_periods=5).mean()
+    result["ema10"] = result["close"].ewm(span=10, adjust=False, min_periods=10).mean()
     result["previous_ema5"] = result["ema5"].shift(1)
-    result["target_invested"] = result["previous_ema5"].notna() & (
-        result["open"] > result["previous_ema5"]
+    result["previous_ema10"] = result["ema10"].shift(1)
+    ready = result[["previous_ema5", "previous_ema10"]].notna().all(axis=1)
+    result["entry_signal"] = ready & (
+        (result["open"] > result["previous_ema5"])
+        & (result["previous_ema5"] > result["previous_ema10"])
     )
+    result["exit_signal"] = ready & (
+        (result["open"] < result["previous_ema10"])
+        | (result["previous_ema5"] <= result["previous_ema10"])
+    )
+    result["target_invested"] = False
     result["action"] = "flat"
     return result[SIGNAL_COLUMNS]
 
@@ -171,9 +184,10 @@ def run_ema5_open_backtest(
 
     for index, row in signals.iterrows():
         invested = cfg.symbol in portfolio.positions
-        target = bool(row["target_invested"])
+        entry_signal = bool(row["entry_signal"])
+        exit_signal = bool(row["exit_signal"])
         action = "hold" if invested else "flat"
-        if target and not invested:
+        if not invested and entry_signal:
             quantity = calculate_full_position_quantity(
                 portfolio.cash,
                 float(row["open"]),
@@ -187,18 +201,19 @@ def run_ema5_open_backtest(
                 float(row["open"]),
                 quantity,
                 0.0,
-                "open_above_previous_ema5",
+                "open_above_previous_ema5_and_ema_bullish",
             )
             action = "buy"
-        elif not target and invested:
+        elif invested and exit_signal:
             portfolio.sell(
                 cfg.symbol,
                 row["datetime"],
                 float(row["open"]),
-                "open_at_or_below_previous_ema5",
+                "open_below_previous_ema10_or_ema_dead_cross",
             )
             action = "sell"
         signals.loc[index, "action"] = action
+        signals.loc[index, "target_invested"] = cfg.symbol in portfolio.positions
 
         position = portfolio.positions.get(cfg.symbol)
         market_value = (
