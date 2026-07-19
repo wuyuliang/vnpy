@@ -326,8 +326,10 @@ def execute_target_weights(
                 0.0: "flat",
                 0.5: "hold_half",
                 1.0: "hold_full",
-            }[target_weight]
+            }[current_weight]
         )
+        is_upgrade = target_weight > current_weight
+        upgrade_filled = False
 
         if target_quantity > held_quantity:
             buy_quantity = _affordable_buy_quantity(
@@ -355,6 +357,7 @@ def execute_target_weights(
                         reason,
                     )
                 action = "buy_to_half" if target_weight == 0.5 else "buy_to_full"
+                upgrade_filled = True
         elif target_quantity < held_quantity:
             portfolio.sell_quantity(
                 config.symbol,
@@ -365,6 +368,8 @@ def execute_target_weights(
             )
             action = "sell_to_flat" if target_weight == 0.0 else "sell_to_half"
 
+        if is_upgrade and not upgrade_filled:
+            target_weight = current_weight
         current_weight = target_weight
         audited_signals.loc[index, "target_weight"] = target_weight
         audited_signals.loc[index, "action"] = action
@@ -441,8 +446,25 @@ def calculate_period_metrics(
     """Calculate inclusive period metrics with returns and drawdown reset."""
     start_date = pd.Timestamp(start).normalize()
     end_date = pd.Timestamp(end).normalize()
+    if start_date > end_date:
+        raise ValueError("start must be on or before end")
+    if not {"datetime", "equity"}.issubset(equity_curve.columns):
+        raise ValueError("equity_curve requires datetime and equity columns")
+
     equity = equity_curve.copy()
     equity["datetime"] = pd.to_datetime(equity["datetime"], errors="raise")
+    try:
+        equity["equity"] = pd.to_numeric(equity["equity"], errors="raise")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("equity values must be numeric, finite, and positive") from exc
+    equity_values = equity["equity"]
+    if (
+        equity_values.isna().any()
+        or not equity_values.dropna().map(isfinite).all()
+        or (equity_values <= 0).any()
+    ):
+        raise ValueError("equity values must be numeric, finite, and positive")
+
     equity_dates = equity["datetime"].dt.normalize()
     period = equity.loc[
         equity_dates.between(start_date, end_date, inclusive="both")
@@ -453,15 +475,28 @@ def calculate_period_metrics(
     period_returns = period["equity"].pct_change().fillna(0.0)
     drawdown = period["equity"] / period["equity"].cummax() - 1
     days = len(period)
-    years = days / 252
+    return_years = max((days - 1) / 252, 1 / 252)
+    turnover_years = days / 252
     initial_equity = float(period.iloc[0]["equity"])
     final_equity = float(period.iloc[-1]["equity"])
     total_return = final_equity / initial_equity - 1
-    annual_return = (1 + total_return) ** (1 / years) - 1 if total_return > -1 else -1.0
+    annual_return = (
+        (1 + total_return) ** (1 / return_years) - 1 if total_return > -1 else -1.0
+    )
     daily_std = float(period_returns.std(ddof=0))
+    mean_equity = float(period["equity"].mean())
+    if not isfinite(mean_equity) or mean_equity <= 0:
+        raise ValueError("period mean equity must be finite and positive")
 
     period_trades = trades.copy()
-    if not period_trades.empty:
+    if period_trades.empty:
+        traded_notional = 0.0
+    else:
+        required_trade_columns = {"datetime", "fill_price", "quantity"}
+        if not required_trade_columns.issubset(period_trades.columns):
+            raise ValueError(
+                "non-empty trades require datetime, fill_price, and quantity"
+            )
         period_trades["datetime"] = pd.to_datetime(
             period_trades["datetime"], errors="raise"
         )
@@ -473,12 +508,10 @@ def calculate_period_metrics(
                 inclusive="both",
             )
         ]
-    traded_notional = float(
-        (period_trades["fill_price"] * period_trades["quantity"]).abs().sum()
-    )
-    annual_one_way_turnover = (
-        0.5 * traded_notional / float(period["equity"].mean()) / years
-    )
+        traded_notional = float(
+            (period_trades["fill_price"] * period_trades["quantity"]).abs().sum()
+        )
+    annual_one_way_turnover = 0.5 * traded_notional / mean_equity / turnover_years
     return {
         "start_date": str(pd.Timestamp(period.iloc[0]["datetime"]).date()),
         "end_date": str(pd.Timestamp(period.iloc[-1]["datetime"]).date()),
@@ -506,22 +539,34 @@ def _build_summary(
     is_open: bool,
 ) -> dict[str, Any]:
     final_equity = float(equity_curve.iloc[-1]["equity"])
-    summary = calculate_period_metrics(
-        equity_curve,
-        trades,
-        equity_curve.iloc[0]["datetime"],
-        equity_curve.iloc[-1]["datetime"],
-    )
-    summary.update(
-        {
-            "symbol": config.symbol,
-            "initial_equity": config.initial_capital,
-            "initial_capital": config.initial_capital,
-            "final_equity": final_equity,
-            "total_commission": float(trades["commission"].sum()),
-            "total_slippage_cost": float(trades["slippage_cost"].sum()),
-            "target_weight": target_weight,
-            "is_open": is_open,
-        }
-    )
-    return summary
+    total_return = final_equity / config.initial_capital - 1
+    years = len(equity_curve) / 252
+    annual_return = (1 + total_return) ** (1 / years) - 1 if total_return > -1 else -1.0
+    returns = equity_curve["daily_return"]
+    daily_std = float(returns.std(ddof=0))
+    traded_notional = float((trades["fill_price"] * trades["quantity"]).abs().sum())
+    return {
+        "symbol": config.symbol,
+        "start_date": str(pd.Timestamp(equity_curve.iloc[0]["datetime"]).date()),
+        "end_date": str(pd.Timestamp(equity_curve.iloc[-1]["datetime"]).date()),
+        "days": int(len(equity_curve)),
+        "trading_days": int(len(equity_curve)),
+        "initial_equity": config.initial_capital,
+        "initial_capital": config.initial_capital,
+        "final_equity": final_equity,
+        "total_return": total_return,
+        "annual_return": annual_return,
+        "annual_volatility": daily_std * sqrt(252),
+        "sharpe": (
+            float(returns.mean()) / daily_std * sqrt(252) if daily_std > 0 else 0.0
+        ),
+        "max_drawdown": float(equity_curve["drawdown"].min()),
+        "annual_one_way_turnover": (
+            0.5 * traded_notional / float(equity_curve["equity"].mean()) / years
+        ),
+        "trade_count": int(len(trades)),
+        "total_commission": float(trades["commission"].sum()),
+        "total_slippage_cost": float(trades["slippage_cost"].sum()),
+        "target_weight": target_weight,
+        "is_open": is_open,
+    }

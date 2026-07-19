@@ -489,8 +489,27 @@ def test_target_transition_without_a_whole_lot_is_not_a_fake_trade() -> None:
 
     assert result.trades.empty
     assert result.positions.empty
-    assert result.signals["target_weight"].tolist() == [0.5, 0.0]
+    assert result.signals["target_weight"].tolist() == [0.0, 0.0]
     assert result.signals["action"].tolist() == ["flat", "flat"]
+
+
+def test_half_position_does_not_advance_when_full_target_needs_no_whole_lot() -> None:
+    signals = _manual_signals(
+        [{"enter_half": True}, {"enter_full": True}],
+        opens=[10.0, 1_000.0],
+    )
+    config = TrendAllocationConfig(
+        initial_capital=100_000.0,
+        commission_rate=0.0,
+        min_commission=0.0,
+        slippage_rate=0.0,
+    )
+
+    result = trend_strategy.execute_target_weights(signals, config)
+
+    assert result.trades["quantity"].tolist() == [5_000]
+    assert result.signals["target_weight"].tolist() == [0.5, 0.5]
+    assert result.signals["action"].tolist() == ["buy_to_half", "hold_half"]
 
 
 def test_partial_sell_allocates_entry_commission_and_keeps_half_position() -> None:
@@ -563,29 +582,34 @@ def test_backtest_leaves_last_position_open_and_marks_it_at_close() -> None:
     } <= result.summary.keys()
 
 
-def test_summary_uses_full_period_metric_conventions() -> None:
+def test_summary_includes_first_day_execution_costs_from_initial_capital() -> None:
     signals = _manual_signals(
-        [{"enter_half": True}, {}, {}],
-        opens=[10.0, 10.0, 10.0],
-        closes=[12.0, 12.0, 11.0],
+        [{"enter_half": True}],
+        opens=[10.0],
+        closes=[10.0],
     )
     config = TrendAllocationConfig(
         initial_capital=100_000.0,
-        commission_rate=0.0,
+        commission_rate=0.001,
         min_commission=0.0,
-        slippage_rate=0.0,
+        slippage_rate=0.01,
     )
 
     result = trend_strategy.execute_target_weights(signals, config)
-    expected = trend_strategy.calculate_period_metrics(
-        result.equity_curve,
-        result.trades,
-        result.equity_curve.iloc[0]["datetime"],
-        result.equity_curve.iloc[-1]["datetime"],
-    )
 
-    for key, value in expected.items():
-        assert result.summary[key] == pytest.approx(value)
+    assert result.equity_curve.iloc[0]["daily_return"] == pytest.approx(-0.005505)
+    assert result.summary["final_equity"] == pytest.approx(99_449.5)
+    assert result.summary["total_return"] == pytest.approx(-0.005505)
+    assert result.summary["annual_return"] == pytest.approx(-0.7511966627728078)
+    assert result.summary["annual_volatility"] == pytest.approx(0.0)
+    assert result.summary["sharpe"] == pytest.approx(0.0)
+    assert result.summary["max_drawdown"] == pytest.approx(-0.005505)
+    assert result.summary["annual_one_way_turnover"] == pytest.approx(
+        63.982222132841294
+    )
+    assert result.summary["trade_count"] == 1
+    assert result.summary["total_commission"] == pytest.approx(50.5)
+    assert result.summary["total_slippage_cost"] == pytest.approx(500.0)
 
 
 def test_period_metrics_reset_returns_drawdown_and_filter_trades() -> None:
@@ -618,7 +642,7 @@ def test_period_metrics_reset_returns_drawdown_and_filter_trades() -> None:
     assert metrics["days"] == 4
     assert metrics["trading_days"] == 4
     assert metrics["total_return"] == pytest.approx(90.0 / 110.0 - 1)
-    assert metrics["annual_return"] == pytest.approx((90.0 / 110.0) ** (252 / 4) - 1)
+    assert metrics["annual_return"] == pytest.approx((90.0 / 110.0) ** (252 / 3) - 1)
     assert metrics["annual_volatility"] == pytest.approx(
         period_returns.std(ddof=0) * np.sqrt(252)
     )
@@ -632,6 +656,27 @@ def test_period_metrics_reset_returns_drawdown_and_filter_trades() -> None:
     assert metrics["trade_count"] == 2
 
 
+def test_period_metrics_single_point_has_zero_return_and_one_day_turnover() -> None:
+    date = pd.Timestamp("2026-01-02")
+    equity_curve = pd.DataFrame({"datetime": [date], "equity": [100.0]})
+
+    metrics = trend_strategy.calculate_period_metrics(
+        equity_curve,
+        pd.DataFrame(columns=["datetime", "fill_price", "quantity"]),
+        date,
+        date,
+    )
+
+    assert metrics["days"] == 1
+    assert metrics["total_return"] == pytest.approx(0.0)
+    assert metrics["annual_return"] == pytest.approx(0.0)
+    assert metrics["annual_volatility"] == pytest.approx(0.0)
+    assert metrics["sharpe"] == pytest.approx(0.0)
+    assert metrics["max_drawdown"] == pytest.approx(0.0)
+    assert metrics["annual_one_way_turnover"] == pytest.approx(0.0)
+    assert metrics["trade_count"] == 0
+
+
 def test_period_metrics_reject_an_empty_date_range() -> None:
     dates = pd.bdate_range("2026-01-02", periods=2)
     equity_curve = pd.DataFrame({"datetime": dates, "equity": [100.0, 101.0]})
@@ -643,6 +688,85 @@ def test_period_metrics_reject_an_empty_date_range() -> None:
             trades,
             "2027-01-01",
             "2027-01-31",
+        )
+
+
+def test_period_metrics_rejects_reversed_date_range_before_filtering() -> None:
+    equity_curve = pd.DataFrame(
+        {
+            "datetime": pd.to_datetime(["2026-01-02", "2026-01-05"]),
+            "equity": [100.0, 101.0],
+        }
+    )
+
+    with pytest.raises(ValueError, match="start"):
+        trend_strategy.calculate_period_metrics(
+            equity_curve,
+            pd.DataFrame(),
+            "2026-01-05",
+            "2026-01-02",
+        )
+
+
+def test_period_metrics_numericizes_equity_values() -> None:
+    dates = pd.to_datetime(["2026-01-02", "2026-01-05"])
+    equity_curve = pd.DataFrame({"datetime": dates, "equity": ["100", "110"]})
+
+    metrics = trend_strategy.calculate_period_metrics(
+        equity_curve,
+        pd.DataFrame(columns=["datetime", "fill_price", "quantity"]),
+        dates[0],
+        dates[-1],
+    )
+
+    assert metrics["total_return"] == pytest.approx(0.1)
+
+
+def test_period_metrics_accepts_truly_empty_trades_without_columns() -> None:
+    dates = pd.to_datetime(["2026-01-02", "2026-01-05"])
+    equity_curve = pd.DataFrame({"datetime": dates, "equity": [100.0, 110.0]})
+
+    metrics = trend_strategy.calculate_period_metrics(
+        equity_curve,
+        pd.DataFrame(),
+        dates[0],
+        dates[-1],
+    )
+
+    assert metrics["annual_one_way_turnover"] == pytest.approx(0.0)
+    assert metrics["trade_count"] == 0
+
+
+def test_period_metrics_requires_trade_columns_only_for_non_empty_trades() -> None:
+    dates = pd.to_datetime(["2026-01-02", "2026-01-05"])
+    equity_curve = pd.DataFrame({"datetime": dates, "equity": [100.0, 110.0]})
+    trades = pd.DataFrame({"datetime": [dates[0]]})
+
+    with pytest.raises(ValueError, match="trades require"):
+        trend_strategy.calculate_period_metrics(
+            equity_curve,
+            trades,
+            dates[0],
+            dates[-1],
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_equity",
+    ["invalid", float("nan"), float("inf"), float("-inf"), 0.0, -1.0],
+)
+def test_period_metrics_rejects_non_positive_or_non_finite_equity(
+    invalid_equity: object,
+) -> None:
+    dates = pd.to_datetime(["2026-01-02", "2026-01-05"])
+    equity_curve = pd.DataFrame({"datetime": dates, "equity": [100.0, invalid_equity]})
+
+    with pytest.raises(ValueError, match="equity"):
+        trend_strategy.calculate_period_metrics(
+            equity_curve,
+            pd.DataFrame(columns=["datetime", "fill_price", "quantity"]),
+            dates[0],
+            dates[-1],
         )
 
 
