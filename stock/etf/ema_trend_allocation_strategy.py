@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 
 import pandas as pd
 
@@ -42,19 +43,32 @@ class TrendAllocationConfig:
     slope_lookback: int = 3
 
     def __post_init__(self) -> None:
-        if not self.symbol.strip():
+        if not isinstance(self.symbol, str) or not self.symbol.strip():
             raise ValueError("symbol must not be empty")
+        if not isfinite(self.initial_capital):
+            raise ValueError("initial_capital must be finite")
         if self.initial_capital <= 0:
             raise ValueError("initial_capital must be positive")
         if type(self.lot_size) is not int or self.lot_size != 100:
             raise ValueError("lot_size must be Python int 100")
+        costs = {
+            "commission_rate": self.commission_rate,
+            "min_commission": self.min_commission,
+            "slippage_rate": self.slippage_rate,
+        }
+        for name, value in costs.items():
+            if not isfinite(value):
+                raise ValueError(f"{name} execution cost must be finite")
         if min(self.commission_rate, self.min_commission, self.slippage_rate) < 0:
             raise ValueError("execution costs must not be negative")
-        if self.slow_period not in {20, 30}:
+        if type(self.slow_period) is not int or self.slow_period not in {20, 30}:
             raise ValueError("slow_period must be 20 or 30")
-        if self.confirmation_days not in {1, 2}:
+        if type(self.confirmation_days) is not int or self.confirmation_days not in {
+            1,
+            2,
+        }:
             raise ValueError("confirmation_days must be 1 or 2")
-        if self.slope_lookback not in {3, 5}:
+        if type(self.slope_lookback) is not int or self.slope_lookback not in {3, 5}:
             raise ValueError("slope_lookback must be 3 or 5")
 
 

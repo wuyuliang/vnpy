@@ -61,6 +61,49 @@ def test_config_rejects_invalid_values(
         TrendAllocationConfig(**kwargs)
 
 
+@pytest.mark.parametrize("symbol", [None, 159915])
+def test_config_rejects_non_string_symbols(symbol: object) -> None:
+    with pytest.raises(ValueError, match="symbol"):
+        TrendAllocationConfig(symbol=symbol)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        (field, value)
+        for field in (
+            "initial_capital",
+            "commission_rate",
+            "min_commission",
+            "slippage_rate",
+        )
+        for value in (float("nan"), float("inf"), float("-inf"))
+    ],
+)
+def test_config_rejects_non_finite_numbers(field: str, value: float) -> None:
+    with pytest.raises(ValueError, match=field):
+        TrendAllocationConfig(**{field: value})
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("slow_period", 20.0),
+        ("slow_period", True),
+        ("confirmation_days", 2.0),
+        ("confirmation_days", True),
+        ("slope_lookback", 3.0),
+        ("slope_lookback", True),
+    ],
+)
+def test_config_requires_python_int_period_parameters(
+    field: str,
+    value: object,
+) -> None:
+    with pytest.raises(ValueError, match=field):
+        TrendAllocationConfig(**{field: value})
+
+
 def test_config_defaults_match_preregistered_baseline() -> None:
     config = TrendAllocationConfig()
 
