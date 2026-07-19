@@ -490,7 +490,7 @@ def test_target_transition_without_a_whole_lot_is_not_a_fake_trade() -> None:
     assert result.trades.empty
     assert result.positions.empty
     assert result.signals["target_weight"].tolist() == [0.5, 0.0]
-    assert result.signals["action"].tolist() == ["hold_half", "flat"]
+    assert result.signals["action"].tolist() == ["flat", "flat"]
 
 
 def test_partial_sell_allocates_entry_commission_and_keeps_half_position() -> None:

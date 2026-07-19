@@ -319,11 +319,15 @@ def execute_target_weights(
             config.lot_size,
         )
         reason = f"target_weight_{current_weight:g}_to_{target_weight:g}"
-        action = {
-            0.0: "flat",
-            0.5: "hold_half",
-            1.0: "hold_full",
-        }[target_weight]
+        action = (
+            "flat"
+            if position is None
+            else {
+                0.0: "flat",
+                0.5: "hold_half",
+                1.0: "hold_full",
+            }[target_weight]
+        )
 
         if target_quantity > held_quantity:
             buy_quantity = _affordable_buy_quantity(
