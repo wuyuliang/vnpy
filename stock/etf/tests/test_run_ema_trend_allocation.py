@@ -578,6 +578,62 @@ def test_render_failure_preserves_existing_success_output_byte_for_byte(
     assert not list(tmp_path.glob(".existing_output.*.tmp"))
 
 
+@pytest.mark.parametrize("failed_entry", ["summary.json", "charts"])
+def test_backup_failure_preserves_all_existing_output_byte_for_byte(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failed_entry: str,
+) -> None:
+    daily_path, metadata_path, benchmark_path = _write_input_files(tmp_path)
+    output_dir = tmp_path / "existing_output"
+    monkeypatch.setattr(
+        runner,
+        "select_ema_trend_allocation",
+        lambda selection_bars, base_config: _selected_optimization(base_config),
+    )
+    run_and_write(
+        daily_csv=daily_path,
+        metadata_csv=metadata_path,
+        benchmark_csv=benchmark_path,
+        output_dir=output_dir,
+        overwrite=True,
+    )
+    unknown = output_dir / "user_notes.txt"
+    unknown.write_bytes(b"keep user bytes")
+    before_owned = _owned_snapshot(output_dir)
+    before_entries = sorted(path.name for path in output_dir.iterdir())
+    original_replace = Path.replace
+    failure_injected = False
+
+    def fail_during_backup(self: Path, target: Path) -> Path:
+        nonlocal failure_injected
+        if (
+            not failure_injected
+            and self == output_dir / failed_entry
+            and target.parent.name == ".rollback"
+        ):
+            failure_injected = True
+            raise OSError(f"backup failed for {failed_entry}")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", fail_during_backup)
+
+    with pytest.raises(OSError, match=rf"backup failed for {failed_entry}"):
+        run_and_write(
+            daily_csv=daily_path,
+            metadata_csv=metadata_path,
+            benchmark_csv=benchmark_path,
+            output_dir=output_dir,
+            overwrite=True,
+        )
+
+    assert failure_injected is True
+    assert _owned_snapshot(output_dir) == before_owned
+    assert sorted(path.name for path in output_dir.iterdir()) == before_entries
+    assert unknown.read_bytes() == b"keep user bytes"
+    assert not list(tmp_path.glob(".existing_output.*.tmp"))
+
+
 def test_owned_entry_publish_rolls_back_after_partial_replace_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

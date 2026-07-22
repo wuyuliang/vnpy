@@ -226,6 +226,7 @@ def _publish_owned_entries(
     rollback_dir = staging_dir / ".rollback"
     rollback_dir.mkdir()
     backed_up: list[str] = []
+    published: list[str] = []
     try:
         for name in OWNED_OUTPUT_ENTRIES:
             destination = output_dir / name
@@ -234,10 +235,11 @@ def _publish_owned_entries(
                 backed_up.append(name)
         for name in names:
             (staging_dir / name).replace(output_dir / name)
+            published.append(name)
     except Exception:
-        for name in OWNED_OUTPUT_ENTRIES:
+        for name in reversed(published):
             _remove_path(output_dir / name)
-        for name in backed_up:
+        for name in reversed(backed_up):
             (rollback_dir / name).replace(output_dir / name)
         if not output_existed and output_dir.exists() and not any(output_dir.iterdir()):
             output_dir.rmdir()
