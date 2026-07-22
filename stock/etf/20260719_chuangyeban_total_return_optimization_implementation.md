@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 新增一个严格训练/验证/样本外隔离的 0%/50%/100% 创业板 ETF 趋势策略，在最大回撤 35%和年化单边换手 8 倍硬约束下提高总收益，并生成可审计交易图。
+**Goal:** 新增一个严格训练/验证/样本外隔离、带固定10交易日风险增加冷却的 0%/50%/100% 创业板 ETF 趋势策略，在最大回撤 35%和年化单边换手 8 倍硬约束下提高总收益，并生成可审计交易图。
 
-**Architecture:** 保留现有 EMA5/EMA10 基线不变。新策略模块负责前日指标、纯状态转换、部分加减仓和区间指标；优化模块只评估预注册的 8 个候选并在 2024 年末以前完成选择；运行模块在选参后才读取完整数据计算样本外、发布门槛、基准对比和图形。
+**Architecture:** 保留现有 EMA5/EMA10 基线不变。新策略模块负责前日指标、三态转换、固定风险增加冷却、部分加减仓和区间指标；优化模块只评估原先预注册的 8 个候选并在 2024 年末以前完成选择，冷却固定为10且不参与调优；运行模块在选参后才读取完整数据计算样本外、发布门槛、基准对比和图形。
 
 **Tech Stack:** Python 3.13、pandas、NumPy、pytest、Ruff、现有 `Portfolio` 和 `render_trade_charts`。
 
@@ -81,6 +81,7 @@ class TrendAllocationConfig:
     slow_period: int = 20
     confirmation_days: int = 2
     slope_lookback: int = 3
+    risk_increase_cooldown_days: int = 10
 
 
 def transition_target_weight(
@@ -103,6 +104,7 @@ def transition_target_weight(
 ```
 
 配置校验必须固定 `lot_size` 为整数 100，并拒绝非 `{20,30}`、`{1,2}`、`{3,5}`。
+`risk_increase_cooldown_days` 必须为严格正的 Python `int`，正式默认值为10。
 
 - [ ] **Step 4: 写前日指标和连续确认失败测试**
 
@@ -216,6 +218,11 @@ def run_trend_allocation_backtest(
 动作值固定为 `flat`、`hold_half`、`hold_full`、`buy_to_half`、`buy_to_full`、
 `sell_to_half`、`sell_to_flat`。
 
+执行核心维护上一次实际目标状态转换的交易日序号。风险降低始终立即执行并更新该序号；
+风险增加仅在至少10个完整交易日已经过去时允许，首次入场除外。被阻止时必须保持目标
+仓位和数量、记录 `action=hold`、`risk_increase_blocked=True` 及
+`days_since_transition`，不得因开盘价变化做日常再平衡。
+
 - [ ] **Step 4: 写指标复算失败测试**
 
 构造 6 日权益和 3 笔交易，手工断言：
@@ -270,7 +277,11 @@ git commit -m "feat: backtest three-level ETF allocation"
 configs = preregistered_configs()
 assert len(configs) == 8
 assert {(c.slow_period, c.confirmation_days, c.slope_lookback) for c in configs} == set(product((20, 30), (1, 2), (3, 5)))
+assert {c.risk_increase_cooldown_days for c in configs} == {10}
 ```
+
+冷却是固定规则，不加入笛卡尔积。基础配置中的冷却值原样带入全部8个候选，候选CSV增加
+`risk_increase_cooldown_days` 审计列，但确定性排序最终并列键仍只有三个优化参数。
 
 向 `optimize_on_train_validation` 传入 `2025-01-02` 行时必须抛出
 `ValueError("selection data ends after 2024-12-31")`，证明选参函数不能看到样本外数据。
@@ -440,6 +451,7 @@ Expected: 读取 `2017-08-14` 至 `2026-07-17`，评估恰好 8 个候选并输�
 - 选参输入结束日为 `2024-12-31` 或此前最后交易日。
 - 交易数量均为正的 100 份整数倍，不融资、不透支。
 - 目标仓位只含 0、0.5、1，所有交易动作与状态转换一致。
+- 候选仍为8行且固定冷却列均为10；冷却期间无风险增加交易，风险降低不被延迟。
 - 全期和样本外收益、最大回撤、Sharpe、换手可由 CSV 复算。
 - 发布状态与六个硬门槛逐项一致。
 - 最终权益、交易数、佣金和滑点与摘要一致。

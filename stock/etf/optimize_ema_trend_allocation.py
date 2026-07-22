@@ -147,6 +147,7 @@ def optimize_on_train_validation(
             "slow": config.slow_period,
             "confirmation": config.confirmation_days,
             "slope": config.slope_lookback,
+            "risk_increase_cooldown_days": config.risk_increase_cooldown_days,
         }
         row.update({f"train_{key}": value for key, value in train_metrics.items()})
         row.update(

@@ -62,6 +62,7 @@ def test_preregistered_configs_are_exact_ordered_product_and_preserve_base() -> 
         slow_period=30,
         confirmation_days=1,
         slope_lookback=5,
+        risk_increase_cooldown_days=7,
     )
 
     configs = preregistered_configs(base)
@@ -80,6 +81,7 @@ def test_preregistered_configs_are_exact_ordered_product_and_preserve_base() -> 
             config.commission_rate,
             config.min_commission,
             config.slippage_rate,
+            config.risk_increase_cooldown_days,
         )
         == (
             base.symbol,
@@ -88,6 +90,7 @@ def test_preregistered_configs_are_exact_ordered_product_and_preserve_base() -> 
             base.commission_rate,
             base.min_commission,
             base.slippage_rate,
+            base.risk_increase_cooldown_days,
         )
         for config in configs
     )
@@ -98,6 +101,7 @@ def _candidate(**overrides: object) -> dict[str, object]:
         "slow": 20,
         "confirmation": 1,
         "slope": 3,
+        "risk_increase_cooldown_days": 10,
         "train_max_drawdown": -0.20,
         "train_annual_one_way_turnover": 4.0,
         "validation_total_return": 0.10,
@@ -283,6 +287,16 @@ def test_select_candidate_uses_each_deterministic_tie_breaker(
     assert selected[changed_field] == expected
 
 
+def test_select_candidate_does_not_use_fixed_cooldown_as_tie_breaker() -> None:
+    first = _candidate(risk_increase_cooldown_days=20)
+    second = _candidate(risk_increase_cooldown_days=1)
+
+    selected = select_candidate(pd.DataFrame([first, second]))
+
+    assert selected is not None
+    assert selected["risk_increase_cooldown_days"] == 20
+
+
 def test_select_candidate_returns_none_without_feasible_candidate() -> None:
     frame = pd.DataFrame(
         [
@@ -455,11 +469,10 @@ def test_optimizer_evaluates_candidates_and_marks_one_deterministic_selection(
     assert metric_calls.count((TRAIN_START, TRAIN_END)) == 8
     assert metric_calls.count((VALIDATION_START, VALIDATION_END)) == 8
     assert list(
-        candidates[["slow", "confirmation", "slope"]].itertuples(
-            index=False,
-            name=None,
-        )
-    ) == list(product((20, 30), (1, 2), (3, 5)))
+        candidates[
+            ["slow", "confirmation", "slope", "risk_increase_cooldown_days"]
+        ].itertuples(index=False, name=None)
+    ) == [(*parameters, 10) for parameters in product((20, 30), (1, 2), (3, 5))]
     assert candidates["selected"].dtype == bool
     assert candidates["selected"].sum() == 1
     assert candidates["rank"].dtype == "Int64"

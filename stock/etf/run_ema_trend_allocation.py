@@ -456,6 +456,7 @@ def _run_and_write_staged(
         }
         summary_payload = {
             **common_summary,
+            "selected_config": None,
             "candidate": None,
             "release": release,
         }
@@ -495,6 +496,7 @@ def _run_and_write_staged(
     }
     summary_payload = {
         **common_summary,
+        "selected_config": asdict(selected_config),
         "candidate": candidate_periods,
         "release": release,
     }

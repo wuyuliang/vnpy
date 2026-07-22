@@ -27,6 +27,8 @@ SIGNAL_COLUMNS = BAR_COLUMNS + [
     "reduce_half",
     "exit_flat",
     "ready",
+    "risk_increase_blocked",
+    "days_since_transition",
     "target_weight",
     "action",
 ]
@@ -76,6 +78,7 @@ class TrendAllocationConfig:
     slow_period: int = 20
     confirmation_days: int = 2
     slope_lookback: int = 3
+    risk_increase_cooldown_days: int = 10
 
     def __post_init__(self) -> None:
         if not isinstance(self.symbol, str) or not self.symbol.strip():
@@ -105,6 +108,11 @@ class TrendAllocationConfig:
             raise ValueError("confirmation_days must be 1 or 2")
         if type(self.slope_lookback) is not int or self.slope_lookback not in {3, 5}:
             raise ValueError("slope_lookback must be 3 or 5")
+        if (
+            type(self.risk_increase_cooldown_days) is not int
+            or self.risk_increase_cooldown_days <= 0
+        ):
+            raise ValueError("risk_increase_cooldown_days must be a positive int")
 
 
 @dataclass
@@ -237,6 +245,8 @@ def build_trend_signals(
         (result["open"] < result["previous_slow"]) | medium_bear_confirmed.eq(1.0)
     )
     result["ready"] = ready
+    result["risk_increase_blocked"] = False
+    result["days_since_transition"] = pd.NA
     result["target_weight"] = 0.0
     result["action"] = "flat"
     return result[SIGNAL_COLUMNS]
@@ -298,17 +308,34 @@ def execute_target_weights(
     position_rows: list[dict[str, object]] = []
     equity_rows: list[dict[str, object]] = []
     current_weight = 0.0
+    last_transition_ordinal: int | None = None
     previous_equity = config.initial_capital
     peak_equity = config.initial_capital
+    audited_signals["risk_increase_blocked"] = False
+    audited_signals["days_since_transition"] = pd.Series(
+        pd.array([pd.NA] * len(audited_signals), dtype="Int64"),
+        index=audited_signals.index,
+    )
 
-    for index, row in audited_signals.iterrows():
-        target_weight = transition_target_weight(
+    for trading_day_ordinal, (index, row) in enumerate(audited_signals.iterrows()):
+        proposed_weight = transition_target_weight(
             current_weight,
             exit_flat=bool(row["exit_flat"]),
             reduce_half=bool(row["reduce_half"]),
             enter_half=bool(row["enter_half"]),
             enter_full=bool(row["enter_full"]),
         )
+        days_since_transition = (
+            None
+            if last_transition_ordinal is None
+            else trading_day_ordinal - last_transition_ordinal - 1
+        )
+        risk_increase_blocked = bool(
+            proposed_weight > current_weight
+            and days_since_transition is not None
+            and days_since_transition < config.risk_increase_cooldown_days
+        )
+        target_weight = current_weight if risk_increase_blocked else proposed_weight
         position = portfolio.positions.get(config.symbol)
         held_quantity = position.quantity if position is not None else 0
         raw_open = float(row["open"])
@@ -376,7 +403,11 @@ def execute_target_weights(
                     action = "hold_half" if target_weight == 0.5 else "hold_full"
                 elif not upgrade_succeeded:
                     target_weight = current_weight
+            if target_weight != current_weight:
+                last_transition_ordinal = trading_day_ordinal
             current_weight = target_weight
+        audited_signals.loc[index, "risk_increase_blocked"] = risk_increase_blocked
+        audited_signals.loc[index, "days_since_transition"] = days_since_transition
         audited_signals.loc[index, "target_weight"] = target_weight
         audited_signals.loc[index, "action"] = action
 

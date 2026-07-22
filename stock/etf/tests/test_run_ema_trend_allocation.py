@@ -159,6 +159,7 @@ def _candidate_results() -> pd.DataFrame:
                 "slow": slow,
                 "confirmation": confirmation,
                 "slope": slope,
+                "risk_increase_cooldown_days": 10,
                 "train_total_return": 0.10,
                 "train_max_drawdown": -0.10,
                 "train_annual_one_way_turnover": 1.0,
@@ -268,6 +269,7 @@ def test_run_and_write_hides_oos_from_selection_and_writes_complete_contract(
     assert render_summary["output_dir"] == str(output_dir / "charts")
     assert summary["selection_cutoff"] == "2024-12-31"
     assert summary["candidate_count"] == 8
+    assert summary["selected_config"]["risk_increase_cooldown_days"] == 10
     assert summary["actual_start_date"] == "2017-08-14"
     assert summary["actual_end_date"] == "2026-07-17"
     for comparison in (
@@ -295,7 +297,11 @@ def test_run_and_write_hides_oos_from_selection_and_writes_complete_contract(
         (output_dir / "selected_parameters.json").read_text(encoding="utf-8")
     )
     assert selected["config"]["slow_period"] == 20
+    assert selected["config"]["risk_increase_cooldown_days"] == 10
     assert selected["release"]["status"] in {"accepted", "rejected"}
+    candidates = pd.read_csv(output_dir / "candidate_results.csv")
+    assert len(candidates) == 8
+    assert candidates["risk_increase_cooldown_days"].eq(10).all()
 
     with pytest.raises(FileExistsError, match="already contains output"):
         run_and_write(
@@ -338,6 +344,7 @@ def test_run_and_write_records_no_feasible_candidate_before_failing(
     assert selected["release"]["failed_checks"] == ["no_feasible_candidate"]
     assert summary["release"]["status"] == "rejected"
     assert summary["candidate"] is None
+    assert summary["selected_config"] is None
 
 
 def test_overwrite_rejection_removes_owned_success_outputs_only(
@@ -643,5 +650,8 @@ def test_run_and_write_selects_with_real_optimizer_on_synthetic_trend(
     assert candidates["train_feasible"].all()
     assert candidates["validation_feasible"].all()
     assert candidates["selected"].sum() == 1
+    assert candidates["risk_increase_cooldown_days"].eq(10).all()
     assert selected["config"] is not None
+    assert selected["config"]["risk_increase_cooldown_days"] == 10
+    assert summary["selected_config"]["risk_increase_cooldown_days"] == 10
     assert summary["candidate_count"] == 8

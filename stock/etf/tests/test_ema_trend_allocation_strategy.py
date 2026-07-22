@@ -70,6 +70,8 @@ def _manual_signals(
         ({"slow_period": 25}, "slow_period"),
         ({"confirmation_days": 3}, "confirmation_days"),
         ({"slope_lookback": 4}, "slope_lookback"),
+        ({"risk_increase_cooldown_days": 0}, "risk_increase_cooldown_days"),
+        ({"risk_increase_cooldown_days": -1}, "risk_increase_cooldown_days"),
     ],
 )
 def test_config_rejects_invalid_values(
@@ -113,6 +115,8 @@ def test_config_rejects_non_finite_numbers(field: str, value: float) -> None:
         ("confirmation_days", True),
         ("slope_lookback", 3.0),
         ("slope_lookback", True),
+        ("risk_increase_cooldown_days", 10.0),
+        ("risk_increase_cooldown_days", True),
     ],
 )
 def test_config_requires_python_int_period_parameters(
@@ -136,6 +140,7 @@ def test_config_defaults_match_preregistered_baseline() -> None:
         slow_period=20,
         confirmation_days=2,
         slope_lookback=3,
+        risk_increase_cooldown_days=10,
     )
 
 
@@ -234,6 +239,8 @@ def test_signals_expose_auditable_indicators_and_flat_initial_state() -> None:
         "reduce_half",
         "exit_flat",
         "ready",
+        "risk_increase_blocked",
+        "days_since_transition",
         "target_weight",
         "action",
     ]
@@ -266,6 +273,8 @@ def test_signals_expose_auditable_indicators_and_flat_initial_state() -> None:
     )
     assert signals["target_weight"].eq(0.0).all()
     assert signals["action"].eq("flat").all()
+    assert not signals["risk_increase_blocked"].any()
+    assert signals["days_since_transition"].isna().all()
 
 
 def test_rising_trend_enables_half_and_full_entry_conditions() -> None:
@@ -400,6 +409,7 @@ def test_execute_target_weights_trades_all_three_levels_and_records_actions() ->
     signals = _manual_signals(
         [
             {"enter_half": True},
+            {},
             {"enter_full": True},
             {},
             {"reduce_half": True},
@@ -413,6 +423,7 @@ def test_execute_target_weights_trades_all_three_levels_and_records_actions() ->
         commission_rate=0.0,
         min_commission=0.0,
         slippage_rate=0.0,
+        risk_increase_cooldown_days=1,
     )
 
     result = trend_strategy.execute_target_weights(signals, config)
@@ -428,6 +439,7 @@ def test_execute_target_weights_trades_all_three_levels_and_records_actions() ->
     ]
     assert result.signals["target_weight"].tolist() == [
         0.5,
+        0.5,
         1.0,
         1.0,
         0.5,
@@ -437,6 +449,7 @@ def test_execute_target_weights_trades_all_three_levels_and_records_actions() ->
     ]
     assert result.signals["action"].tolist() == [
         "buy_to_half",
+        "hold",
         "buy_to_full",
         "hold",
         "sell_to_half",
@@ -446,12 +459,20 @@ def test_execute_target_weights_trades_all_three_levels_and_records_actions() ->
     ]
     assert result.positions["quantity"].tolist() == [
         5_000,
+        5_000,
         10_000,
         10_000,
         5_000,
         5_000,
     ]
-    assert result.positions["target_weight"].tolist() == [0.5, 1.0, 1.0, 0.5, 0.5]
+    assert result.positions["target_weight"].tolist() == [
+        0.5,
+        0.5,
+        1.0,
+        1.0,
+        0.5,
+        0.5,
+    ]
     assert result.equity_curve["cash"].min() >= 0.0
 
 
@@ -475,15 +496,79 @@ def test_unchanged_half_state_never_rebalances_after_large_open_price_moves() ->
     assert result.signals["action"].tolist() == ["buy_to_half", "hold", "hold"]
 
 
+def test_risk_increase_waits_ten_complete_sessions_despite_price_jumps() -> None:
+    cooldown_opens = [20.0 if index % 2 == 0 else 5.0 for index in range(10)]
+    signals = _manual_signals(
+        [{"enter_half": True}, *[{"enter_full": True}] * 11],
+        opens=[10.0, *cooldown_opens, 10.0],
+    )
+    config = TrendAllocationConfig(
+        initial_capital=100_000.0,
+        commission_rate=0.0,
+        min_commission=0.0,
+        slippage_rate=0.0,
+    )
+
+    result = trend_strategy.execute_target_weights(signals, config)
+
+    assert result.trades["quantity"].tolist() == [5_000, 5_000]
+    assert result.positions["quantity"].tolist() == [5_000] * 11 + [10_000]
+    assert result.signals["target_weight"].tolist() == [0.5] * 11 + [1.0]
+    assert result.signals["action"].tolist() == ["buy_to_half"] + ["hold"] * 10 + [
+        "buy_to_full"
+    ]
+    assert result.signals["risk_increase_blocked"].tolist() == [False] + [True] * 10 + [
+        False
+    ]
+    assert pd.isna(result.signals.iloc[0]["days_since_transition"])
+    assert result.signals.iloc[1:]["days_since_transition"].tolist() == list(range(11))
+
+
+def test_risk_exit_is_immediate_and_restarts_cooldown_before_reentry() -> None:
+    signals = _manual_signals(
+        [
+            {"enter_half": True},
+            {"exit_flat": True},
+            *[{"enter_half": True}] * 11,
+        ]
+    )
+    config = TrendAllocationConfig(
+        initial_capital=100_000.0,
+        commission_rate=0.0,
+        min_commission=0.0,
+        slippage_rate=0.0,
+    )
+
+    result = trend_strategy.execute_target_weights(signals, config)
+
+    assert result.trades["side"].tolist() == ["buy", "sell", "buy"]
+    assert result.signals["target_weight"].tolist() == [0.5, 0.0] + [0.0] * 10 + [0.5]
+    assert result.signals["action"].tolist() == [
+        "buy_to_half",
+        "sell_to_flat",
+        *["hold"] * 10,
+        "buy_to_half",
+    ]
+    assert result.signals["risk_increase_blocked"].tolist() == [
+        False,
+        False,
+        *[True] * 10,
+        False,
+    ]
+    assert result.signals.iloc[2:]["days_since_transition"].tolist() == list(range(11))
+
+
 def test_buy_quantity_steps_down_until_commission_is_affordable() -> None:
     signals = _manual_signals(
-        [{"enter_half": True}, {"enter_full": True}], opens=[1.0, 1.0]
+        [{"enter_half": True}, {}, {"enter_full": True}],
+        opens=[1.0, 1.0, 1.0],
     )
     config = TrendAllocationConfig(
         initial_capital=100_000.0,
         commission_rate=0.0,
         min_commission=600.0,
         slippage_rate=0.0,
+        risk_increase_cooldown_days=1,
     )
 
     result = trend_strategy.execute_target_weights(signals, config)
@@ -515,33 +600,44 @@ def test_target_transition_without_a_whole_lot_is_not_a_fake_trade() -> None:
 
 def test_half_position_advances_when_full_target_is_already_achieved() -> None:
     signals = _manual_signals(
-        [{"enter_half": True}, {"enter_full": True}],
-        opens=[10.0, 1_000.0],
+        [{"enter_half": True}, {}, {"enter_full": True}],
+        opens=[10.0, 10.0, 1_000.0],
     )
     config = TrendAllocationConfig(
         initial_capital=100_000.0,
         commission_rate=0.0,
         min_commission=0.0,
         slippage_rate=0.0,
+        risk_increase_cooldown_days=1,
     )
 
     result = trend_strategy.execute_target_weights(signals, config)
 
     assert result.trades["quantity"].tolist() == [5_000]
-    assert result.signals["target_weight"].tolist() == [0.5, 1.0]
-    assert result.signals["action"].tolist() == ["buy_to_half", "hold_full"]
+    assert result.signals["target_weight"].tolist() == [0.5, 0.5, 1.0]
+    assert result.signals["action"].tolist() == [
+        "buy_to_half",
+        "hold",
+        "hold_full",
+    ]
 
 
 def test_partial_sell_allocates_entry_commission_and_keeps_half_position() -> None:
     signals = _manual_signals(
-        [{"enter_half": True}, {"enter_full": True}, {"reduce_half": True}],
-        opens=[10.0, 10.0, 12.0],
+        [
+            {"enter_half": True},
+            {},
+            {"enter_full": True},
+            {"reduce_half": True},
+        ],
+        opens=[10.0, 10.0, 10.0, 12.0],
     )
     config = TrendAllocationConfig(
         initial_capital=100_000.0,
         commission_rate=0.001,
         min_commission=0.0,
         slippage_rate=0.0,
+        risk_increase_cooldown_days=1,
     )
 
     result = trend_strategy.execute_target_weights(signals, config)
