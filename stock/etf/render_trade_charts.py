@@ -565,7 +565,7 @@ def render_all_trade_charts(
     report_start: object,
     report_end: object,
     limit: int | None = None,
-    symbols: Sequence[str] | None = None,
+    symbols: Sequence[object] | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     """Render traded or explicitly requested ETF cards and audit files."""
@@ -574,7 +574,8 @@ def render_all_trade_charts(
     trades = pd.read_csv(trades_csv, parse_dates=["datetime"])
     positions = pd.read_csv(positions_csv, parse_dates=["datetime"])
     output_dir.mkdir(parents=True, exist_ok=True)
-    trades["symbol"] = trades["symbol"].astype(str)
+    for frame in (daily, metadata, trades, positions):
+        frame["symbol"] = frame["symbol"].astype(str)
 
     for column in (
         "fill_price",

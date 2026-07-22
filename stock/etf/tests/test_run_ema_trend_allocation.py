@@ -50,6 +50,48 @@ def test_calculate_buy_hold_metrics_rejects_non_positive_or_non_finite_prices(
         calculate_buy_hold_metrics(bars, "2026-01-05", "2026-01-06")
 
 
+def test_full_metrics_use_comparable_returns_from_initial_capital() -> None:
+    dates = pd.bdate_range("2026-01-02", periods=3)
+    equity_curve = pd.DataFrame(
+        {
+            "datetime": dates,
+            "equity": [90.0, 101.0, 99.0],
+        }
+    )
+    returns = pd.Series([0.0, 101.0 / 90.0 - 1, 99.0 / 101.0 - 1])
+    result_summary = {
+        "total_return": -0.01,
+        "annual_return": 999.0,
+        "annual_volatility": 999.0,
+        "sharpe": 999.0,
+        "max_drawdown": -0.1,
+        "initial_capital": 100.0,
+        "final_equity": 99.0,
+        "total_commission": 1.0,
+        "is_open": False,
+    }
+
+    metrics = runner._full_strategy_metrics(
+        equity_curve,
+        pd.DataFrame(),
+        result_summary,
+    )
+
+    assert metrics["total_return"] == pytest.approx(-0.01)
+    assert metrics["annual_return"] == pytest.approx(0.99 ** (252 / 2) - 1)
+    assert metrics["annual_volatility"] == pytest.approx(
+        returns.std(ddof=0) * np.sqrt(252)
+    )
+    assert metrics["sharpe"] == pytest.approx(
+        returns.mean() / returns.std(ddof=0) * np.sqrt(252)
+    )
+    assert metrics["max_drawdown"] == pytest.approx(-0.1)
+    assert metrics["initial_capital"] == pytest.approx(100.0)
+    assert metrics["final_equity"] == pytest.approx(99.0)
+    assert metrics["total_commission"] == pytest.approx(1.0)
+    assert metrics["is_open"] is False
+
+
 def _write_input_files(root: Path) -> tuple[Path, Path, Path]:
     date_parts = [
         pd.bdate_range("2017-08-14", periods=35),
@@ -130,6 +172,32 @@ def _candidate_results() -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+def _selected_optimization(base_config: TrendAllocationConfig) -> OptimizationResult:
+    return OptimizationResult(
+        _candidate_results(),
+        TrendAllocationConfig(
+            symbol=base_config.symbol,
+            initial_capital=base_config.initial_capital,
+            slow_period=20,
+            confirmation_days=1,
+            slope_lookback=3,
+        ),
+    )
+
+
+def _owned_snapshot(output_dir: Path) -> dict[str, bytes]:
+    snapshot: dict[str, bytes] = {}
+    for name in (*runner.OWNED_OUTPUT_FILES, "charts"):
+        path = output_dir / name
+        if path.is_file():
+            snapshot[name] = path.read_bytes()
+        elif path.is_dir():
+            for child in sorted(path.rglob("*")):
+                if child.is_file():
+                    snapshot[str(child.relative_to(output_dir))] = child.read_bytes()
+    return snapshot
 
 
 def test_run_and_write_hides_oos_from_selection_and_writes_complete_contract(
@@ -305,6 +373,9 @@ def test_overwrite_rejection_removes_owned_success_outputs_only(
     assert (output_dir / "charts").is_dir()
     unknown_file = output_dir / "user_notes.txt"
     unknown_file.write_text("keep me", encoding="utf-8")
+    user_backup = output_dir / ".charts.user_backup.tmp"
+    user_backup.mkdir()
+    (user_backup / "note.txt").write_text("keep backup", encoding="utf-8")
 
     rejected = _candidate_results().assign(selected=False, rank=pd.NA)
     monkeypatch.setattr(
@@ -327,8 +398,10 @@ def test_overwrite_rejection_removes_owned_success_outputs_only(
         "selected_parameters.json",
         "summary.json",
         "user_notes.txt",
+        ".charts.user_backup.tmp",
     }
     assert unknown_file.read_text(encoding="utf-8") == "keep me"
+    assert (user_backup / "note.txt").read_text(encoding="utf-8") == "keep backup"
 
 
 def test_run_and_write_renders_explicit_symbol_without_trades(
@@ -424,3 +497,151 @@ def test_atomic_chart_publish_leaves_no_partial_directory_on_failure(
 
     assert not (output_dir / "charts").exists()
     assert not list(output_dir.glob(".charts.*.tmp"))
+
+
+def test_render_failure_publishes_no_owned_entries_to_new_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    daily_path, metadata_path, benchmark_path = _write_input_files(tmp_path)
+    output_dir = tmp_path / "new_output"
+    output_dir.mkdir()
+    user_backup = output_dir / ".charts.user_backup.tmp"
+    user_backup.write_text("keep", encoding="utf-8")
+    monkeypatch.setattr(
+        runner,
+        "select_ema_trend_allocation",
+        lambda selection_bars, base_config: _selected_optimization(base_config),
+    )
+    monkeypatch.setattr(
+        runner,
+        "render_all_trade_charts",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("chart failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="chart failed"):
+        run_and_write(
+            daily_csv=daily_path,
+            metadata_csv=metadata_path,
+            benchmark_csv=benchmark_path,
+            output_dir=output_dir,
+            overwrite=True,
+        )
+
+    assert _owned_snapshot(output_dir) == {}
+    assert user_backup.read_text(encoding="utf-8") == "keep"
+    assert not list(tmp_path.glob(".new_output.*.tmp"))
+
+
+def test_render_failure_preserves_existing_success_output_byte_for_byte(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    daily_path, metadata_path, benchmark_path = _write_input_files(tmp_path)
+    output_dir = tmp_path / "existing_output"
+    monkeypatch.setattr(
+        runner,
+        "select_ema_trend_allocation",
+        lambda selection_bars, base_config: _selected_optimization(base_config),
+    )
+    run_and_write(
+        daily_csv=daily_path,
+        metadata_csv=metadata_path,
+        benchmark_csv=benchmark_path,
+        output_dir=output_dir,
+        overwrite=True,
+    )
+    before = _owned_snapshot(output_dir)
+    monkeypatch.setattr(
+        runner,
+        "render_all_trade_charts",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("chart failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="chart failed"):
+        run_and_write(
+            daily_csv=daily_path,
+            metadata_csv=metadata_path,
+            benchmark_csv=benchmark_path,
+            output_dir=output_dir,
+            overwrite=True,
+        )
+
+    assert _owned_snapshot(output_dir) == before
+    assert not list(tmp_path.glob(".existing_output.*.tmp"))
+
+
+def test_owned_entry_publish_rolls_back_after_partial_replace_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_dir = tmp_path / "output"
+    staging_dir = tmp_path / ".output.call.tmp"
+    output_dir.mkdir()
+    staging_dir.mkdir()
+    (output_dir / "candidate_results.csv").write_bytes(b"old candidate")
+    (output_dir / "summary.json").write_bytes(b"old summary")
+    (output_dir / "charts").mkdir()
+    (output_dir / "charts/old.png").write_bytes(b"old chart")
+    unknown = output_dir / "user.txt"
+    unknown.write_bytes(b"user data")
+    before = _owned_snapshot(output_dir)
+    (staging_dir / "candidate_results.csv").write_bytes(b"new candidate")
+    (staging_dir / "summary.json").write_bytes(b"new summary")
+    original_replace = Path.replace
+
+    def fail_on_new_summary(self: Path, target: Path) -> Path:
+        if self == staging_dir / "summary.json":
+            raise OSError("publish failed")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", fail_on_new_summary)
+
+    with pytest.raises(OSError, match="publish failed"):
+        runner._publish_owned_entries(
+            staging_dir,
+            output_dir,
+            ("candidate_results.csv", "summary.json"),
+        )
+
+    assert _owned_snapshot(output_dir) == before
+    assert unknown.read_bytes() == b"user data"
+
+
+def test_run_and_write_selects_with_real_optimizer_on_synthetic_trend(
+    tmp_path: Path,
+) -> None:
+    daily_path, metadata_path, benchmark_path = _write_input_files(tmp_path)
+    daily = pd.read_csv(daily_path)
+    trend = 10.0 + np.arange(len(daily), dtype=float) * 0.05
+    daily["open"] = trend
+    daily["high"] = trend + 0.2
+    daily["low"] = trend - 0.2
+    daily["close"] = trend
+    daily.to_csv(daily_path, index=False)
+    output_dir = tmp_path / "real_optimizer"
+
+    summary = run_and_write(
+        daily_csv=daily_path,
+        metadata_csv=metadata_path,
+        benchmark_csv=benchmark_path,
+        output_dir=output_dir,
+        config=TrendAllocationConfig(
+            initial_capital=100_000.0,
+            commission_rate=0.0,
+            min_commission=0.0,
+            slippage_rate=0.0,
+        ),
+        overwrite=True,
+    )
+
+    candidates = pd.read_csv(output_dir / "candidate_results.csv")
+    selected = json.loads(
+        (output_dir / "selected_parameters.json").read_text(encoding="utf-8")
+    )
+    assert len(candidates) == 8
+    assert candidates["train_feasible"].all()
+    assert candidates["validation_feasible"].all()
+    assert candidates["selected"].sum() == 1
+    assert selected["config"] is not None
+    assert summary["candidate_count"] == 8

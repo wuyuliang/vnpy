@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import floor, isfinite, sqrt
+from sys import float_info
 from typing import Any
 
 import pandas as pd
@@ -311,69 +312,71 @@ def execute_target_weights(
         position = portfolio.positions.get(config.symbol)
         held_quantity = position.quantity if position is not None else 0
         raw_open = float(row["open"])
-        pre_trade_equity = portfolio.cash + held_quantity * raw_open
-        target_quantity = calculate_target_quantity(
-            pre_trade_equity,
-            raw_open,
-            target_weight,
-            config.lot_size,
-        )
-        reason = f"target_weight_{current_weight:g}_to_{target_weight:g}"
-        action = (
-            "flat"
-            if position is None
-            else {
-                0.0: "flat",
-                0.5: "hold_half",
-                1.0: "hold_full",
-            }[current_weight]
-        )
-        is_upgrade = target_weight > current_weight
-        upgrade_succeeded = target_quantity > 0 and held_quantity >= target_quantity
-
-        if target_quantity > held_quantity:
-            buy_quantity = _affordable_buy_quantity(
-                portfolio.cash,
+        action = "hold"
+        if target_weight != current_weight:
+            pre_trade_equity = portfolio.cash + held_quantity * raw_open
+            target_quantity = calculate_target_quantity(
+                pre_trade_equity,
                 raw_open,
-                target_quantity - held_quantity,
-                config,
+                target_weight,
+                config.lot_size,
             )
-            if buy_quantity > 0:
-                if position is None:
-                    portfolio.buy(
-                        config.symbol,
-                        row["datetime"],
-                        raw_open,
-                        buy_quantity,
-                        0.0,
-                        reason,
-                    )
-                else:
-                    portfolio.increase(
-                        config.symbol,
-                        row["datetime"],
-                        raw_open,
-                        buy_quantity,
-                        reason,
-                    )
-                action = "buy_to_half" if target_weight == 0.5 else "buy_to_full"
-                upgrade_succeeded = True
-        elif target_quantity < held_quantity:
-            portfolio.sell_quantity(
-                config.symbol,
-                row["datetime"],
-                raw_open,
-                held_quantity - target_quantity,
-                reason,
+            reason = f"target_weight_{current_weight:g}_to_{target_weight:g}"
+            action = (
+                "flat"
+                if position is None
+                else {
+                    0.0: "flat",
+                    0.5: "hold_half",
+                    1.0: "hold_full",
+                }[current_weight]
             )
-            action = "sell_to_flat" if target_weight == 0.0 else "sell_to_half"
+            is_upgrade = target_weight > current_weight
+            upgrade_succeeded = target_quantity > 0 and held_quantity >= target_quantity
 
-        if is_upgrade:
-            if upgrade_succeeded and action not in {"buy_to_half", "buy_to_full"}:
-                action = "hold_half" if target_weight == 0.5 else "hold_full"
-            elif not upgrade_succeeded:
-                target_weight = current_weight
-        current_weight = target_weight
+            if target_quantity > held_quantity:
+                buy_quantity = _affordable_buy_quantity(
+                    portfolio.cash,
+                    raw_open,
+                    target_quantity - held_quantity,
+                    config,
+                )
+                if buy_quantity > 0:
+                    if position is None:
+                        portfolio.buy(
+                            config.symbol,
+                            row["datetime"],
+                            raw_open,
+                            buy_quantity,
+                            0.0,
+                            reason,
+                        )
+                    else:
+                        portfolio.increase(
+                            config.symbol,
+                            row["datetime"],
+                            raw_open,
+                            buy_quantity,
+                            reason,
+                        )
+                    action = "buy_to_half" if target_weight == 0.5 else "buy_to_full"
+                    upgrade_succeeded = True
+            elif target_quantity < held_quantity:
+                portfolio.sell_quantity(
+                    config.symbol,
+                    row["datetime"],
+                    raw_open,
+                    held_quantity - target_quantity,
+                    reason,
+                )
+                action = "sell_to_flat" if target_weight == 0.0 else "sell_to_half"
+
+            if is_upgrade:
+                if upgrade_succeeded and action not in {"buy_to_half", "buy_to_full"}:
+                    action = "hold_half" if target_weight == 0.5 else "hold_full"
+                elif not upgrade_succeeded:
+                    target_weight = current_weight
+            current_weight = target_weight
         audited_signals.loc[index, "target_weight"] = target_weight
         audited_signals.loc[index, "action"] = action
 
@@ -543,17 +546,25 @@ def _build_summary(
 ) -> dict[str, Any]:
     final_equity = float(equity_curve.iloc[-1]["equity"])
     total_return = final_equity / config.initial_capital - 1
-    years = len(equity_curve) / 252
-    annual_return = (1 + total_return) ** (1 / years) - 1 if total_return > -1 else -1.0
-    returns = equity_curve["daily_return"]
+    days = len(equity_curve)
+    return_years = max((days - 1) / 252, 1 / 252)
+    turnover_years = days / 252
+    if total_return <= -1:
+        annual_return = -1.0
+    else:
+        try:
+            annual_return = (1 + total_return) ** (1 / return_years) - 1
+        except OverflowError:
+            annual_return = float_info.max
+    returns = equity_curve["equity"].pct_change(fill_method=None).fillna(0.0)
     daily_std = float(returns.std(ddof=0))
     traded_notional = float((trades["fill_price"] * trades["quantity"]).abs().sum())
     return {
         "symbol": config.symbol,
         "start_date": str(pd.Timestamp(equity_curve.iloc[0]["datetime"]).date()),
         "end_date": str(pd.Timestamp(equity_curve.iloc[-1]["datetime"]).date()),
-        "days": int(len(equity_curve)),
-        "trading_days": int(len(equity_curve)),
+        "days": days,
+        "trading_days": days,
         "initial_equity": config.initial_capital,
         "initial_capital": config.initial_capital,
         "final_equity": final_equity,
@@ -565,7 +576,10 @@ def _build_summary(
         ),
         "max_drawdown": float(equity_curve["drawdown"].min()),
         "annual_one_way_turnover": (
-            0.5 * traded_notional / float(equity_curve["equity"].mean()) / years
+            0.5
+            * traded_notional
+            / float(equity_curve["equity"].mean())
+            / turnover_years
         ),
         "trade_count": int(len(trades)),
         "total_commission": float(trades["commission"].sum()),

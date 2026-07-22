@@ -438,11 +438,11 @@ def test_execute_target_weights_trades_all_three_levels_and_records_actions() ->
     assert result.signals["action"].tolist() == [
         "buy_to_half",
         "buy_to_full",
-        "hold_full",
+        "hold",
         "sell_to_half",
-        "hold_half",
+        "hold",
         "sell_to_flat",
-        "flat",
+        "hold",
     ]
     assert result.positions["quantity"].tolist() == [
         5_000,
@@ -453,6 +453,26 @@ def test_execute_target_weights_trades_all_three_levels_and_records_actions() ->
     ]
     assert result.positions["target_weight"].tolist() == [0.5, 1.0, 1.0, 0.5, 0.5]
     assert result.equity_curve["cash"].min() >= 0.0
+
+
+def test_unchanged_half_state_never_rebalances_after_large_open_price_moves() -> None:
+    signals = _manual_signals(
+        [{"enter_half": True}, {}, {}],
+        opens=[10.0, 20.0, 5.0],
+    )
+    config = TrendAllocationConfig(
+        initial_capital=100_000.0,
+        commission_rate=0.0,
+        min_commission=0.0,
+        slippage_rate=0.0,
+    )
+
+    result = trend_strategy.execute_target_weights(signals, config)
+
+    assert result.trades["quantity"].tolist() == [5_000]
+    assert result.positions["quantity"].tolist() == [5_000, 5_000, 5_000]
+    assert result.signals["target_weight"].tolist() == [0.5, 0.5, 0.5]
+    assert result.signals["action"].tolist() == ["buy_to_half", "hold", "hold"]
 
 
 def test_buy_quantity_steps_down_until_commission_is_affordable() -> None:
@@ -490,7 +510,7 @@ def test_target_transition_without_a_whole_lot_is_not_a_fake_trade() -> None:
     assert result.trades.empty
     assert result.positions.empty
     assert result.signals["target_weight"].tolist() == [0.0, 0.0]
-    assert result.signals["action"].tolist() == ["flat", "flat"]
+    assert result.signals["action"].tolist() == ["flat", "hold"]
 
 
 def test_half_position_advances_when_full_target_is_already_achieved() -> None:
@@ -610,6 +630,40 @@ def test_summary_includes_first_day_execution_costs_from_initial_capital() -> No
     assert result.summary["trade_count"] == 1
     assert result.summary["total_commission"] == pytest.approx(50.5)
     assert result.summary["total_slippage_cost"] == pytest.approx(500.0)
+
+
+def test_full_summary_uses_initial_capital_and_n_minus_one_comparable_returns() -> None:
+    dates = pd.bdate_range("2026-01-02", periods=3)
+    equity_curve = pd.DataFrame(
+        {
+            "datetime": dates,
+            "equity": [90.0, 101.0, 99.0],
+            "daily_return": [-0.1, 99.0, -99.0],
+            "drawdown": [-0.1, 0.0, 99.0 / 101.0 - 1],
+        }
+    )
+    trades = pd.DataFrame(
+        columns=["fill_price", "quantity", "commission", "slippage_cost"]
+    )
+    returns = pd.Series([0.0, 101.0 / 90.0 - 1, 99.0 / 101.0 - 1])
+
+    summary = trend_strategy._build_summary(
+        equity_curve,
+        trades,
+        TrendAllocationConfig(initial_capital=100.0),
+        target_weight=0.0,
+        is_open=False,
+    )
+
+    assert summary["total_return"] == pytest.approx(-0.01)
+    assert summary["annual_return"] == pytest.approx(0.99 ** (252 / 2) - 1)
+    assert summary["annual_volatility"] == pytest.approx(
+        returns.std(ddof=0) * np.sqrt(252)
+    )
+    assert summary["sharpe"] == pytest.approx(
+        returns.mean() / returns.std(ddof=0) * np.sqrt(252)
+    )
+    assert summary["max_drawdown"] == pytest.approx(-0.1)
 
 
 def test_period_metrics_reset_returns_drawdown_and_filter_trades() -> None:

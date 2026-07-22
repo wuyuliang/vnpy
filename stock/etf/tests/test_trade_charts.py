@@ -369,6 +369,67 @@ class TradeChartTransformTests(unittest.TestCase):
             self.assertEqual(summary["input_trades"], 0)
             self.assertEqual(summary["rendered_images"], 1)
 
+    def test_batch_render_normalizes_numeric_symbols_across_all_inputs(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            dates = pd.bdate_range("2026-03-02", periods=60)
+            daily = self._bars(dates).assign(symbol=123456)
+            metadata = pd.DataFrame(
+                {
+                    "symbol": [123456],
+                    "name": ["数字ETF"],
+                    "fund_type": ["股票型ETF"],
+                }
+            )
+            trades = pd.DataFrame(
+                {
+                    "datetime": [dates[35]],
+                    "symbol": [123456],
+                    "side": ["buy"],
+                    "fill_price": [15.0],
+                    "quantity": [1_000],
+                    "commission": [5.0],
+                    "slippage_cost": [2.0],
+                    "realized_pnl": [0.0],
+                    "primary_reason": ["target_weight_0_to_0.5"],
+                }
+            )
+            positions = pd.DataFrame(
+                {
+                    "datetime": [dates[-1]],
+                    "symbol": [123456],
+                    "quantity": [1_000],
+                    "average_price": [15.0],
+                }
+            )
+            paths = {
+                "daily_csv": root / "daily.csv",
+                "metadata_csv": root / "metadata.csv",
+                "trades_csv": root / "trades.csv",
+                "positions_csv": root / "positions.csv",
+            }
+            daily.to_csv(paths["daily_csv"], index=False)
+            metadata.to_csv(paths["metadata_csv"], index=False)
+            trades.to_csv(paths["trades_csv"], index=False)
+            positions.to_csv(paths["positions_csv"], index=False)
+            output_dir = root / "charts"
+
+            summary = render_all_trade_charts(
+                **paths,
+                output_dir=output_dir,
+                report_start=dates[35],
+                report_end=dates[-1],
+                symbols=[123456],
+                overwrite=True,
+            )
+
+            self.assertTrue((output_dir / "0001_123456_数字ETF.png").is_file())
+            index = pd.read_csv(output_dir / "index.csv")
+            self.assertEqual(index.loc[0, "name"], "数字ETF")
+            self.assertTrue(bool(index.loc[0, "is_open"]))
+            self.assertEqual(summary["missing_daily_data"], 0)
+            self.assertEqual(summary["missing_names"], 0)
+
     @staticmethod
     def _bars(dates: pd.DatetimeIndex) -> pd.DataFrame:
         close = np.linspace(10.0, 20.0, len(dates))

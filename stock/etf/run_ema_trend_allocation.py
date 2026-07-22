@@ -9,6 +9,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from math import isfinite, sqrt
 from pathlib import Path
+from sys import float_info
 from typing import Any
 from uuid import uuid4
 
@@ -56,6 +57,7 @@ OWNED_OUTPUT_FILES = (
     "positions.csv",
     "equity_curve.csv",
 )
+OWNED_OUTPUT_ENTRIES = (*OWNED_OUTPUT_FILES, "charts")
 
 
 def select_ema_trend_allocation(
@@ -64,6 +66,16 @@ def select_ema_trend_allocation(
 ) -> OptimizationResult:
     """Select parameters using only the caller-provided pre-OOS bars."""
     return optimize_on_train_validation(selection_bars, base_config)
+
+
+def _annualize_return(total_return: float, days: int) -> float:
+    if total_return <= -1:
+        return -1.0
+    return_years = max((days - 1) / 252, 1 / 252)
+    try:
+        return (1 + total_return) ** (1 / return_years) - 1
+    except OverflowError:
+        return float_info.max
 
 
 def calculate_buy_hold_metrics(
@@ -105,7 +117,6 @@ def calculate_buy_hold_metrics(
     returns = period["close"].pct_change(fill_method=None).fillna(0.0)
     drawdown = period["close"] / period["close"].cummax() - 1
     days = len(period)
-    years = max((days - 1) / 252, 1 / 252)
     total_return = float(period.iloc[-1]["close"] / period.iloc[0]["close"] - 1)
     daily_std = float(returns.std(ddof=0))
     return {
@@ -114,9 +125,7 @@ def calculate_buy_hold_metrics(
         "days": days,
         "trading_days": days,
         "total_return": total_return,
-        "annual_return": (
-            (1 + total_return) ** (1 / years) - 1 if total_return > -1 else -1.0
-        ),
+        "annual_return": _annualize_return(total_return, days),
         "annual_volatility": daily_std * sqrt(252),
         "sharpe": (
             float(returns.mean()) / daily_std * sqrt(252) if daily_std > 0 else 0.0
@@ -186,21 +195,55 @@ def _atomic_write_json(payload: Mapping[str, object], path: Path) -> dict[str, A
 def _guard_output_directory(output_dir: Path, overwrite: bool) -> None:
     if output_dir.exists() and any(output_dir.iterdir()) and not overwrite:
         raise FileExistsError(f"output directory already contains output: {output_dir}")
+
+
+def _path_exists(path: Path) -> bool:
+    return path.exists() or path.is_symlink()
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+
+
+def _publish_owned_entries(
+    staging_dir: Path,
+    output_dir: Path,
+    staged_entries: Sequence[str],
+) -> None:
+    names = tuple(staged_entries)
+    invalid = set(names) - set(OWNED_OUTPUT_ENTRIES)
+    if invalid:
+        raise ValueError(f"cannot publish unknown entries: {sorted(invalid)}")
+    missing = [name for name in names if not _path_exists(staging_dir / name)]
+    if missing:
+        raise ValueError(f"staged output missing entries: {missing}")
+
+    output_existed = output_dir.exists()
     output_dir.mkdir(parents=True, exist_ok=True)
-    if not overwrite:
-        return
-    for filename in OWNED_OUTPUT_FILES:
-        (output_dir / filename).unlink(missing_ok=True)
-    charts_dir = output_dir / "charts"
-    if charts_dir.is_symlink() or charts_dir.is_file():
-        charts_dir.unlink()
-    elif charts_dir.is_dir():
-        shutil.rmtree(charts_dir)
-    for staging in output_dir.glob(".charts.*.tmp"):
-        if staging.is_symlink() or staging.is_file():
-            staging.unlink()
-        elif staging.is_dir():
-            shutil.rmtree(staging)
+    rollback_dir = staging_dir / ".rollback"
+    rollback_dir.mkdir()
+    backed_up: list[str] = []
+    try:
+        for name in OWNED_OUTPUT_ENTRIES:
+            destination = output_dir / name
+            if _path_exists(destination):
+                destination.replace(rollback_dir / name)
+                backed_up.append(name)
+        for name in names:
+            (staging_dir / name).replace(output_dir / name)
+    except Exception:
+        for name in OWNED_OUTPUT_ENTRIES:
+            _remove_path(output_dir / name)
+        for name in backed_up:
+            (rollback_dir / name).replace(output_dir / name)
+        if not output_existed and output_dir.exists() and not any(output_dir.iterdir()):
+            output_dir.rmdir()
+        raise
+    finally:
+        shutil.rmtree(rollback_dir, ignore_errors=True)
 
 
 def _load_symbol_rows(frame: pd.DataFrame, symbol: str, source: str) -> pd.DataFrame:
@@ -238,11 +281,10 @@ def _full_strategy_metrics(
     start = pd.Timestamp(equity_curve.iloc[0]["datetime"])
     end = pd.Timestamp(equity_curve.iloc[-1]["datetime"])
     metrics = calculate_period_metrics(equity_curve, trades, start, end)
+    total_return = float(result_summary.get("total_return", metrics["total_return"]))
+    metrics["total_return"] = total_return
+    metrics["annual_return"] = _annualize_return(total_return, len(equity_curve))
     for key in (
-        "total_return",
-        "annual_return",
-        "annual_volatility",
-        "sharpe",
         "max_drawdown",
         "trade_count",
         "initial_capital",
@@ -342,18 +384,17 @@ def _rejected_release(reason: str) -> dict[str, object]:
     }
 
 
-def run_and_write(
+def _run_and_write_staged(
     *,
     daily_csv: Path,
     metadata_csv: Path,
     benchmark_csv: Path,
     output_dir: Path,
-    config: TrendAllocationConfig | None = None,
-    overwrite: bool = False,
+    staging_dir: Path,
+    config: TrendAllocationConfig,
 ) -> dict[str, Any]:
-    """Select, rerun, compare, persist, and chart the local ETF strategy."""
-    cfg = config or TrendAllocationConfig()
-    _guard_output_directory(output_dir, overwrite)
+    """Build a complete run in staging and publish only finished outputs."""
+    cfg = config
     display_name = _load_display_name(metadata_csv, cfg.symbol)
     daily = pd.read_csv(daily_csv)
     symbol_bars = _load_symbol_rows(daily, cfg.symbol, "ETF daily data")
@@ -385,7 +426,7 @@ def run_and_write(
     selection_end = str(pd.Timestamp(selection_bars.iloc[-1]["datetime"]).date())
     optimization = select_ema_trend_allocation(selection_bars, cfg)
     candidates = optimization.candidate_results
-    _atomic_write_csv(candidates, output_dir / "candidate_results.csv")
+    _atomic_write_csv(candidates, staging_dir / "candidate_results.csv")
 
     common_summary: dict[str, object] = {
         "symbol": cfg.symbol,
@@ -418,8 +459,16 @@ def run_and_write(
             "candidate": None,
             "release": release,
         }
-        _atomic_write_json(selected_payload, output_dir / "selected_parameters.json")
-        _atomic_write_json(summary_payload, output_dir / "summary.json")
+        _atomic_write_json(
+            selected_payload,
+            staging_dir / "selected_parameters.json",
+        )
+        _atomic_write_json(summary_payload, staging_dir / "summary.json")
+        _publish_owned_entries(
+            staging_dir,
+            output_dir,
+            ("candidate_results.csv", "selected_parameters.json", "summary.json"),
+        )
         raise RuntimeError("no feasible candidate in training and validation periods")
 
     selected_config = optimization.selected_config
@@ -450,24 +499,68 @@ def run_and_write(
         "release": release,
     }
 
-    _atomic_write_csv(candidate_result.signals, output_dir / "signals.csv")
-    _atomic_write_csv(candidate_result.trades, output_dir / "trades.csv")
-    _atomic_write_csv(candidate_result.positions, output_dir / "positions.csv")
-    _atomic_write_csv(candidate_result.equity_curve, output_dir / "equity_curve.csv")
-    _atomic_write_json(selected_payload, output_dir / "selected_parameters.json")
-    summary = _atomic_write_json(summary_payload, output_dir / "summary.json")
-    _render_charts_atomically(
+    _atomic_write_csv(candidate_result.signals, staging_dir / "signals.csv")
+    _atomic_write_csv(candidate_result.trades, staging_dir / "trades.csv")
+    _atomic_write_csv(candidate_result.positions, staging_dir / "positions.csv")
+    _atomic_write_csv(candidate_result.equity_curve, staging_dir / "equity_curve.csv")
+    _atomic_write_json(selected_payload, staging_dir / "selected_parameters.json")
+    summary = _atomic_write_json(summary_payload, staging_dir / "summary.json")
+    render_summary = _render_charts_atomically(
         daily_csv=daily_csv,
         metadata_csv=metadata_csv,
-        trades_csv=output_dir / "trades.csv",
-        positions_csv=output_dir / "positions.csv",
-        output_dir=output_dir,
+        trades_csv=staging_dir / "trades.csv",
+        positions_csv=staging_dir / "positions.csv",
+        output_dir=staging_dir,
         report_start=candidate_result.equity_curve.iloc[0]["datetime"],
         report_end=candidate_result.equity_curve.iloc[-1]["datetime"],
         symbols=[cfg.symbol],
         expected_filenames=[make_chart_filename(1, cfg.symbol, display_name)],
     )
+    render_summary.update(
+        {
+            "trades_csv": str(output_dir / "trades.csv"),
+            "positions_csv": str(output_dir / "positions.csv"),
+            "output_dir": str(output_dir / "charts"),
+        }
+    )
+    _atomic_write_json(
+        render_summary,
+        staging_dir / "charts/render_summary.json",
+    )
+    _publish_owned_entries(
+        staging_dir,
+        output_dir,
+        OWNED_OUTPUT_ENTRIES,
+    )
     return summary
+
+
+def run_and_write(
+    *,
+    daily_csv: Path,
+    metadata_csv: Path,
+    benchmark_csv: Path,
+    output_dir: Path,
+    config: TrendAllocationConfig | None = None,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    """Select, rerun, compare, and transactionally publish local outputs."""
+    cfg = config or TrendAllocationConfig()
+    _guard_output_directory(output_dir, overwrite)
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    staging_dir = output_dir.parent / f".{output_dir.name}.{uuid4().hex}.tmp"
+    staging_dir.mkdir()
+    try:
+        return _run_and_write_staged(
+            daily_csv=daily_csv,
+            metadata_csv=metadata_csv,
+            benchmark_csv=benchmark_csv,
+            output_dir=output_dir,
+            staging_dir=staging_dir,
+            config=cfg,
+        )
+    finally:
+        shutil.rmtree(staging_dir, ignore_errors=True)
 
 
 def build_parser() -> argparse.ArgumentParser:
