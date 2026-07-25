@@ -8,7 +8,9 @@ from stock.etf.regime_rules import (
     _efficiency_ratio,
     _rolling_log_regression,
     calculate_realized_regime,
+    confirm_direction_with_activity,
     prepare_symbol_bars,
+    predict_regime,
     score_to_state,
 )
 
@@ -287,3 +289,132 @@ def test_realized_regime_does_not_depend_on_volume_or_turnover() -> None:
         "realized_state",
     ]
     pd.testing.assert_frame_equal(first_result[columns], second_result[columns])
+
+
+def _calendar(
+    bars: pd.DataFrame,
+    future_periods: int = 8,
+) -> pd.DataFrame:
+    first = pd.Timestamp(bars["datetime"].min())
+    last = pd.Timestamp(bars["datetime"].max())
+    dates = pd.bdate_range(first, last + pd.offsets.BDay(future_periods))
+    return pd.DataFrame({"datetime": dates, "is_open": 1})
+
+
+def test_volume_confirmation_cannot_flip_direction() -> None:
+    price_direction = pd.Series([-0.8, -0.2, 0.0, 0.2, 0.8])
+    pressure = pd.Series([1.0, 1.0, -1.0, -1.0, -1.0])
+    shock = pd.Series([1.0] * 5)
+
+    confirmed = confirm_direction_with_activity(
+        price_direction,
+        pressure,
+        shock,
+    )
+
+    assert np.sign(confirmed).tolist() == np.sign(price_direction).tolist()
+    assert confirmed.abs().le(1.0).all()
+    assert confirmed.iloc[0] == pytest.approx(-0.8 * 0.85)
+    assert confirmed.iloc[-1] == pytest.approx(0.8 * 0.85)
+
+
+def test_predict_regime_emits_auditable_one_and_three_day_rows() -> None:
+    bars = _variable_bars(320)
+
+    predictions = predict_regime(bars, _calendar(bars), RegimeConfig())
+
+    assert set(predictions["prediction_horizon"]) == {"1d", "3d"}
+    assert predictions.groupby("feature_asof_date").size().eq(2).all()
+    assert predictions["score"].between(-3.0, 3.0).all()
+    assert predictions["state"].isin([state.value for state in RegimeState]).all()
+    assert (
+        predictions["max_feature_source_date"]
+        == predictions["feature_asof_date"]
+    ).all()
+    required_components = {
+        "direction_evidence",
+        "trend_quality",
+        "return_1_score",
+        "return_3_score",
+        "return_5_score",
+        "return_10_score",
+        "ema5_slope_score",
+        "ema_fast_direction",
+        "volume_pressure_5",
+        "volume_pressure_10",
+        "activity_shock",
+        "raw_price_direction",
+        "confirmed_direction",
+        "predicted_quality",
+    }
+    assert required_components <= set(predictions.columns)
+
+
+def test_prediction_target_dates_use_open_calendar_not_business_days() -> None:
+    bars = _variable_bars(320)
+    calendar = _calendar(bars)
+    latest = pd.Timestamp(bars.iloc[-1]["datetime"])
+    first_business_day = latest + pd.offsets.BDay(1)
+    calendar.loc[calendar["datetime"].eq(first_business_day), "is_open"] = 0
+    expected_open_dates = calendar.loc[
+        (calendar["datetime"] > latest) & calendar["is_open"].eq(1),
+        "datetime",
+    ].tolist()
+
+    predictions = predict_regime(bars, calendar, RegimeConfig())
+    latest_rows = predictions.loc[predictions["feature_asof_date"].eq(latest)]
+
+    targets = latest_rows.set_index("prediction_horizon")["prediction_for_date"]
+    assert targets["1d"] == expected_open_dates[0]
+    assert targets["3d"] == expected_open_dates[2]
+
+
+def test_calendar_must_cover_third_future_open_day() -> None:
+    bars = _variable_bars(320)
+    latest = pd.Timestamp(bars.iloc[-1]["datetime"])
+    calendar = _calendar(bars)
+    calendar = calendar.loc[
+        calendar["datetime"] <= latest + pd.offsets.BDay(2)
+    ]
+
+    with pytest.raises(ValueError, match="third future open day"):
+        predict_regime(bars, calendar, RegimeConfig())
+
+
+def test_mutating_future_bars_does_not_change_prefix_predictions() -> None:
+    bars = _variable_bars(340)
+    calendar = _calendar(bars)
+    cutoff = pd.Timestamp(bars.iloc[309]["datetime"])
+    mutated = bars.copy()
+    future = mutated["datetime"] > cutoff
+    mutated.loc[future, ["open", "high", "low", "close"]] *= 4.0
+    mutated.loc[future, "volume"] *= 100_000.0
+
+    original_predictions = predict_regime(bars, calendar, RegimeConfig())
+    mutated_predictions = predict_regime(mutated, calendar, RegimeConfig())
+    historical = original_predictions["feature_asof_date"] <= cutoff
+
+    pd.testing.assert_frame_equal(
+        original_predictions.loc[historical].reset_index(drop=True),
+        mutated_predictions.loc[historical].reset_index(drop=True),
+        check_exact=True,
+    )
+
+
+def test_prefix_recalculation_matches_vectorized_predictions() -> None:
+    bars = _variable_bars(340)
+    calendar = _calendar(bars)
+    prefix = bars.iloc[:315].copy()
+    cutoff = pd.Timestamp(prefix.iloc[-1]["datetime"])
+
+    full_predictions = predict_regime(bars, calendar, RegimeConfig())
+    prefix_predictions = predict_regime(prefix, calendar, RegimeConfig())
+
+    expected = full_predictions.loc[
+        full_predictions["feature_asof_date"] <= cutoff
+    ].reset_index(drop=True)
+    pd.testing.assert_frame_equal(
+        expected,
+        prefix_predictions.reset_index(drop=True),
+        check_exact=True,
+    )

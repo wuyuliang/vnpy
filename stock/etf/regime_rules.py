@@ -289,3 +289,288 @@ def calculate_realized_regime(
     )
     frame["realized_state"] = _state_values(frame["realized_score"])
     return frame
+
+
+def confirm_direction_with_activity(
+    price_direction: pd.Series,
+    volume_pressure: pd.Series,
+    activity_shock: pd.Series,
+) -> pd.Series:
+    """Adjust magnitude by at most 15% without changing the price direction."""
+    aligned_pressure = volume_pressure.reindex(price_direction.index)
+    aligned_shock = activity_shock.reindex(price_direction.index)
+    alignment = np.sign(price_direction) * aligned_pressure
+    confirmation = (alignment * aligned_shock).clip(-1.0, 1.0)
+    magnitude = (price_direction.abs() * (1.0 + 0.15 * confirmation)).clip(
+        0.0,
+        1.0,
+    )
+    return np.sign(price_direction) * magnitude
+
+
+def _return_score(
+    close: pd.Series,
+    atr_pct: pd.Series,
+    period: int,
+) -> pd.Series:
+    normalized = np.log(close.div(close.shift(period))).div(
+        atr_pct * np.sqrt(period)
+    )
+    return np.tanh(normalized)
+
+
+def _volume_pressure(
+    close: pd.Series,
+    volume: pd.Series,
+    period: int,
+) -> pd.Series:
+    signed_volume = np.sign(close.diff()).fillna(0.0) * volume
+    numerator = signed_volume.rolling(period, min_periods=period).sum()
+    denominator = volume.rolling(period, min_periods=period).sum()
+    return numerator.div(denominator).mask(denominator.eq(0), 0.0).clip(-1.0, 1.0)
+
+
+def _activity_shock(frame: pd.DataFrame) -> pd.Series:
+    volume_baseline = (
+        frame["volume"].rolling(20, min_periods=20).median().shift(1)
+    )
+    volume_ratio = frame["volume"].div(volume_baseline.where(volume_baseline > 0))
+    activity_ratio = volume_ratio
+    if "turnover" in frame.columns:
+        turnover_baseline = (
+            frame["turnover"].rolling(20, min_periods=20).median().shift(1)
+        )
+        turnover_ratio = frame["turnover"].div(
+            turnover_baseline.where(turnover_baseline > 0)
+        )
+        activity_ratio = np.sqrt(volume_ratio * turnover_ratio)
+    shock = np.log(activity_ratio.clip(lower=1.0)).div(np.log(3.0)).clip(0.0, 1.0)
+    return shock.where(np.isfinite(shock), 0.0).fillna(0.0)
+
+
+def _prepare_open_calendar(
+    trading_calendar: pd.DataFrame,
+    bar_dates: pd.Series,
+) -> pd.DatetimeIndex:
+    required = {"datetime", "is_open"}
+    missing = required - set(trading_calendar.columns)
+    if missing:
+        raise ValueError(f"trading calendar missing columns: {sorted(missing)}")
+    calendar = trading_calendar.loc[:, ["datetime", "is_open"]].copy()
+    dates = pd.to_datetime(calendar["datetime"], errors="raise")
+    if dates.isna().any():
+        raise ValueError("trading calendar contains missing dates")
+    if dates.dt.tz is not None:
+        raise ValueError("trading calendar dates must be timezone-naive")
+    calendar["datetime"] = dates.dt.normalize()
+    if calendar["datetime"].duplicated().any():
+        raise ValueError("trading calendar contains duplicate dates")
+    if not calendar["is_open"].isin([0, 1, False, True]).all():
+        raise ValueError("trading calendar is_open must contain only 0 or 1")
+    calendar["is_open"] = calendar["is_open"].astype(bool)
+    open_dates = pd.DatetimeIndex(
+        calendar.loc[calendar["is_open"], "datetime"].sort_values().unique()
+    )
+    missing_bar_dates = pd.DatetimeIndex(bar_dates).difference(open_dates)
+    if not missing_bar_dates.empty:
+        raise ValueError("bar dates must be open dates in the trading calendar")
+    return open_dates
+
+
+def _future_open_dates(
+    feature_dates: pd.Series,
+    open_dates: pd.DatetimeIndex,
+    horizon: int,
+) -> pd.Series:
+    positions = open_dates.searchsorted(
+        pd.DatetimeIndex(feature_dates),
+        side="right",
+    )
+    target_positions = positions + horizon - 1
+    if (target_positions >= len(open_dates)).any():
+        raise ValueError("trading calendar must cover the third future open day")
+    return pd.Series(
+        open_dates.take(target_positions),
+        index=feature_dates.index,
+        dtype="datetime64[ns]",
+    )
+
+
+def predict_regime(
+    bars: pd.DataFrame,
+    trading_calendar: pd.DataFrame,
+    config: RegimeConfig,
+) -> pd.DataFrame:
+    """Predict next-day and third-day regimes from trailing data only."""
+    frame = calculate_realized_regime(bars, config)
+    open_dates = _prepare_open_calendar(trading_calendar, frame["datetime"])
+    target_1d = _future_open_dates(frame["datetime"], open_dates, 1)
+    target_3d = _future_open_dates(frame["datetime"], open_dates, 3)
+
+    close = frame["close"]
+    frame["ema10"] = close.ewm(span=10, adjust=False, min_periods=10).mean()
+    dmi5 = _wilder_dmi(frame, 5)
+    frame["plus_di5"] = dmi5["plus_di"]
+    frame["minus_di5"] = dmi5["minus_di"]
+    frame["adx5"] = dmi5["adx"]
+    frame["er5"] = _efficiency_ratio(close, 5)
+    regression10 = _rolling_log_regression(close, 10)
+    frame["log_slope10"] = regression10["slope"]
+    frame["r2_10"] = regression10["r2"]
+
+    for period in (1, 3, 5, 10):
+        frame[f"return_{period}_score"] = _return_score(
+            close,
+            frame["atr_pct"],
+            period,
+        )
+    frame["ema5_slope_score"] = np.tanh(
+        frame["ema5"]
+        .div(frame["ema5"].shift(3))
+        .sub(1.0)
+        .div(frame["atr_pct"] * np.sqrt(3.0))
+    )
+    frame["ema_fast_direction"] = np.tanh(
+        frame["ema5"].sub(frame["ema10"]).div(2.0 * frame["atr10"])
+    )
+    di5_sum = frame["plus_di5"] + frame["minus_di5"]
+    frame["di_direction5"] = (
+        frame["plus_di5"].sub(frame["minus_di5"]).div(di5_sum)
+    ).mask(di5_sum.eq(0), 0.0)
+    frame["volume_pressure_5"] = _volume_pressure(close, frame["volume"], 5)
+    frame["volume_pressure_10"] = _volume_pressure(close, frame["volume"], 10)
+    frame["activity_shock"] = _activity_shock(frame)
+
+    raw_direction_1d = (
+        0.35 * frame["direction_evidence"]
+        + 0.20 * frame["return_1_score"]
+        + 0.15 * frame["return_3_score"]
+        + 0.15 * frame["ema5_slope_score"]
+        + 0.10 * frame["di_direction5"]
+        + 0.05
+        * (frame["direction_evidence"] - frame["direction_evidence"].shift(3))
+    ).clip(-1.0, 1.0)
+    confirmed_direction_1d = confirm_direction_with_activity(
+        raw_direction_1d,
+        frame["volume_pressure_5"],
+        frame["activity_shock"],
+    )
+    quality_short = (
+        0.35 * frame["er5"]
+        + 0.25 * frame["er10"]
+        + 0.20 * ((frame["adx5"] - 15.0) / 25.0).clip(0.0, 1.0)
+        + 0.20 * frame["r2_10"]
+    ).clip(0.0, 1.0)
+    quality_1d = (
+        0.65 * frame["trend_quality"] + 0.35 * quality_short
+    ).clip(0.0, 1.0)
+    score_1d = _direction_quality_to_score(
+        confirmed_direction_1d,
+        quality_1d,
+    )
+
+    raw_direction_3d = (
+        0.30 * frame["direction_evidence"]
+        + 0.20 * frame["return_3_score"]
+        + 0.15 * frame["return_5_score"]
+        + 0.10 * frame["return_10_score"]
+        + 0.15 * frame["ema_fast_direction"]
+        + 0.05 * frame["di_direction10"]
+        + 0.05
+        * (frame["direction_evidence"] - frame["direction_evidence"].shift(5))
+    ).clip(-1.0, 1.0)
+    confirmed_direction_3d = confirm_direction_with_activity(
+        raw_direction_3d,
+        frame["volume_pressure_10"],
+        frame["activity_shock"],
+    )
+    quality_medium = (
+        0.30 * frame["er10"]
+        + 0.25 * frame["er20"]
+        + 0.25 * ((frame["adx10"] - 15.0) / 25.0).clip(0.0, 1.0)
+        + 0.20 * frame["r2_20"]
+    ).clip(0.0, 1.0)
+    projected_quality = (
+        frame["trend_quality"]
+        + (frame["trend_quality"] - frame["trend_quality"].shift(3))
+    ).clip(0.0, 1.0)
+    quality_3d = (0.80 * quality_medium + 0.20 * projected_quality).clip(
+        0.0,
+        1.0,
+    )
+    score_3d = _direction_quality_to_score(
+        confirmed_direction_3d,
+        quality_3d,
+    )
+    both_horizons_ready = score_1d.notna() & score_3d.notna()
+
+    common_columns = [
+        "direction_evidence",
+        "trend_quality",
+        "return_1_score",
+        "return_3_score",
+        "return_5_score",
+        "return_10_score",
+        "ema5_slope_score",
+        "ema_fast_direction",
+        "di_direction5",
+        "di_direction10",
+        "volume_pressure_5",
+        "volume_pressure_10",
+        "activity_shock",
+    ]
+
+    def horizon_frame(
+        horizon_name: str,
+        targets: pd.Series,
+        raw_direction: pd.Series,
+        confirmed_direction: pd.Series,
+        quality: pd.Series,
+        scores: pd.Series,
+    ) -> pd.DataFrame:
+        output = frame.loc[:, common_columns].copy()
+        output.insert(0, "symbol", frame["symbol"])
+        output.insert(1, "feature_asof_date", frame["datetime"])
+        output.insert(2, "prediction_horizon", horizon_name)
+        output.insert(3, "prediction_for_date", targets)
+        output.insert(4, "max_feature_source_date", frame["datetime"])
+        output.insert(5, "current_realized_score", frame["realized_score"])
+        output.insert(6, "current_realized_state", frame["realized_state"])
+        output["raw_price_direction"] = raw_direction
+        output["confirmed_direction"] = confirmed_direction
+        output["predicted_quality"] = quality
+        output["score"] = scores
+        output["state"] = _state_values(scores)
+        return output.loc[both_horizons_ready].copy()
+
+    predictions = pd.concat(
+        [
+            horizon_frame(
+                "1d",
+                target_1d,
+                raw_direction_1d,
+                confirmed_direction_1d,
+                quality_1d,
+                score_1d,
+            ),
+            horizon_frame(
+                "3d",
+                target_3d,
+                raw_direction_3d,
+                confirmed_direction_3d,
+                quality_3d,
+                score_3d,
+            ),
+        ],
+        ignore_index=True,
+    )
+    horizon_order = pd.Categorical(
+        predictions["prediction_horizon"],
+        categories=["1d", "3d"],
+        ordered=True,
+    )
+    return (
+        predictions.assign(_horizon_order=horizon_order)
+        .sort_values(["feature_asof_date", "_horizon_order"], ignore_index=True)
+        .drop(columns="_horizon_order")
+    )
