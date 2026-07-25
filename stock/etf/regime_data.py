@@ -119,9 +119,7 @@ def build_causal_bars(
 ) -> pd.DataFrame:
     """Build raw or point-in-time adjusted bars without future factor access."""
     if price_adjustment_mode not in {"raw", "point_in_time_adjusted"}:
-        raise ValueError(
-            "price_adjustment_mode must be raw or point_in_time_adjusted"
-        )
+        raise ValueError("price_adjustment_mode must be raw or point_in_time_adjusted")
     bars = _normalize_daily(daily)
     if price_adjustment_mode == "raw":
         bars["adj_factor"] = 1.0
@@ -214,6 +212,22 @@ def _exchange_for_symbol(symbol: str) -> str:
     raise ValueError("symbol must end in .SZ, .SH, or .BJ")
 
 
+def _date_chunks(
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    chunks = []
+    chunk_start = start
+    while chunk_start <= end:
+        chunk_end = min(
+            chunk_start + pd.DateOffset(years=3) - pd.Timedelta(days=1),
+            end,
+        )
+        chunks.append((chunk_start, chunk_end))
+        chunk_start = chunk_end + pd.Timedelta(days=1)
+    return chunks
+
+
 def download_regime_inputs(
     symbol: str,
     start_date: str,
@@ -236,17 +250,25 @@ def download_regime_inputs(
     exchange = _exchange_for_symbol(symbol)
     pro = ts.pro_api(api_token)
     query_start = start.strftime("%Y%m%d")
-    query_end = end.strftime("%Y%m%d")
-
-    raw_daily = pro.fund_daily(
-        ts_code=symbol,
-        start_date=query_start,
-        end_date=query_end,
+    daily_frames = []
+    factor_frames = []
+    for chunk_start, chunk_end in _date_chunks(start, end):
+        request = {
+            "ts_code": symbol,
+            "start_date": chunk_start.strftime("%Y%m%d"),
+            "end_date": chunk_end.strftime("%Y%m%d"),
+        }
+        daily_chunk = pro.fund_daily(**request)
+        factor_chunk = pro.fund_adj(**request)
+        if not daily_chunk.empty:
+            daily_frames.append(daily_chunk)
+        if not factor_chunk.empty:
+            factor_frames.append(factor_chunk)
+    raw_daily = (
+        pd.concat(daily_frames, ignore_index=True) if daily_frames else pd.DataFrame()
     )
-    raw_factors = pro.fund_adj(
-        ts_code=symbol,
-        start_date=query_start,
-        end_date=query_end,
+    raw_factors = (
+        pd.concat(factor_frames, ignore_index=True) if factor_frames else pd.DataFrame()
     )
     calendar_end = (end + pd.Timedelta(days=30)).strftime("%Y%m%d")
     raw_calendar = pro.trade_cal(

@@ -90,9 +90,7 @@ def _guard_output_directory(output_dir: Path, overwrite: bool) -> None:
 
 
 def _publish_staging(staging_dir: Path, output_dir: Path) -> None:
-    backup_dir = output_dir.with_name(
-        f".{output_dir.name}.{uuid4().hex}.backup"
-    )
+    backup_dir = output_dir.with_name(f".{output_dir.name}.{uuid4().hex}.backup")
     had_output = output_dir.exists()
     if had_output:
         output_dir.replace(backup_dir)
@@ -163,9 +161,12 @@ def _validate_staged_outputs(staging_dir: Path) -> None:
         raise RuntimeError(f"staged output missing files: {missing}")
     for filename in ("summary.json", "source_audit.json"):
         with (staging_dir / filename).open(encoding="utf-8") as file:
-            json.load(file, parse_constant=lambda value: (_ for _ in ()).throw(
-                ValueError(f"non-standard JSON constant: {value}")
-            ))
+            json.load(
+                file,
+                parse_constant=lambda value: (_ for _ in ()).throw(
+                    ValueError(f"non-standard JSON constant: {value}")
+                ),
+            )
 
 
 def run_regime_analysis(
@@ -183,9 +184,7 @@ def run_regime_analysis(
     output_dir = Path(output_dir)
     _guard_output_directory(output_dir, overwrite)
     output_dir.parent.mkdir(parents=True, exist_ok=True)
-    staging_dir = output_dir.with_name(
-        f".{output_dir.name}.{uuid4().hex}.staging"
-    )
+    staging_dir = output_dir.with_name(f".{output_dir.name}.{uuid4().hex}.staging")
     staging_dir.mkdir()
     try:
         bars = build_causal_bars(
@@ -213,9 +212,7 @@ def run_regime_analysis(
         )
         known_labels = labeled.loc[labeled["label_date"].notna()]
         labels_follow_features = bool(
-            (
-                known_labels["feature_asof_date"] < known_labels["label_date"]
-            ).all()
+            (known_labels["feature_asof_date"] < known_labels["label_date"]).all()
         )
         factor_lineage_valid = bool(
             price_adjustment_mode == "raw"
@@ -350,9 +347,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.price_adjustment_mode == "point_in_time_adjusted"
             and args.factors_csv is None
         ):
-            raise ValueError(
-                "point_in_time_adjusted mode requires --factors-csv"
-            )
+            raise ValueError("point_in_time_adjusted mode requires --factors-csv")
         raw_daily = pd.read_csv(args.daily_csv)
         daily = _select_symbol_and_dates(
             raw_daily,
@@ -375,9 +370,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "daily": _file_audit(args.daily_csv),
             "calendar": _file_audit(args.calendar_csv),
             "factors": (
-                _file_audit(args.factors_csv)
-                if args.factors_csv is not None
-                else None
+                _file_audit(args.factors_csv) if args.factors_csv is not None else None
             ),
             "requested_start_date": args.start,
             "requested_end_date": args.end,

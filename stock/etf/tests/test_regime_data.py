@@ -182,3 +182,76 @@ def test_download_adapter_does_not_persist_token(
     assert len(inputs.daily) == 4
     assert len(inputs.factors) == 4
     assert not inputs.calendar.empty
+
+
+def test_download_adapter_splits_long_history_into_non_overlapping_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    daily_requests: list[tuple[str, str]] = []
+    factor_requests: list[tuple[str, str]] = []
+
+    class FakePro:
+        @staticmethod
+        def _daily_row(start_date: str) -> pd.DataFrame:
+            return pd.DataFrame(
+                {
+                    "ts_code": ["159915.SZ"],
+                    "trade_date": [start_date],
+                    "open": [10.0],
+                    "high": [10.2],
+                    "low": [9.8],
+                    "close": [10.0],
+                    "vol": [1_000.0],
+                    "amount": [2_000.0],
+                }
+            )
+
+        def fund_daily(self, **kwargs: object) -> pd.DataFrame:
+            start = str(kwargs["start_date"])
+            end = str(kwargs["end_date"])
+            daily_requests.append((start, end))
+            return self._daily_row(start)
+
+        def fund_adj(self, **kwargs: object) -> pd.DataFrame:
+            start = str(kwargs["start_date"])
+            end = str(kwargs["end_date"])
+            factor_requests.append((start, end))
+            return pd.DataFrame(
+                {
+                    "ts_code": ["159915.SZ"],
+                    "trade_date": [start],
+                    "adj_factor": [1.0],
+                }
+            )
+
+        def trade_cal(self, **kwargs: object) -> pd.DataFrame:
+            dates = pd.date_range(
+                pd.Timestamp(str(kwargs["start_date"])),
+                pd.Timestamp(str(kwargs["end_date"])),
+            )
+            return pd.DataFrame(
+                {
+                    "exchange": ["SZSE"] * len(dates),
+                    "cal_date": dates.strftime("%Y%m%d"),
+                    "is_open": 1,
+                }
+            )
+
+    monkeypatch.setitem(
+        sys.modules,
+        "tushare",
+        SimpleNamespace(pro_api=lambda _: FakePro()),
+    )
+
+    inputs = download_regime_inputs(
+        "159915.SZ",
+        "2017-08-14",
+        "2026-07-25",
+        token="test-token",
+    )
+
+    assert len(daily_requests) >= 3
+    assert daily_requests == factor_requests
+    for previous, current in zip(daily_requests, daily_requests[1:], strict=False):
+        assert pd.Timestamp(current[0]) > pd.Timestamp(previous[1])
+    assert len(inputs.daily) == len(daily_requests)

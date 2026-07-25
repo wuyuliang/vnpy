@@ -214,8 +214,7 @@ def _direction_quality_to_score(
 
     oscillating = valid & (confidence > 0.25) & (quality_values < 0.55)
     oscillating_magnitude = 1.0 + np.clip(
-        0.65 * (confidence - 0.25) / 0.75
-        + 0.35 * quality_values / 0.55,
+        0.65 * (confidence - 0.25) / 0.75 + 0.35 * quality_values / 0.55,
         0.0,
         1.0 - 1e-12,
     )
@@ -223,8 +222,7 @@ def _direction_quality_to_score(
 
     trending = valid & (confidence > 0.25) & (quality_values >= 0.55)
     trend_magnitude = 2.0 + np.clip(
-        0.55 * (confidence - 0.25) / 0.75
-        + 0.45 * (quality_values - 0.55) / 0.45,
+        0.55 * (confidence - 0.25) / 0.75 + 0.45 * (quality_values - 0.55) / 0.45,
         0.0,
         1.0,
     )
@@ -313,9 +311,7 @@ def _return_score(
     atr_pct: pd.Series,
     period: int,
 ) -> pd.Series:
-    normalized = np.log(close.div(close.shift(period))).div(
-        atr_pct * np.sqrt(period)
-    )
+    normalized = np.log(close.div(close.shift(period))).div(atr_pct * np.sqrt(period))
     return np.tanh(normalized)
 
 
@@ -331,9 +327,7 @@ def _volume_pressure(
 
 
 def _activity_shock(frame: pd.DataFrame) -> pd.Series:
-    volume_baseline = (
-        frame["volume"].rolling(20, min_periods=20).median().shift(1)
-    )
+    volume_baseline = frame["volume"].rolling(20, min_periods=20).median().shift(1)
     volume_ratio = frame["volume"].div(volume_baseline.where(volume_baseline > 0))
     activity_ratio = volume_ratio
     if "turnover" in frame.columns:
@@ -447,8 +441,7 @@ def predict_regime(
         + 0.15 * frame["return_3_score"]
         + 0.15 * frame["ema5_slope_score"]
         + 0.10 * frame["di_direction5"]
-        + 0.05
-        * (frame["direction_evidence"] - frame["direction_evidence"].shift(3))
+        + 0.05 * (frame["direction_evidence"] - frame["direction_evidence"].shift(3))
     ).clip(-1.0, 1.0)
     confirmed_direction_1d = confirm_direction_with_activity(
         raw_direction_1d,
@@ -461,9 +454,7 @@ def predict_regime(
         + 0.20 * ((frame["adx5"] - 15.0) / 25.0).clip(0.0, 1.0)
         + 0.20 * frame["r2_10"]
     ).clip(0.0, 1.0)
-    quality_1d = (
-        0.65 * frame["trend_quality"] + 0.35 * quality_short
-    ).clip(0.0, 1.0)
+    quality_1d = (0.65 * frame["trend_quality"] + 0.35 * quality_short).clip(0.0, 1.0)
     score_1d = _direction_quality_to_score(
         confirmed_direction_1d,
         quality_1d,
@@ -476,8 +467,7 @@ def predict_regime(
         + 0.10 * frame["return_10_score"]
         + 0.15 * frame["ema_fast_direction"]
         + 0.05 * frame["di_direction10"]
-        + 0.05
-        * (frame["direction_evidence"] - frame["direction_evidence"].shift(5))
+        + 0.05 * (frame["direction_evidence"] - frame["direction_evidence"].shift(5))
     ).clip(-1.0, 1.0)
     confirmed_direction_3d = confirm_direction_with_activity(
         raw_direction_3d,

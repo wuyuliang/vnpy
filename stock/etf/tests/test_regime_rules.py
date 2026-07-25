@@ -138,9 +138,7 @@ def _variable_bars(periods: int = 80) -> pd.DataFrame:
     high = np.maximum(open_, close) + 0.15 + (index % 3) * 0.01
     low = np.minimum(open_, close) - 0.14 - (index % 4) * 0.01
     frame = _bars(periods)
-    frame[["open", "high", "low", "close"]] = np.column_stack(
-        [open_, high, low, close]
-    )
+    frame[["open", "high", "low", "close"]] = np.column_stack([open_, high, low, close])
     return frame
 
 
@@ -328,8 +326,7 @@ def test_predict_regime_emits_auditable_one_and_three_day_rows() -> None:
     assert predictions["score"].between(-3.0, 3.0).all()
     assert predictions["state"].isin([state.value for state in RegimeState]).all()
     assert (
-        predictions["max_feature_source_date"]
-        == predictions["feature_asof_date"]
+        predictions["max_feature_source_date"] == predictions["feature_asof_date"]
     ).all()
     required_components = {
         "direction_evidence",
@@ -373,9 +370,7 @@ def test_calendar_must_cover_third_future_open_day() -> None:
     bars = _variable_bars(320)
     latest = pd.Timestamp(bars.iloc[-1]["datetime"])
     calendar = _calendar(bars)
-    calendar = calendar.loc[
-        calendar["datetime"] <= latest + pd.offsets.BDay(2)
-    ]
+    calendar = calendar.loc[calendar["datetime"] <= latest + pd.offsets.BDay(2)]
 
     with pytest.raises(ValueError, match="third future open day"):
         predict_regime(bars, calendar, RegimeConfig())

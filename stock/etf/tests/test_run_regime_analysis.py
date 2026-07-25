@@ -106,9 +106,7 @@ def test_runner_failure_preserves_previous_output(tmp_path: Path) -> None:
         )
 
     assert marker.read_text(encoding="utf-8") == "previous"
-    assert {path.name for path in output_dir.iterdir()} == {
-        "previous-success.txt"
-    }
+    assert {path.name for path in output_dir.iterdir()} == {"previous-success.txt"}
 
 
 def test_summary_is_strict_json(tmp_path: Path) -> None:

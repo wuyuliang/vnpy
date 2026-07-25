@@ -65,10 +65,7 @@ def test_labels_follow_actual_symbol_rows_not_calendar_days() -> None:
 
     assert by_horizon.loc["1d", "label_date"] == pd.Timestamp("2026-01-05")
     assert by_horizon.loc["3d", "label_date"] == pd.Timestamp("2026-01-09")
-    assert (
-        by_horizon.loc["3d", "realized_state"]
-        == RegimeState.OSCILLATING_DOWN.value
-    )
+    assert by_horizon.loc["3d", "realized_state"] == RegimeState.OSCILLATING_DOWN.value
 
 
 def test_latest_predictions_keep_unknown_labels() -> None:

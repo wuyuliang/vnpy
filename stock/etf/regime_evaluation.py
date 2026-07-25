@@ -85,9 +85,7 @@ def attach_realized_labels(
     missing_predictions = prediction_required - set(predictions.columns)
     missing_realized = realized_required - set(realized.columns)
     if missing_predictions:
-        raise ValueError(
-            f"predictions missing columns: {sorted(missing_predictions)}"
-        )
+        raise ValueError(f"predictions missing columns: {sorted(missing_predictions)}")
     if missing_realized:
         raise ValueError(f"realized data missing columns: {sorted(missing_realized)}")
 
@@ -100,13 +98,9 @@ def attach_realized_labels(
         output[column] = _normalized_dates(output[column], column)
     if not output["prediction_horizon"].isin(HORIZON_ROWS).all():
         raise ValueError("prediction_horizon must be 1d or 3d")
-    if output.duplicated(
-        ["symbol", "feature_asof_date", "prediction_horizon"]
-    ).any():
+    if output.duplicated(["symbol", "feature_asof_date", "prediction_horizon"]).any():
         raise ValueError("predictions contain duplicate symbol/date/horizon rows")
-    if (
-        output["max_feature_source_date"] > output["feature_asof_date"]
-    ).any():
+    if (output["max_feature_source_date"] > output["feature_asof_date"]).any():
         raise ValueError("prediction features contain future source dates")
     _validate_state_values(output["state"], "state")
 
@@ -118,8 +112,8 @@ def attach_realized_labels(
         answers["realized_score"],
         errors="coerce",
     )
-    finite_scores = answers["realized_score"].dropna().map(
-        lambda value: isfinite(float(value))
+    finite_scores = (
+        answers["realized_score"].dropna().map(lambda value: isfinite(float(value)))
     )
     if not finite_scores.all():
         raise ValueError("realized_score must be finite when present")
@@ -217,12 +211,8 @@ def _metric_row(
         "observed_class_count": int(actual_state.nunique()),
         "exact_accuracy": float(predicted_state.eq(actual_state).mean()),
         "balanced_accuracy": _balanced_accuracy(actual_state, predicted_state),
-        "direction_accuracy": float(
-            predicted_direction.eq(actual_direction).mean()
-        ),
-        "structure_accuracy": float(
-            predicted_structure.eq(actual_structure).mean()
-        ),
+        "direction_accuracy": float(predicted_direction.eq(actual_direction).mean()),
+        "structure_accuracy": float(predicted_structure.eq(actual_structure).mean()),
         "score_mae": float((predicted_score - actual_score).abs().mean()),
         "spearman": _safe_spearman(predicted_score, actual_score),
     }
@@ -311,8 +301,7 @@ def _transition_row(
     predicted_state: pd.Series,
 ) -> dict[str, object]:
     actual_dates = sorted(
-        pd.Timestamp(date)
-        for date in frame["first_transition_date"].dropna().unique()
+        pd.Timestamp(date) for date in frame["first_transition_date"].dropna().unique()
     )
     predicted_mask = predicted_state.ne(frame["current_realized_state"])
     predicted_rows = frame.loc[predicted_mask].sort_values("feature_asof_date")
@@ -350,9 +339,7 @@ def _transition_row(
         "mean_lead_trading_days": (
             float(np.mean(lead_offsets)) if lead_offsets else None
         ),
-        "mean_lag_trading_days": (
-            float(np.mean(lag_offsets)) if lag_offsets else None
-        ),
+        "mean_lag_trading_days": (float(np.mean(lag_offsets)) if lag_offsets else None),
     }
 
 
@@ -418,7 +405,8 @@ def evaluate_regime_predictions(
     validation_end_date = pd.Timestamp(validation_end)
     oos_start_date = pd.Timestamp(oos_start)
     if not (
-        development_end_date < validation_start_date
+        development_end_date
+        < validation_start_date
         <= validation_end_date
         < oos_start_date
     ):
