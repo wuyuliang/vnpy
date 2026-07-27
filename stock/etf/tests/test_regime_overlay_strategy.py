@@ -340,6 +340,21 @@ def test_execute_overlay_signals_does_not_force_final_liquidation() -> None:
     assert result.summary["target_weight"] == pytest.approx(0.5)
 
 
+def test_unaffordable_first_lot_does_not_advance_target_state() -> None:
+    config = TrendAllocationConfig(
+        initial_capital=1_000.0,
+        confirmation_days=1,
+    )
+    signals = _manual_execution_signals().iloc[:1].copy()
+
+    result = execute_overlay_signals(signals, config)
+
+    assert result.trades.empty
+    assert result.signals.iloc[0]["target_weight"] == pytest.approx(0.0)
+    assert result.signals.iloc[0]["primary_reason"] == "insufficient_cash"
+    assert result.summary["target_weight"] == pytest.approx(0.0)
+
+
 def _rising_bars(periods: int = 100) -> pd.DataFrame:
     index = np.arange(periods, dtype=float)
     close = 10.0 + index * 0.1

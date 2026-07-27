@@ -412,7 +412,9 @@ def execute_overlay_signals(
                 config.lot_size,
             )
             upgrade = target_weight > current_weight
-            transition_succeeded = not upgrade or held_quantity >= target_quantity
+            transition_succeeded = not upgrade or (
+                target_quantity > 0 and held_quantity >= target_quantity
+            )
             if target_quantity > held_quantity:
                 buy_quantity = _affordable_buy_quantity(
                     portfolio.cash,
