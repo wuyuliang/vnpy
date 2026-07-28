@@ -439,6 +439,26 @@ class TradeChartTransformTests(unittest.TestCase):
                             daily_state_scores=states,
                         )
 
+    def test_render_symbol_card_rejects_invalid_weekly_scores_when_present(
+        self,
+    ) -> None:
+        dates = pd.bdate_range("2026-03-02", periods=60)
+        weekly = aggregate_weekly_bars(self._bars(dates))
+        weekly_dates = pd.DatetimeIndex(weekly["datetime"])
+
+        for column in ("score_1d", "score_3d"):
+            for value in ("bad-score", 99.0, np.nan, np.inf, -np.inf):
+                with self.subTest(column=column, value=value):
+                    states = self._state_scores(weekly_dates)
+                    states[column] = states[column].astype(object)
+                    states.at[0, column] = value
+
+                    with self.assertRaisesRegex(ValueError, column):
+                        render_symbol_card(
+                            **self._card_arguments(),
+                            weekly_state_scores=states,
+                        )
+
     def test_batch_render_records_symbol_with_missing_daily_data(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

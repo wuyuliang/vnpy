@@ -697,26 +697,27 @@ def _normalize_state_scores(
         if any(pd.isna(value) or not str(value).strip() for value in states[column]):
             raise ValueError(f"state_scores {column} must not contain empty values")
 
-    if require_scores:
-        for column in ("score_1d", "score_3d"):
-            validated_scores: list[float] = []
-            for value in states[column]:
-                try:
-                    score = float(value)
-                except (TypeError, ValueError, OverflowError) as exc:
-                    raise ValueError(
-                        f"state_scores {column} must contain finite values in [-3, 3]"
-                    ) from exc
-                if (
-                    isinstance(value, bool)
-                    or not math.isfinite(score)
-                    or not -3.0 <= score <= 3.0
-                ):
-                    raise ValueError(
-                        f"state_scores {column} must contain finite values in [-3, 3]"
-                    )
-                validated_scores.append(score)
-            states[column] = validated_scores
+    for column in ("score_1d", "score_3d"):
+        if column not in states:
+            continue
+        validated_scores: list[float] = []
+        for value in states[column]:
+            try:
+                score = float(value)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(
+                    f"state_scores {column} must contain finite values in [-3, 3]"
+                ) from exc
+            if (
+                isinstance(value, bool)
+                or not math.isfinite(score)
+                or not -3.0 <= score <= 3.0
+            ):
+                raise ValueError(
+                    f"state_scores {column} must contain finite values in [-3, 3]"
+                )
+            validated_scores.append(score)
+        states[column] = validated_scores
     return states
 
 
