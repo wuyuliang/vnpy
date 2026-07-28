@@ -523,12 +523,46 @@ def test_render_comparison_rejects_nonempty_output_without_overwrite(
     assert marker.read_text(encoding="utf-8") == "existing"
 
 
+def test_render_comparison_overwrite_replaces_output_directory(
+    tmp_path: Any,
+) -> None:
+    overlay_result, ema_result, ema_metrics = _comparison_results()
+    output_dir = tmp_path / "charts"
+    output_dir.mkdir()
+    (output_dir / "old.png").write_bytes(b"old image")
+    (output_dir / "unknown.marker").write_text("stale", encoding="utf-8")
+    (output_dir / "index.csv").write_text("old index", encoding="utf-8")
+    (output_dir / "render_summary.json").write_text("old audit", encoding="utf-8")
+
+    render_regime_comparison_charts(
+        symbol="159915.SZ",
+        name="易方达创业板ETF",
+        overlay_result=overlay_result,
+        ema_result=ema_result,
+        ema_metrics=ema_metrics,
+        output_dir=output_dir,
+        report_start="2026-01-05",
+        report_end="2026-02-27",
+        overwrite=True,
+    )
+
+    assert {path.name for path in output_dir.iterdir()} == {
+        "0001_159915_SZ_易方达创业板ETF_状态覆盖.png",
+        "0002_159915_SZ_易方达创业板ETF_EMA基线.png",
+        "index.csv",
+        "render_summary.json",
+    }
+
+
 def test_render_comparison_invalid_state_writes_no_audit_files(
     tmp_path: Any,
 ) -> None:
     overlay_result, ema_result, ema_metrics = _comparison_results()
     overlay_result.signals.loc[0, "score_3d"] = np.nan
     output_dir = tmp_path / "charts"
+    output_dir.mkdir()
+    marker = output_dir / "keep.txt"
+    marker.write_text("existing", encoding="utf-8")
 
     with pytest.raises(ValueError, match="score_3d"):
         render_regime_comparison_charts(
@@ -540,10 +574,12 @@ def test_render_comparison_invalid_state_writes_no_audit_files(
             output_dir=output_dir,
             report_start="2026-01-05",
             report_end="2026-02-27",
+            overwrite=True,
         )
 
     assert not (output_dir / "index.csv").exists()
     assert not (output_dir / "render_summary.json").exists()
+    assert marker.read_text(encoding="utf-8") == "existing"
 
 
 def test_render_comparison_propagates_image_save_failure(

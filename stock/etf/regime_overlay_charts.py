@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isfinite
@@ -317,6 +318,8 @@ def render_regime_comparison_charts(
         indent=2,
     )
 
+    if overwrite and output_path.exists():
+        shutil.rmtree(output_path)
     output_path.mkdir(parents=True, exist_ok=True)
     for (image, _), filename in zip(images, filenames, strict=True):
         image.save(output_path / filename)
