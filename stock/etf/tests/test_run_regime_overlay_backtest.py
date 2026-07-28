@@ -83,6 +83,162 @@ def _run(
     )
 
 
+def _directory_bytes(path: Path) -> dict[str, bytes]:
+    return {entry.name: entry.read_bytes() for entry in path.iterdir()}
+
+
+def _publication_fixture(tmp_path: Path) -> tuple[Path, Path]:
+    output_dir = tmp_path / "overlay"
+    output_dir.mkdir()
+    (output_dir / "previous.txt").write_bytes(b"previous")
+    staging_dir = tmp_path / ".overlay.test.staging"
+    staging_dir.mkdir()
+    (staging_dir / "current.txt").write_bytes(b"current")
+    return staging_dir, output_dir
+
+
+def test_publish_failure_restores_previous_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    staging_dir, output_dir = _publication_fixture(tmp_path)
+    real_replace = Path.replace
+    publish_error = OSError("publish failed")
+
+    def fail_staging_publish(path: Path, target: object) -> Path:
+        if path == staging_dir and Path(target) == output_dir:
+            raise publish_error
+        return real_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", fail_staging_publish)
+
+    with pytest.raises(OSError, match="publish failed") as error:
+        runner._publish_staging(staging_dir, output_dir)
+
+    assert error.value is publish_error
+    assert _directory_bytes(output_dir) == {"previous.txt": b"previous"}
+    assert _directory_bytes(staging_dir) == {"current.txt": b"current"}
+    assert not list(tmp_path.glob(".overlay.*.backup"))
+
+
+def test_publish_and_restore_failures_preserve_backup_and_cleanup_staging(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_dir = tmp_path / "overlay"
+    output_dir.mkdir()
+    (output_dir / "previous.txt").write_bytes(b"previous")
+    previous_contents = _directory_bytes(output_dir)
+    real_replace = Path.replace
+    publish_error = OSError("publish failed")
+    restore_error = OSError("restore failed")
+
+    def fail_publish_and_restore(path: Path, target: object) -> Path:
+        target_path = Path(target)
+        if (
+            path.parent == tmp_path
+            and path.name.startswith(".overlay.")
+            and path.name.endswith(".staging")
+            and target_path == output_dir
+        ):
+            raise publish_error
+        if (
+            path.parent == tmp_path
+            and path.name.startswith(".overlay.")
+            and path.name.endswith(".backup")
+            and target_path == output_dir
+        ):
+            raise restore_error
+        return real_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", fail_publish_and_restore)
+
+    with pytest.raises(RuntimeError, match="publish.*restore") as error:
+        _run(output_dir, overwrite=True)
+
+    assert "OSError: publish failed" in str(error.value)
+    assert "OSError: restore failed" in str(error.value)
+    assert error.value.original_error is publish_error
+    assert error.value.recovery_error is restore_error
+    assert error.value.__cause__ is restore_error
+    backups = list(tmp_path.glob(".overlay.*.backup"))
+    assert len(backups) == 1
+    assert _directory_bytes(backups[0]) == previous_contents
+    assert not output_dir.exists()
+    assert not list(tmp_path.glob(".overlay.*.staging"))
+
+
+def test_backup_cleanup_failure_restores_previous_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    staging_dir, output_dir = _publication_fixture(tmp_path)
+    real_rmtree = runner.shutil.rmtree
+    cleanup_error = OSError("backup cleanup failed")
+
+    def fail_backup_cleanup(path: object, *args: object, **kwargs: object) -> None:
+        candidate = Path(path)
+        if (
+            candidate.parent == tmp_path
+            and candidate.name.startswith(".overlay.")
+            and candidate.name.endswith(".backup")
+        ):
+            raise cleanup_error
+        real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(runner.shutil, "rmtree", fail_backup_cleanup)
+
+    with pytest.raises(OSError, match="backup cleanup failed") as error:
+        runner._publish_staging(staging_dir, output_dir)
+
+    assert error.value is cleanup_error
+    assert _directory_bytes(output_dir) == {"previous.txt": b"previous"}
+    assert not staging_dir.exists()
+    assert not list(tmp_path.glob(".overlay.*.backup"))
+
+
+def test_backup_cleanup_and_rollback_failures_preserve_recoverable_backup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    staging_dir, output_dir = _publication_fixture(tmp_path)
+    real_rmtree = runner.shutil.rmtree
+    cleanup_error = OSError("backup cleanup failed")
+    rollback_error = OSError("rollback delete failed")
+
+    def fail_cleanup_and_rollback(
+        path: object,
+        *args: object,
+        **kwargs: object,
+    ) -> None:
+        candidate = Path(path)
+        if (
+            candidate.parent == tmp_path
+            and candidate.name.startswith(".overlay.")
+            and candidate.name.endswith(".backup")
+        ):
+            raise cleanup_error
+        if candidate == output_dir:
+            raise rollback_error
+        real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(runner.shutil, "rmtree", fail_cleanup_and_rollback)
+
+    with pytest.raises(RuntimeError, match="failed to roll back") as error:
+        runner._publish_staging(staging_dir, output_dir)
+
+    assert "OSError: backup cleanup failed" in str(error.value)
+    assert "OSError: rollback delete failed" in str(error.value)
+    assert error.value.original_error is cleanup_error
+    assert error.value.recovery_error is rollback_error
+    assert error.value.__cause__ is rollback_error
+    backups = list(tmp_path.glob(".overlay.*.backup"))
+    assert len(backups) == 1
+    assert _directory_bytes(backups[0]) == {"previous.txt": b"previous"}
+    assert _directory_bytes(output_dir) == {"current.txt": b"current"}
+    assert not staging_dir.exists()
+
+
 def test_runner_writes_complete_overlay_artifacts(tmp_path: Path) -> None:
     output_dir = tmp_path / "overlay"
 
@@ -216,6 +372,51 @@ def test_chart_failure_preserves_previous_output(
 
     assert marker.read_text(encoding="utf-8") == "previous"
     assert {path.name for path in output_dir.iterdir()} == {"previous-success.txt"}
+
+
+def test_operation_and_staging_cleanup_failures_preserve_both_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_dir = tmp_path / "overlay"
+    output_dir.mkdir()
+    marker = output_dir / "previous-success.txt"
+    marker.write_text("previous", encoding="utf-8")
+    real_rmtree = runner.shutil.rmtree
+    operation_error = RuntimeError("operation failed")
+    cleanup_error = OSError("staging cleanup failed")
+
+    def fail_render(**kwargs: object) -> None:
+        raise operation_error
+
+    def fail_staging_cleanup(
+        path: object,
+        *args: object,
+        **kwargs: object,
+    ) -> None:
+        candidate = Path(path)
+        if (
+            candidate.parent == tmp_path
+            and candidate.name.startswith(".overlay.")
+            and candidate.name.endswith(".staging")
+        ):
+            raise cleanup_error
+        real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(runner, "render_regime_comparison_charts", fail_render)
+    monkeypatch.setattr(runner.shutil, "rmtree", fail_staging_cleanup)
+
+    with pytest.raises(RuntimeError, match="operation.*staging cleanup") as error:
+        _run(output_dir, overwrite=True)
+
+    assert "RuntimeError: operation failed" in str(error.value)
+    assert "OSError: staging cleanup failed" in str(error.value)
+    assert error.value.original_error is operation_error
+    assert error.value.recovery_error is cleanup_error
+    assert error.value.__cause__ is cleanup_error
+    assert marker.read_text(encoding="utf-8") == "previous"
+    assert len(list(tmp_path.glob(".overlay.*.staging"))) == 1
+    assert not list(tmp_path.glob(".overlay.*.backup"))
 
 
 def test_runner_json_is_strict_and_dates_match_request(tmp_path: Path) -> None:

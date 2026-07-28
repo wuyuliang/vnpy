@@ -118,6 +118,21 @@ def _guard_output_directory(output_dir: Path, overwrite: bool) -> None:
         raise FileExistsError(f"output directory already contains files: {output_dir}")
 
 
+def _combined_runtime_error(
+    context: str,
+    original_error: Exception,
+    recovery_error: Exception,
+) -> RuntimeError:
+    error = RuntimeError(
+        f"{context}; original error "
+        f"{type(original_error).__name__}: {original_error}; recovery error "
+        f"{type(recovery_error).__name__}: {recovery_error}"
+    )
+    error.original_error = original_error
+    error.recovery_error = recovery_error
+    return error
+
+
 def _publish_staging(staging_dir: Path, output_dir: Path) -> None:
     backup_dir = output_dir.with_name(f".{output_dir.name}.{uuid4().hex}.backup")
     had_output = output_dir.exists()
@@ -125,15 +140,35 @@ def _publish_staging(staging_dir: Path, output_dir: Path) -> None:
         output_dir.replace(backup_dir)
     try:
         staging_dir.replace(output_dir)
-    except Exception:
-        if output_dir.exists():
-            shutil.rmtree(output_dir)
-        if had_output:
-            backup_dir.replace(output_dir)
+    except Exception as publish_error:
+        try:
+            if output_dir.exists():
+                shutil.rmtree(output_dir)
+            if had_output:
+                backup_dir.replace(output_dir)
+        except Exception as restore_error:
+            raise _combined_runtime_error(
+                "failed to restore previous output after publish failure",
+                publish_error,
+                restore_error,
+            ) from restore_error
         raise
     else:
         if had_output:
-            shutil.rmtree(backup_dir)
+            try:
+                shutil.rmtree(backup_dir)
+            except Exception as cleanup_error:
+                try:
+                    if output_dir.exists():
+                        shutil.rmtree(output_dir)
+                    backup_dir.replace(output_dir)
+                except Exception as rollback_error:
+                    raise _combined_runtime_error(
+                        "failed to roll back output after backup cleanup failure",
+                        cleanup_error,
+                        rollback_error,
+                    ) from rollback_error
+                raise
 
 
 def _validate_staged_outputs(
@@ -532,9 +567,16 @@ def run_regime_overlay_analysis(
         )
         _publish_staging(staging_dir, output_dir)
         return summary
-    except Exception:
+    except Exception as operation_error:
         if staging_dir.exists():
-            shutil.rmtree(staging_dir)
+            try:
+                shutil.rmtree(staging_dir)
+            except Exception as cleanup_error:
+                raise _combined_runtime_error(
+                    "backtest operation failed and staging cleanup failed",
+                    operation_error,
+                    cleanup_error,
+                ) from cleanup_error
         raise
 
 
