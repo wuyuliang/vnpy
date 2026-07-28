@@ -1,3 +1,4 @@
+import inspect
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -7,7 +8,10 @@ import pandas as pd
 from PIL import Image
 
 from stock.etf.render_trade_charts import (
+    _Fonts,
     _assign_marker_label_levels,
+    _draw_chart_panel,
+    _draw_metadata,
     aggregate_weekly_bars,
     build_trade_markers,
     make_chart_filename,
@@ -261,6 +265,61 @@ class TradeChartTransformTests(unittest.TestCase):
             with self.subTest(performance=performance):
                 with self.assertRaisesRegex(ValueError, "performance"):
                     render_symbol_card(**arguments, performance=performance)
+
+    def test_metadata_draws_performance_before_trade_statistics(self) -> None:
+        class RecordingDraw:
+            def __init__(self) -> None:
+                self.texts: list[str] = []
+
+            def rounded_rectangle(self, *_args: object, **_kwargs: object) -> None:
+                return None
+
+            def text(self, _position: object, text: object, **_kwargs: object) -> None:
+                self.texts.append(str(text))
+
+        trades = self._card_arguments()["trades"]
+        self.assertIsInstance(trades, pd.DataFrame)
+        draw = RecordingDraw()
+        performance = {
+            "total_return": 0.2345,
+            "max_drawdown": -0.1234,
+            "sharpe": 1.25,
+            "annual_one_way_turnover": 3.5,
+            "target_distribution": {
+                "0": {"days": 12, "fraction": 0.2},
+                "0.5": {"days": 18, "fraction": 0.3},
+                "1": {"days": 30, "fraction": 0.5},
+            },
+        }
+
+        _draw_metadata(
+            draw,
+            _Fonts(),
+            "159659.SZ",
+            "测试ETF",
+            "股票型ETF",
+            trades,
+            None,
+            1120,
+            performance,
+        )
+
+        performance_index = draw.texts.index("Performance")
+        for heading in ("Trades", "Cost / PnL", "Latest Position"):
+            with self.subTest(heading=heading):
+                self.assertLess(performance_index, draw.texts.index(heading))
+        self.assertIn("target 0%: 12 days (20.0%)", draw.texts)
+        self.assertIn("target 50%: 18 days (30.0%)", draw.texts)
+        self.assertIn("target 100%: 30 days (50.0%)", draw.texts)
+
+    def test_chart_panel_uses_draw_score_tracks_keyword(self) -> None:
+        parameters = inspect.signature(_draw_chart_panel).parameters
+
+        self.assertIn("draw_score_tracks", parameters)
+        self.assertEqual(
+            [name for name in parameters if name.startswith("draw_")],
+            ["draw_score_tracks"],
+        )
 
     def test_batch_render_records_symbol_with_missing_daily_data(self) -> None:
         with TemporaryDirectory() as directory:

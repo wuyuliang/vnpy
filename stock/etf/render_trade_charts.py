@@ -307,7 +307,8 @@ def render_symbol_card(
         daily_markers,
         fonts,
         state_scores=daily_state_scores,
-        draw_scores=daily_state_scores is not None and not daily_state_scores.empty,
+        draw_score_tracks=daily_state_scores is not None
+        and not daily_state_scores.empty,
     )
     return image
 
@@ -349,6 +350,35 @@ def _draw_metadata(
     y += 28
     instrument_lines = [symbol, name, fund_type]
     y = _draw_lines(draw, x, y, instrument_lines, fonts.body)
+    validated_performance = _validate_performance(performance)
+    if validated_performance is not None:
+        y += 12
+        draw.text((x, y), "Performance", fill=INK, font=fonts.heading)
+        y += 28
+        performance_lines = [
+            f"total return: {validated_performance['total_return']:.2%}",
+            f"max drawdown: {validated_performance['max_drawdown']:.2%}",
+            f"Sharpe: {validated_performance['sharpe']:.2f}",
+            (
+                "annual one-way turnover: "
+                f"{validated_performance['annual_one_way_turnover']:.2f}x"
+            ),
+        ]
+        y = _draw_lines(draw, x, y, performance_lines, fonts.body)
+        target_distribution = validated_performance.get("target_distribution")
+        if isinstance(target_distribution, Mapping):
+            y += 10
+            draw.text((x, y), "Target Distribution", fill=INK, font=fonts.heading)
+            y += 28
+            target_labels = {"0": "0%", "0.5": "50%", "1": "100%"}
+            target_lines = [
+                (
+                    f"target {target_labels[target]}: {entry['days']} days "
+                    f"({entry['fraction']:.1%})"
+                )
+                for target, entry in target_distribution.items()
+            ]
+            y = _draw_lines(draw, x, y, target_lines, fonts.body)
     y += 12
     draw.text((x, y), "Trades", fill=INK, font=fonts.heading)
     y += 28
@@ -386,31 +416,6 @@ def _draw_metadata(
             f"average price: {average_price:.4f}",
         ]
     y = _draw_lines(draw, x, y, position_lines, fonts.body)
-    validated_performance = _validate_performance(performance)
-    if validated_performance is not None:
-        y += 12
-        draw.text((x, y), "Performance", fill=INK, font=fonts.heading)
-        y += 28
-        performance_lines = [
-            f"total return: {validated_performance['total_return']:.2%}",
-            f"max drawdown: {validated_performance['max_drawdown']:.2%}",
-            f"Sharpe: {validated_performance['sharpe']:.2f}",
-            (
-                "annual one-way turnover: "
-                f"{validated_performance['annual_one_way_turnover']:.2f}x"
-            ),
-        ]
-        y = _draw_lines(draw, x, y, performance_lines, fonts.body)
-        target_distribution = validated_performance.get("target_distribution")
-        if isinstance(target_distribution, Mapping):
-            y += 10
-            draw.text((x, y), "Target Distribution", fill=INK, font=fonts.heading)
-            y += 28
-            target_lines = [
-                (f"target {target}: {entry['days']} days ({entry['fraction']:.1%})")
-                for target, entry in target_distribution.items()
-            ]
-            y = _draw_lines(draw, x, y, target_lines, fonts.body)
     y += 12
     draw.text((x, y), "Exit Reasons", fill=INK, font=fonts.heading)
     y += 28
@@ -523,7 +528,7 @@ def _draw_chart_panel(
     fonts: _Fonts,
     *,
     state_scores: pd.DataFrame | None = None,
-    draw_scores: bool = False,
+    draw_score_tracks: bool = False,
 ) -> None:
     left, top, right, bottom = rect
     draw.rounded_rectangle(rect, radius=14, fill=PANEL_BACKGROUND, outline="#e2d6bd")
@@ -532,12 +537,12 @@ def _draw_chart_panel(
         draw.text((left + 20, top + 62), "No OHLCV data", fill=MUTED, font=fonts.body)
         return
 
-    states = _normalize_state_scores(state_scores, require_scores=draw_scores)
+    states = _normalize_state_scores(state_scores, require_scores=draw_score_tracks)
     plot_left = left + 56
     plot_right = right - 18
     price_top = top + 40
-    score_top = bottom - 174 if draw_scores else None
-    score_bottom = bottom - 106 if draw_scores else None
+    score_top = bottom - 174 if draw_score_tracks else None
+    score_bottom = bottom - 106 if draw_score_tracks else None
     price_bottom = score_top - 18 if score_top is not None else bottom - 106
     volume_top = bottom - 88
     volume_bottom = bottom - 24
