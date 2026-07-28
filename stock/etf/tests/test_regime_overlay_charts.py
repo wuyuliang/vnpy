@@ -1,6 +1,7 @@
 import json
 import warnings
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -552,6 +553,8 @@ def test_render_comparison_overwrite_replaces_output_directory(
         "index.csv",
         "render_summary.json",
     }
+    assert not list(tmp_path.glob(".charts.*.staging"))
+    assert not list(tmp_path.glob(".charts.*.backup"))
 
 
 def test_render_comparison_invalid_state_writes_no_audit_files(
@@ -588,6 +591,12 @@ def test_render_comparison_propagates_image_save_failure(
 ) -> None:
     overlay_result, ema_result, ema_metrics = _comparison_results()
     output_dir = tmp_path / "charts"
+    output_dir.mkdir()
+    (output_dir / "old.png").write_bytes(b"old image")
+    (output_dir / "unknown.marker").write_bytes(b"keep me")
+    (output_dir / "index.csv").write_bytes(b"old index")
+    (output_dir / "render_summary.json").write_bytes(b"old audit")
+    old_contents = {path.name: path.read_bytes() for path in output_dir.iterdir()}
 
     def fail_save(_image: Image.Image, _path: object) -> None:
         raise OSError("disk full")
@@ -604,7 +613,50 @@ def test_render_comparison_propagates_image_save_failure(
             output_dir=output_dir,
             report_start="2026-01-05",
             report_end="2026-02-27",
+            overwrite=True,
         )
 
-    assert not (output_dir / "index.csv").exists()
-    assert not (output_dir / "render_summary.json").exists()
+    assert {
+        path.name: path.read_bytes() for path in output_dir.iterdir()
+    } == old_contents
+    assert not list(tmp_path.glob(".charts.*.staging"))
+    assert not list(tmp_path.glob(".charts.*.backup"))
+
+
+def test_render_comparison_restores_backup_when_publish_fails(
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    overlay_result, ema_result, ema_metrics = _comparison_results()
+    output_dir = tmp_path / "charts"
+    output_dir.mkdir()
+    (output_dir / "old.png").write_bytes(b"old image")
+    (output_dir / "unknown.marker").write_bytes(b"keep me")
+    old_contents = {path.name: path.read_bytes() for path in output_dir.iterdir()}
+    real_replace = Path.replace
+
+    def fail_staging_publish(path: Path, target: object) -> Path:
+        if path.name.endswith(".staging") and Path(target) == output_dir:
+            raise OSError("publish failed")
+        return real_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", fail_staging_publish)
+
+    with pytest.raises(OSError, match="publish failed"):
+        render_regime_comparison_charts(
+            symbol="159915.SZ",
+            name="易方达创业板ETF",
+            overlay_result=overlay_result,
+            ema_result=ema_result,
+            ema_metrics=ema_metrics,
+            output_dir=output_dir,
+            report_start="2026-01-05",
+            report_end="2026-02-27",
+            overwrite=True,
+        )
+
+    assert {
+        path.name: path.read_bytes() for path in output_dir.iterdir()
+    } == old_contents
+    assert not list(tmp_path.glob(".charts.*.staging"))
+    assert not list(tmp_path.glob(".charts.*.backup"))

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import numpy as np
 import pandas as pd
@@ -183,6 +184,62 @@ def _index_row(
     }
 
 
+def _validate_staged_artifacts(
+    staging_path: Path,
+    filenames: list[str],
+    index: pd.DataFrame,
+    summary: Mapping[str, object],
+) -> None:
+    expected_files = {*filenames, "index.csv", "render_summary.json"}
+    actual_files = {path.name for path in staging_path.iterdir()}
+    if actual_files != expected_files:
+        raise RuntimeError("staged charts do not match expected files")
+
+    for filename in filenames:
+        image_path = staging_path / filename
+        if not image_path.is_file() or image_path.stat().st_size == 0:
+            raise RuntimeError(f"staged image is missing or empty: {filename}")
+        with Image.open(image_path) as image:
+            image.verify()
+
+    staged_index = pd.read_csv(staging_path / "index.csv")
+    if (
+        staged_index.columns.tolist() != INDEX_COLUMNS
+        or staged_index["image_path"].tolist() != index["image_path"].tolist()
+    ):
+        raise RuntimeError("staged index does not match expected rows")
+    for image_path in staged_index["image_path"]:
+        if not (staging_path / image_path).is_file():
+            raise FileNotFoundError(f"index image_path does not exist: {image_path}")
+
+    staged_summary = json.loads(
+        (staging_path / "render_summary.json").read_text(encoding="utf-8"),
+        parse_constant=lambda value: (_ for _ in ()).throw(
+            ValueError(f"non-standard JSON constant: {value}")
+        ),
+    )
+    if staged_summary != summary:
+        raise RuntimeError("staged render summary does not match expected data")
+
+
+def _publish_staging(staging_path: Path, output_path: Path) -> None:
+    backup_path = output_path.with_name(f".{output_path.name}.{uuid4().hex}.backup")
+    had_output = output_path.exists()
+    if had_output:
+        output_path.replace(backup_path)
+    try:
+        staging_path.replace(output_path)
+    except Exception:
+        if output_path.exists():
+            shutil.rmtree(output_path)
+        if had_output:
+            backup_path.replace(output_path)
+        raise
+    else:
+        if had_output:
+            shutil.rmtree(backup_path)
+
+
 def render_regime_comparison_charts(
     *,
     symbol: str,
@@ -318,21 +375,21 @@ def render_regime_comparison_charts(
         indent=2,
     )
 
-    if overwrite and output_path.exists():
-        shutil.rmtree(output_path)
-    output_path.mkdir(parents=True, exist_ok=True)
-    for (image, _), filename in zip(images, filenames, strict=True):
-        image.save(output_path / filename)
-    for filename in filenames:
-        with Image.open(output_path / filename) as image:
-            image.verify()
-
-    index.to_csv(output_path / "index.csv", index=False)
-    for image_path in index["image_path"]:
-        if not (output_path / image_path).is_file():
-            raise FileNotFoundError(f"index image_path does not exist: {image_path}")
-    (output_path / "render_summary.json").write_text(
-        summary_json,
-        encoding="utf-8",
-    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    staging_path = output_path.with_name(f".{output_path.name}.{uuid4().hex}.staging")
+    staging_path.mkdir()
+    try:
+        for (image, _), filename in zip(images, filenames, strict=True):
+            image.save(staging_path / filename)
+        index.to_csv(staging_path / "index.csv", index=False)
+        (staging_path / "render_summary.json").write_text(
+            summary_json,
+            encoding="utf-8",
+        )
+        _validate_staged_artifacts(staging_path, filenames, index, summary)
+        _publish_staging(staging_path, output_path)
+    except Exception:
+        if staging_path.exists():
+            shutil.rmtree(staging_path)
+        raise
     return summary
