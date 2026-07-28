@@ -152,39 +152,115 @@ class TradeChartTransformTests(unittest.TestCase):
         self.assertEqual(filename, "0001_159659_SZ_招商纳斯达克100ETF_QDII.png")
 
     def test_render_symbol_card_creates_expected_png(self) -> None:
-        dates = pd.bdate_range("2026-03-02", periods=60)
-        daily = self._bars(dates)
-        weekly = aggregate_weekly_bars(daily)
-        trades = pd.DataFrame(
-            {
-                "datetime": [dates[30], dates[45]],
-                "side": ["buy", "sell"],
-                "fill_price": [15.0, 18.0],
-                "quantity": [1000, 1000],
-                "commission": [5.0, 5.0],
-                "slippage_cost": [2.0, 2.0],
-                "realized_pnl": [0.0, 2990.0],
-                "primary_reason": ["rs_top5", "rs_out_top10"],
-            }
-        )
+        arguments = self._card_arguments()
 
-        image = render_symbol_card(
-            symbol="159659.SZ",
-            name="招商纳斯达克100ETF(QDII)",
-            fund_type="股票型ETF",
-            daily_bars=daily,
-            weekly_bars=weekly,
-            trades=trades,
-            latest_position=None,
-            report_start=pd.Timestamp("2026-05-17"),
-            report_end=pd.Timestamp("2026-07-17"),
+        image = render_symbol_card(**arguments)
+        explicit_defaults = render_symbol_card(
+            **arguments,
+            review_label="ETF Rotation Trade Review",
+            performance=None,
+            daily_state_scores=None,
+            weekly_state_scores=None,
         )
 
         self.assertEqual(image.size, (1680, 1000))
+        self.assertEqual(image.tobytes(), explicit_defaults.tobytes())
         with TemporaryDirectory() as directory:
             path = Path(directory) / "chart.png"
             image.save(path)
             self.assertGreater(path.stat().st_size, 10_000)
+
+    def test_render_symbol_card_draws_regime_layers_and_scores(self) -> None:
+        arguments = self._card_arguments()
+        dates = pd.bdate_range("2026-03-02", periods=60)
+        weekly = aggregate_weekly_bars(self._bars(dates))
+        daily_states = self._state_scores(dates + pd.Timedelta(hours=15))
+        weekly_states = self._state_scores(
+            pd.DatetimeIndex(weekly["datetime"]) + pd.Timedelta(hours=15)
+        )
+        performance = {
+            "total_return": 0.2345,
+            "max_drawdown": -0.1234,
+            "sharpe": 1.25,
+            "annual_one_way_turnover": 3.5,
+            "target_distribution": {
+                "0": {"days": 12, "fraction": 0.2},
+                "0.5": {"days": 18, "fraction": 0.3},
+                "1": {"days": 30, "fraction": 0.5},
+            },
+        }
+
+        image = render_symbol_card(
+            **arguments,
+            review_label="Regime Overlay Review",
+            performance=performance,
+            daily_state_scores=daily_states,
+            weekly_state_scores=weekly_states,
+        )
+        without_performance = render_symbol_card(
+            **arguments,
+            review_label="Regime Overlay Review",
+            daily_state_scores=daily_states,
+            weekly_state_scores=weekly_states,
+        )
+        legacy = render_symbol_card(**arguments)
+
+        self.assertEqual(image.size, (1680, 1120))
+        self.assertNotEqual(
+            image.crop((0, 40, 1680, 80)).tobytes(),
+            legacy.crop((0, 40, 1680, 80)).tobytes(),
+        )
+        self.assertNotEqual(
+            image.crop((16, 520, 430, 1050)).tobytes(),
+            without_performance.crop((16, 520, 430, 1050)).tobytes(),
+        )
+
+        pixels = np.asarray(image)
+        state_colors = [(243, 193, 188), (159, 216, 181)]
+        weekly_price_area = pixels[144:486, 514:1639]
+        daily_price_area = pixels[649:905, 514:1639]
+        for color in state_colors:
+            with self.subTest(area="weekly", color=color):
+                count = np.all(weekly_price_area == color, axis=2).sum()
+                self.assertGreater(int(count), 1_000)
+            with self.subTest(area="daily", color=color):
+                count = np.all(daily_price_area == color, axis=2).sum()
+                self.assertGreater(int(count), 1_000)
+
+        score_area = pixels[915:997, 514:1639]
+        for color in [(37, 99, 235), (217, 119, 6)]:
+            with self.subTest(score_color=color):
+                mask = np.all(score_area == color, axis=2)
+                self.assertGreater(int(mask.sum()), 100)
+                self.assertGreater(int(mask.any(axis=1).sum()), 8)
+
+    def test_render_symbol_card_rejects_invalid_review_label(self) -> None:
+        arguments = self._card_arguments()
+
+        for review_label in (None, "", "   ", 123):
+            with self.subTest(review_label=review_label):
+                with self.assertRaisesRegex(ValueError, "review_label"):
+                    render_symbol_card(**arguments, review_label=review_label)
+
+    def test_render_symbol_card_rejects_invalid_performance(self) -> None:
+        arguments = self._card_arguments()
+        valid = {
+            "total_return": 0.2,
+            "max_drawdown": -0.1,
+            "sharpe": 1.0,
+            "annual_one_way_turnover": 2.0,
+        }
+
+        invalid_performance = [
+            "not-a-mapping",
+            {"total_return": 0.2},
+            {**valid, "sharpe": np.inf},
+            {**valid, "max_drawdown": np.nan},
+        ]
+        for performance in invalid_performance:
+            with self.subTest(performance=performance):
+                with self.assertRaisesRegex(ValueError, "performance"):
+                    render_symbol_card(**arguments, performance=performance)
 
     def test_batch_render_records_symbol_with_missing_daily_data(self) -> None:
         with TemporaryDirectory() as directory:
@@ -429,6 +505,58 @@ class TradeChartTransformTests(unittest.TestCase):
             self.assertTrue(bool(index.loc[0, "is_open"]))
             self.assertEqual(summary["missing_daily_data"], 0)
             self.assertEqual(summary["missing_names"], 0)
+
+    @staticmethod
+    def _card_arguments() -> dict[str, object]:
+        dates = pd.bdate_range("2026-03-02", periods=60)
+        daily = TradeChartTransformTests._bars(dates)
+        return {
+            "symbol": "159659.SZ",
+            "name": "招商纳斯达克100ETF(QDII)",
+            "fund_type": "股票型ETF",
+            "daily_bars": daily,
+            "weekly_bars": aggregate_weekly_bars(daily),
+            "trades": pd.DataFrame(
+                {
+                    "datetime": [dates[30], dates[45]],
+                    "side": ["buy", "sell"],
+                    "fill_price": [15.0, 18.0],
+                    "quantity": [1000, 1000],
+                    "commission": [5.0, 5.0],
+                    "slippage_cost": [2.0, 2.0],
+                    "realized_pnl": [0.0, 2990.0],
+                    "primary_reason": ["rs_top5", "rs_out_top10"],
+                }
+            ),
+            "latest_position": None,
+            "report_start": pd.Timestamp("2026-05-17"),
+            "report_end": pd.Timestamp("2026-07-17"),
+        }
+
+    @staticmethod
+    def _state_scores(dates: pd.DatetimeIndex) -> pd.DataFrame:
+        split = len(dates) // 2
+        score_1d = np.concatenate(
+            [
+                np.linspace(-2.8, -0.4, split),
+                np.linspace(0.4, 2.8, len(dates) - split),
+            ]
+        )
+        score_3d = np.concatenate(
+            [
+                np.linspace(-2.5, -1.0, split),
+                np.linspace(1.0, 2.5, len(dates) - split),
+            ]
+        )
+        return pd.DataFrame(
+            {
+                "datetime": dates,
+                "score_1d": score_1d,
+                "score_3d": score_3d,
+                "state_3d": ["趋势向下"] * split + ["趋势向上"] * (len(dates) - split),
+                "state_color": ["#f3c1bc"] * split + ["#9fd8b5"] * (len(dates) - split),
+            }
+        )
 
     @staticmethod
     def _bars(dates: pd.DatetimeIndex) -> pd.DataFrame:

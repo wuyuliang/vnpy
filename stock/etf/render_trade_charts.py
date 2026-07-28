@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from functools import lru_cache
+from numbers import Real
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +33,7 @@ INDEX_COLUMNS = [
 ]
 CARD_WIDTH = 1680
 CARD_HEIGHT = 1000
+STATE_CARD_HEIGHT = 1120
 LEFT_WIDTH = 430
 HEADER_HEIGHT = 82
 BACKGROUND = "#f7f4ed"
@@ -44,6 +47,14 @@ DOWN_COLOR = "#16835f"
 FLAT_COLOR = "#6b7280"
 BUY_COLOR = "#2563eb"
 SELL_COLOR = "#d97706"
+SCORE_1D_COLOR = "#2563eb"
+SCORE_3D_COLOR = "#d97706"
+PERFORMANCE_KEYS = (
+    "total_return",
+    "max_drawdown",
+    "sharpe",
+    "annual_one_way_turnover",
+)
 TARGET_WEIGHT_REASON = re.compile(
     r"^target_weight_(?:0(?:\.0)?|0\.5|1(?:\.0)?)_to_(0(?:\.0)?|0\.5|1(?:\.0)?)$"
 )
@@ -231,9 +242,21 @@ def render_symbol_card(
     latest_position: pd.Series | dict[str, Any] | None,
     report_start: object,
     report_end: object,
+    review_label: str = "ETF Rotation Trade Review",
+    performance: Mapping[str, object] | None = None,
+    daily_state_scores: pd.DataFrame | None = None,
+    weekly_state_scores: pd.DataFrame | None = None,
 ) -> Image.Image:
     """Render one ETF review card with weekly/daily candlesticks and volume."""
-    image = Image.new("RGB", (CARD_WIDTH, CARD_HEIGHT), BACKGROUND)
+    if not isinstance(review_label, str) or not review_label.strip():
+        raise ValueError("review_label must be a non-empty string")
+    review_label = review_label.strip()
+    has_state_scores = any(
+        frame is not None and not frame.empty
+        for frame in (daily_state_scores, weekly_state_scores)
+    )
+    card_height = STATE_CARD_HEIGHT if has_state_scores else CARD_HEIGHT
+    image = Image.new("RGB", (CARD_WIDTH, card_height), BACKGROUND)
     draw = ImageDraw.Draw(image)
     fonts = _Fonts()
     start = pd.Timestamp(report_start)
@@ -243,17 +266,27 @@ def render_symbol_card(
     draw.text((24, 14), f"{symbol}  {name}", fill="#fff8e8", font=fonts.title)
     draw.text(
         (24, 51),
-        f"{fund_type}  |  ETF Rotation Trade Review  |  {start.date()} to {end.date()}",
+        f"{fund_type}  |  {review_label}  |  {start.date()} to {end.date()}",
         fill="#dbe7ef",
         font=fonts.subtitle,
     )
 
-    _draw_metadata(draw, fonts, symbol, name, fund_type, trades, latest_position)
+    _draw_metadata(
+        draw,
+        fonts,
+        symbol,
+        name,
+        fund_type,
+        trades,
+        latest_position,
+        card_height,
+        performance,
+    )
     chart_left = LEFT_WIDTH + 28
     chart_right = CARD_WIDTH - 24
     chart_top = HEADER_HEIGHT + 22
     panel_gap = 18
-    panel_height = (CARD_HEIGHT - chart_top - 24 - panel_gap) // 2
+    panel_height = (card_height - chart_top - 24 - panel_gap) // 2
     weekly_markers = build_trade_markers(trades, weekly=True)
     daily_markers = build_trade_markers(trades, weekly=False)
     _draw_chart_panel(
@@ -263,6 +296,7 @@ def render_symbol_card(
         normalize_bars(weekly_bars),
         weekly_markers,
         fonts,
+        state_scores=weekly_state_scores,
     )
     daily_top = chart_top + panel_height + panel_gap
     _draw_chart_panel(
@@ -272,6 +306,8 @@ def render_symbol_card(
         normalize_bars(daily_bars),
         daily_markers,
         fonts,
+        state_scores=daily_state_scores,
+        draw_scores=daily_state_scores is not None and not daily_state_scores.empty,
     )
     return image
 
@@ -284,11 +320,13 @@ def _draw_metadata(
     fund_type: str,
     trades: pd.DataFrame,
     latest_position: pd.Series | dict[str, Any] | None,
+    card_height: int = CARD_HEIGHT,
+    performance: Mapping[str, object] | None = None,
 ) -> None:
     left = 16
     top = HEADER_HEIGHT + 14
     right = LEFT_WIDTH
-    bottom = CARD_HEIGHT - 24
+    bottom = card_height - 24
     draw.rounded_rectangle(
         (left, top, right, bottom), radius=14, fill="#fffaf0", outline="#e2d6bd"
     )
@@ -348,11 +386,104 @@ def _draw_metadata(
             f"average price: {average_price:.4f}",
         ]
     y = _draw_lines(draw, x, y, position_lines, fonts.body)
+    validated_performance = _validate_performance(performance)
+    if validated_performance is not None:
+        y += 12
+        draw.text((x, y), "Performance", fill=INK, font=fonts.heading)
+        y += 28
+        performance_lines = [
+            f"total return: {validated_performance['total_return']:.2%}",
+            f"max drawdown: {validated_performance['max_drawdown']:.2%}",
+            f"Sharpe: {validated_performance['sharpe']:.2f}",
+            (
+                "annual one-way turnover: "
+                f"{validated_performance['annual_one_way_turnover']:.2f}x"
+            ),
+        ]
+        y = _draw_lines(draw, x, y, performance_lines, fonts.body)
+        target_distribution = validated_performance.get("target_distribution")
+        if isinstance(target_distribution, Mapping):
+            y += 10
+            draw.text((x, y), "Target Distribution", fill=INK, font=fonts.heading)
+            y += 28
+            target_lines = [
+                (f"target {target}: {entry['days']} days ({entry['fraction']:.1%})")
+                for target, entry in target_distribution.items()
+            ]
+            y = _draw_lines(draw, x, y, target_lines, fonts.body)
     y += 12
     draw.text((x, y), "Exit Reasons", fill=INK, font=fonts.heading)
     y += 28
     reason_lines = exit_reasons or ["none"]
     _draw_lines(draw, x, y, reason_lines, fonts.body)
+
+
+def _validate_performance(
+    performance: Mapping[str, object] | None,
+) -> dict[str, Any] | None:
+    if performance is None:
+        return None
+    if not isinstance(performance, Mapping):
+        raise ValueError("performance must be a mapping")
+    if not performance:
+        return None
+    missing = set(PERFORMANCE_KEYS) - set(performance)
+    if missing:
+        raise ValueError(f"performance missing keys: {sorted(missing)}")
+
+    validated: dict[str, Any] = dict(performance)
+    for key in PERFORMANCE_KEYS:
+        value = performance[key]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, Real)
+            or not math.isfinite(float(value))
+        ):
+            raise ValueError(f"performance[{key!r}] must be a finite number")
+        validated[key] = float(value)
+
+    if "target_distribution" in performance:
+        distribution = performance["target_distribution"]
+        if not isinstance(distribution, Mapping):
+            raise ValueError("performance['target_distribution'] must be a mapping")
+        normalized_distribution: dict[str, dict[str, int | float]] = {}
+        for target in ("0", "0.5", "1"):
+            entry = distribution.get(target, {"days": 0, "fraction": 0.0})
+            if not isinstance(entry, Mapping):
+                raise ValueError(
+                    f"performance target_distribution[{target!r}] must be a mapping"
+                )
+            if "days" not in entry or "fraction" not in entry:
+                raise ValueError(
+                    "performance target_distribution entries require days and fraction"
+                )
+            days = entry["days"]
+            fraction = entry["fraction"]
+            if (
+                isinstance(days, bool)
+                or not isinstance(days, Real)
+                or not math.isfinite(float(days))
+                or float(days) < 0
+                or not float(days).is_integer()
+            ):
+                raise ValueError(
+                    "performance target_distribution days must be a non-negative integer"
+                )
+            if (
+                isinstance(fraction, bool)
+                or not isinstance(fraction, Real)
+                or not math.isfinite(float(fraction))
+                or not 0.0 <= float(fraction) <= 1.0
+            ):
+                raise ValueError(
+                    "performance target_distribution fraction must be between 0 and 1"
+                )
+            normalized_distribution[target] = {
+                "days": int(days),
+                "fraction": float(fraction),
+            }
+        validated["target_distribution"] = normalized_distribution
+    return validated
 
 
 def _mapping_value(
@@ -390,6 +521,9 @@ def _draw_chart_panel(
     bars: pd.DataFrame,
     markers: pd.DataFrame,
     fonts: _Fonts,
+    *,
+    state_scores: pd.DataFrame | None = None,
+    draw_scores: bool = False,
 ) -> None:
     left, top, right, bottom = rect
     draw.rounded_rectangle(rect, radius=14, fill=PANEL_BACKGROUND, outline="#e2d6bd")
@@ -398,10 +532,13 @@ def _draw_chart_panel(
         draw.text((left + 20, top + 62), "No OHLCV data", fill=MUTED, font=fonts.body)
         return
 
+    states = _normalize_state_scores(state_scores, require_scores=draw_scores)
     plot_left = left + 56
     plot_right = right - 18
     price_top = top + 40
-    price_bottom = bottom - 106
+    score_top = bottom - 174 if draw_scores else None
+    score_bottom = bottom - 106 if draw_scores else None
+    price_bottom = score_top - 18 if score_top is not None else bottom - 106
     volume_top = bottom - 88
     volume_bottom = bottom - 24
     price_min = float(bars["low"].min())
@@ -415,6 +552,19 @@ def _draw_chart_panel(
         ratio = (price_max - value) / (price_max - price_min)
         return int(price_top + ratio * (price_bottom - price_top))
 
+    count = len(bars)
+    plot_width = plot_right - plot_left
+    step = plot_width / max(count, 1)
+    _draw_state_backgrounds(
+        draw,
+        bars,
+        states,
+        plot_left,
+        price_top,
+        plot_right,
+        price_bottom,
+        step,
+    )
     for grid_index in range(5):
         y = int(price_top + grid_index * (price_bottom - price_top) / 4)
         draw.line((plot_left, y, plot_right, y), fill=GRID, width=1)
@@ -430,9 +580,6 @@ def _draw_chart_panel(
     )
     draw.text((left + 6, volume_top + 3), "Vol", fill=MUTED, font=fonts.tiny)
 
-    count = len(bars)
-    plot_width = plot_right - plot_left
-    step = plot_width / max(count, 1)
     candle_width = max(2, min(11, int(step * 0.62)))
     x_by_date: dict[pd.Timestamp, int] = {}
     for index, row in bars.iterrows():
@@ -480,6 +627,18 @@ def _draw_chart_panel(
             fill=color,
         )
 
+    if score_top is not None and score_bottom is not None:
+        _draw_score_track(
+            draw,
+            bars,
+            states,
+            plot_left,
+            plot_right,
+            score_top,
+            score_bottom,
+            step,
+            fonts,
+        )
     _draw_trade_markers(
         draw, markers, x_by_date, price_y, price_top, price_bottom, fonts
     )
@@ -490,6 +649,214 @@ def _draw_chart_panel(
         label = pd.Timestamp(row["datetime"]).strftime("%Y-%m-%d")
         anchor = "la" if index == 0 else "ra" if index == count - 1 else "ma"
         draw.text((x, bottom - 10), label, fill=MUTED, font=fonts.tiny, anchor=anchor)
+    _draw_state_legend(draw, states, left, top, right, fonts)
+    if score_top is not None:
+        _draw_score_legend(draw, plot_left, price_bottom, fonts)
+
+
+def _normalize_state_scores(
+    state_scores: pd.DataFrame | None,
+    *,
+    require_scores: bool,
+) -> pd.DataFrame | None:
+    if state_scores is None or state_scores.empty:
+        return None
+    if not isinstance(state_scores, pd.DataFrame):
+        raise ValueError("state_scores must be a DataFrame")
+    required = {"datetime", "state_3d", "state_color"}
+    if require_scores:
+        required.update({"score_1d", "score_3d"})
+    missing = required - set(state_scores.columns)
+    if missing:
+        raise ValueError(f"state_scores missing columns: {sorted(missing)}")
+
+    states = state_scores.copy()
+    states["datetime"] = pd.to_datetime(
+        states["datetime"], errors="coerce"
+    ).dt.normalize()
+    if require_scores:
+        for column in ("score_1d", "score_3d"):
+            states[column] = pd.to_numeric(states[column], errors="coerce")
+    return states
+
+
+def _draw_state_backgrounds(
+    draw: ImageDraw.ImageDraw,
+    bars: pd.DataFrame,
+    states: pd.DataFrame | None,
+    plot_left: int,
+    price_top: int,
+    plot_right: int,
+    price_bottom: int,
+    step: float,
+) -> None:
+    if states is None:
+        return
+    color_by_date: dict[pd.Timestamp, str] = {}
+    for _, row in states.iterrows():
+        date = row["datetime"]
+        color = row["state_color"]
+        if pd.isna(date) or pd.isna(color) or not str(color).strip():
+            continue
+        color_by_date[pd.Timestamp(date).normalize()] = str(color)
+
+    segments: list[tuple[int, int, str]] = []
+    segment_start = 0
+    segment_color: str | None = None
+    for index, row in bars.iterrows():
+        date = pd.Timestamp(row["datetime"]).normalize()
+        color = color_by_date.get(date)
+        if color == segment_color:
+            continue
+        if segment_color is not None:
+            segments.append((segment_start, index - 1, segment_color))
+        segment_start = index
+        segment_color = color
+    if segment_color is not None:
+        segments.append((segment_start, len(bars) - 1, segment_color))
+
+    for start, end, color in segments:
+        segment_left = max(plot_left, int(plot_left + start * step))
+        segment_right = min(plot_right, int(plot_left + (end + 1) * step))
+        draw.rectangle(
+            (segment_left, price_top, segment_right, price_bottom),
+            fill=color,
+        )
+
+
+def _draw_score_track(
+    draw: ImageDraw.ImageDraw,
+    bars: pd.DataFrame,
+    states: pd.DataFrame | None,
+    plot_left: int,
+    plot_right: int,
+    score_top: int,
+    score_bottom: int,
+    step: float,
+    fonts: _Fonts,
+) -> None:
+    draw.rectangle((plot_left, score_top, plot_right, score_bottom), outline="#cabfa9")
+
+    def score_y(value: float) -> int:
+        return int(score_top + (3.0 - value) / 6.0 * (score_bottom - score_top))
+
+    for reference in (-2, -1, 0, 1, 2):
+        y = score_y(float(reference))
+        color = MUTED if reference == 0 else GRID
+        draw.line((plot_left, y, plot_right, y), fill=color, width=1)
+        draw.text(
+            (plot_left - 5, y),
+            str(reference),
+            fill=MUTED,
+            font=fonts.tiny,
+            anchor="rm",
+        )
+    draw.text(
+        (plot_left - 5, score_top),
+        "3",
+        fill=MUTED,
+        font=fonts.tiny,
+        anchor="ra",
+    )
+    draw.text(
+        (plot_left - 5, score_bottom),
+        "-3",
+        fill=MUTED,
+        font=fonts.tiny,
+        anchor="rd",
+    )
+    if states is None:
+        return
+
+    scores_by_date: dict[pd.Timestamp, tuple[object, object]] = {}
+    for _, row in states.iterrows():
+        date = row["datetime"]
+        if pd.isna(date):
+            continue
+        scores_by_date[pd.Timestamp(date).normalize()] = (
+            row["score_1d"],
+            row["score_3d"],
+        )
+
+    for score_index, color in (
+        (0, SCORE_1D_COLOR),
+        (1, SCORE_3D_COLOR),
+    ):
+        previous: tuple[int, int] | None = None
+        for index, row in bars.iterrows():
+            date = pd.Timestamp(row["datetime"]).normalize()
+            scores = scores_by_date.get(date)
+            if scores is None:
+                previous = None
+                continue
+            score = scores[score_index]
+            if pd.isna(score) or not math.isfinite(float(score)):
+                previous = None
+                continue
+            x = int(plot_left + (index + 0.5) * step)
+            point = (x, score_y(float(score)))
+            if previous is None:
+                draw.ellipse(
+                    (point[0] - 1, point[1] - 1, point[0] + 1, point[1] + 1),
+                    fill=color,
+                )
+            else:
+                draw.line((*previous, *point), fill=color, width=2)
+            previous = point
+
+
+def _draw_state_legend(
+    draw: ImageDraw.ImageDraw,
+    states: pd.DataFrame | None,
+    left: int,
+    top: int,
+    right: int,
+    fonts: _Fonts,
+) -> None:
+    if states is None:
+        return
+    entries: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for _, row in states.iterrows():
+        state = row["state_3d"]
+        color = row["state_color"]
+        if pd.isna(state) or pd.isna(color):
+            continue
+        entry = (str(state), str(color))
+        if entry not in seen:
+            entries.append(entry)
+            seen.add(entry)
+    if not entries:
+        return
+
+    x = left + 330
+    y = top + 12
+    draw.text((x, y), "State:", fill=MUTED, font=fonts.tiny)
+    x += 38
+    for state, color in entries:
+        text_width = int(draw.textlength(state, font=fonts.tiny))
+        if x + text_width + 22 > right - 8:
+            break
+        draw.rectangle((x, y + 1, x + 11, y + 11), fill=color, outline="#cabfa9")
+        draw.text((x + 15, y), state, fill=INK, font=fonts.tiny)
+        x += text_width + 28
+
+
+def _draw_score_legend(
+    draw: ImageDraw.ImageDraw,
+    plot_left: int,
+    price_bottom: int,
+    fonts: _Fonts,
+) -> None:
+    y = price_bottom + 3
+    x = plot_left
+    for label, color in (
+        ("score_1d", SCORE_1D_COLOR),
+        ("score_3d", SCORE_3D_COLOR),
+    ):
+        draw.line((x, y + 6, x + 18, y + 6), fill=color, width=3)
+        draw.text((x + 23, y), label, fill=INK, font=fonts.tiny)
+        x += 102
 
 
 def _draw_trade_markers(
