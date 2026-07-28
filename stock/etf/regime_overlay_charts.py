@@ -136,7 +136,19 @@ def _latest_position(
 ) -> pd.Series | None:
     if "datetime" not in positions.columns:
         raise ValueError("positions missing datetime column")
-    dates = pd.to_datetime(positions["datetime"], errors="coerce").dt.normalize()
+    try:
+        dates = pd.to_datetime(
+            positions["datetime"],
+            format="mixed",
+            errors="raise",
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("position datetime must contain parseable dates") from exc
+    if dates.isna().any():
+        raise ValueError("position datetime must not be missing")
+    if dates.dt.tz is not None:
+        raise ValueError("position datetime must be timezone-naive")
+    dates = dates.dt.normalize()
     rows = positions.loc[dates.eq(report_end.normalize())]
     return None if rows.empty else rows.iloc[-1]
 
@@ -144,16 +156,63 @@ def _latest_position(
 def _position_is_open(position: pd.Series | None) -> bool:
     if position is None:
         return False
+    missing = {"quantity", "weight"} - set(position.index)
+    if missing:
+        raise ValueError(f"position missing columns: {sorted(missing)}")
+    open_states = []
     for column in ("quantity", "weight"):
-        value = position.get(column)
+        value = position[column]
         if (
-            not isinstance(value, bool)
-            and isinstance(value, (int, float, np.integer, np.floating))
-            and isfinite(float(value))
-            and float(value) > 0
+            isinstance(value, bool)
+            or not isinstance(value, (int, float, np.integer, np.floating))
+            or not isfinite(float(value))
+            or float(value) < 0
         ):
-            return True
-    return False
+            raise ValueError(f"position {column} must be a finite non-negative number")
+        open_states.append(float(value) > 0)
+    if open_states[0] != open_states[1]:
+        raise ValueError("position quantity and weight open state conflict")
+    return open_states[0]
+
+
+def _normalize_trades(trades: pd.DataFrame, strategy: str) -> pd.DataFrame:
+    if "side" not in trades.columns:
+        raise ValueError(f"{strategy} trades missing side column")
+    normalized = trades.copy()
+    sides: list[str] = []
+    for value in normalized["side"]:
+        if not isinstance(value, str):
+            raise ValueError(f"{strategy} trade side must be buy or sell")
+        side = value.strip().lower()
+        if side not in {"buy", "sell"}:
+            raise ValueError(f"{strategy} trade side must be buy or sell")
+        sides.append(side)
+    normalized["side"] = sides
+    return normalized
+
+
+def _target_distribution(signals: pd.DataFrame) -> dict[str, dict[str, int | float]]:
+    if "target_weight" not in signals.columns:
+        raise ValueError("signals missing target_weight column")
+    counts = {0.0: 0, 0.5: 0, 1.0: 0}
+    for value in signals["target_weight"]:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float, np.integer, np.floating))
+            or not isfinite(float(value))
+            or float(value) not in counts
+        ):
+            raise ValueError("target_weight must be 0, 0.5, or 1")
+        counts[float(value)] += 1
+    if sum(counts.values()) != len(signals):
+        raise ValueError("target_weight distribution does not cover all signals")
+    return {
+        f"{weight:g}": {
+            "days": count,
+            "fraction": count / len(signals),
+        }
+        for weight, count in counts.items()
+    }
 
 
 def _index_row(
@@ -187,6 +246,7 @@ def _index_row(
 def _validate_staged_artifacts(
     staging_path: Path,
     filenames: list[str],
+    image_sizes: Mapping[str, tuple[int, int]],
     index: pd.DataFrame,
     summary: Mapping[str, object],
 ) -> None:
@@ -200,6 +260,11 @@ def _validate_staged_artifacts(
         if not image_path.is_file() or image_path.stat().st_size == 0:
             raise RuntimeError(f"staged image is missing or empty: {filename}")
         with Image.open(image_path) as image:
+            if image.size != image_sizes[filename]:
+                raise RuntimeError(
+                    f"staged image {filename} has size {image.size}, "
+                    f"expected {image_sizes[filename]}"
+                )
             image.verify()
 
     staged_index = pd.read_csv(staging_path / "index.csv")
@@ -222,6 +287,21 @@ def _validate_staged_artifacts(
         raise RuntimeError("staged render summary does not match expected data")
 
 
+def _combined_runtime_error(
+    context: str,
+    original_error: Exception,
+    recovery_error: Exception,
+) -> RuntimeError:
+    error = RuntimeError(
+        f"{context}; original error "
+        f"{type(original_error).__name__}: {original_error}; recovery error "
+        f"{type(recovery_error).__name__}: {recovery_error}"
+    )
+    error.original_error = original_error
+    error.recovery_error = recovery_error
+    return error
+
+
 def _publish_staging(staging_path: Path, output_path: Path) -> None:
     backup_path = output_path.with_name(f".{output_path.name}.{uuid4().hex}.backup")
     had_output = output_path.exists()
@@ -229,24 +309,33 @@ def _publish_staging(staging_path: Path, output_path: Path) -> None:
         output_path.replace(backup_path)
     try:
         staging_path.replace(output_path)
-    except Exception:
-        if output_path.exists():
-            shutil.rmtree(output_path)
-        if had_output:
-            backup_path.replace(output_path)
+    except Exception as publish_error:
+        try:
+            if output_path.exists():
+                shutil.rmtree(output_path)
+            if had_output:
+                backup_path.replace(output_path)
+        except Exception as restore_error:
+            raise _combined_runtime_error(
+                "failed to restore previous charts after publish failure",
+                publish_error,
+                restore_error,
+            ) from restore_error
         raise
     else:
         if had_output:
             try:
                 shutil.rmtree(backup_path)
-            except Exception:
+            except Exception as cleanup_error:
                 try:
                     if output_path.exists():
                         shutil.rmtree(output_path)
                     backup_path.replace(output_path)
                 except Exception as rollback_error:
-                    raise RuntimeError(
-                        "failed to roll back charts after backup cleanup failure"
+                    raise _combined_runtime_error(
+                        "failed to roll back charts after backup cleanup failure",
+                        cleanup_error,
+                        rollback_error,
                     ) from rollback_error
                 raise
 
@@ -278,18 +367,12 @@ def render_regime_comparison_charts(
     if overlay_result.signals.empty:
         raise ValueError("overlay signals must not be empty")
 
+    overlay_trades = _normalize_trades(overlay_result.trades, "overlay")
+    ema_trades = _normalize_trades(ema_result.trades, "ema")
     daily_states = prepare_daily_state_tracks(overlay_result.signals)
     weekly_states = aggregate_weekly_state_tracks(daily_states)
     weekly_bars = aggregate_weekly_bars(overlay_result.signals)
-    target_counts = overlay_result.signals["target_weight"].value_counts()
-    target_distribution = {
-        f"{weight:g}": {
-            "days": int(target_counts.get(weight, 0)),
-            "fraction": float(target_counts.get(weight, 0))
-            / len(overlay_result.signals),
-        }
-        for weight in (0.0, 0.5, 1.0)
-    }
+    target_distribution = _target_distribution(overlay_result.signals)
     overlay_performance = {
         **overlay_result.summary,
         "target_distribution": target_distribution,
@@ -305,7 +388,7 @@ def render_regime_comparison_charts(
         fund_type="股票型ETF",
         daily_bars=overlay_result.signals,
         weekly_bars=weekly_bars,
-        trades=overlay_result.trades,
+        trades=overlay_trades,
         latest_position=overlay_latest if overlay_is_open else None,
         report_start=start_date,
         report_end=end_date,
@@ -320,7 +403,7 @@ def render_regime_comparison_charts(
         fund_type="股票型ETF",
         daily_bars=overlay_result.signals,
         weekly_bars=weekly_bars,
-        trades=ema_result.trades,
+        trades=ema_trades,
         latest_position=ema_latest if ema_is_open else None,
         report_start=start_date,
         report_end=end_date,
@@ -341,6 +424,10 @@ def render_regime_comparison_charts(
             raise ValueError(
                 f"rendered image has size {image.size}, expected {expected_size}"
             )
+    image_sizes = {
+        filename: expected_size
+        for filename, (_, expected_size) in zip(filenames, images, strict=True)
+    }
 
     index = pd.DataFrame(
         [
@@ -349,7 +436,7 @@ def render_regime_comparison_charts(
                 strategy="regime_overlay",
                 symbol=symbol,
                 name=name,
-                trades=overlay_result.trades,
+                trades=overlay_trades,
                 is_open=overlay_is_open,
                 metrics=overlay_result.summary,
                 image_path=filenames[0],
@@ -359,7 +446,7 @@ def render_regime_comparison_charts(
                 strategy="ema_only",
                 symbol=symbol,
                 name=name,
-                trades=ema_result.trades,
+                trades=ema_trades,
                 is_open=ema_is_open,
                 metrics=ema_metrics,
                 image_path=filenames[1],
@@ -397,10 +484,23 @@ def render_regime_comparison_charts(
             summary_json,
             encoding="utf-8",
         )
-        _validate_staged_artifacts(staging_path, filenames, index, summary)
+        _validate_staged_artifacts(
+            staging_path,
+            filenames,
+            image_sizes,
+            index,
+            summary,
+        )
         _publish_staging(staging_path, output_path)
-    except Exception:
+    except Exception as operation_error:
         if staging_path.exists():
-            shutil.rmtree(staging_path)
+            try:
+                shutil.rmtree(staging_path)
+            except Exception as cleanup_error:
+                raise _combined_runtime_error(
+                    "chart operation failed and staging cleanup failed",
+                    operation_error,
+                    cleanup_error,
+                ) from cleanup_error
         raise
     return summary

@@ -396,6 +396,71 @@ def test_mutating_future_week_does_not_change_prior_week() -> None:
     )
 
 
+@pytest.mark.parametrize("invalid_date", ["not-a-date", None])
+def test_latest_position_rejects_invalid_dates(invalid_date: object) -> None:
+    positions = pd.DataFrame(
+        {
+            "datetime": [invalid_date],
+            "quantity": [100],
+            "weight": [0.5],
+        }
+    )
+
+    with pytest.raises(ValueError, match="datetime"):
+        regime_charts._latest_position(positions, pd.Timestamp("2026-02-27"))
+
+
+def test_latest_position_rejects_timezone_aware_dates() -> None:
+    positions = pd.DataFrame(
+        {
+            "datetime": pd.DatetimeIndex(["2026-02-27"]).tz_localize("Asia/Shanghai"),
+            "quantity": [100],
+            "weight": [0.5],
+        }
+    )
+
+    with pytest.raises(ValueError, match="timezone"):
+        regime_charts._latest_position(positions, pd.Timestamp("2026-02-27"))
+
+
+@pytest.mark.parametrize("missing_column", ["quantity", "weight"])
+def test_position_is_open_requires_schema_columns(missing_column: str) -> None:
+    position = pd.Series({"quantity": 100, "weight": 0.5}).drop(labels=missing_column)
+
+    with pytest.raises(ValueError, match=missing_column):
+        regime_charts._position_is_open(position)
+
+
+@pytest.mark.parametrize("column", ["quantity", "weight"])
+@pytest.mark.parametrize(
+    "invalid_value",
+    [True, "1", np.nan, np.inf, -1.0],
+)
+def test_position_is_open_rejects_invalid_values(
+    column: str,
+    invalid_value: object,
+) -> None:
+    position = pd.Series({"quantity": 100, "weight": 0.5}, dtype=object)
+    position[column] = invalid_value
+
+    with pytest.raises(ValueError, match=column):
+        regime_charts._position_is_open(position)
+
+
+@pytest.mark.parametrize(
+    ("quantity", "weight"),
+    [(0, 0.5), (100, 0.0)],
+)
+def test_position_is_open_rejects_conflicting_open_state(
+    quantity: int,
+    weight: float,
+) -> None:
+    position = pd.Series({"quantity": quantity, "weight": weight})
+
+    with pytest.raises(ValueError, match="conflict"):
+        regime_charts._position_is_open(position)
+
+
 def test_render_comparison_writes_two_strategy_images(
     tmp_path: Any,
     monkeypatch: pytest.MonkeyPatch,
@@ -455,6 +520,10 @@ def test_render_comparison_writes_two_strategy_images(
         }
         for weight in (0.0, 0.5, 1.0)
     }
+    assert sum(
+        entry["days"]
+        for entry in calls[0]["performance"]["target_distribution"].values()
+    ) == len(overlay_result.signals)
 
     index = pd.read_csv(output_dir / "index.csv")
     assert index.columns.tolist() == [
@@ -498,6 +567,142 @@ def test_render_comparison_writes_two_strategy_images(
         "state_background_driver": "score_3d",
         "score_tracks": ["score_1d", "score_3d"],
     }
+
+
+def test_render_comparison_normalizes_trade_sides_without_mutating_inputs(
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    overlay_result, ema_result, ema_metrics = _comparison_results()
+    overlay_result.trades["side"] = [" BUY ", "BUY", "SELL"]
+    ema_result.trades["side"] = [" BUY", "SELL "]
+    original_overlay = overlay_result.trades.copy(deep=True)
+    original_ema = ema_result.trades.copy(deep=True)
+    calls: list[dict[str, Any]] = []
+
+    def recording_render(**kwargs: Any) -> Image.Image:
+        calls.append(kwargs)
+        return render_symbol_card(**kwargs)
+
+    monkeypatch.setattr(regime_charts, "render_symbol_card", recording_render)
+    output_dir = tmp_path / "charts"
+
+    render_regime_comparison_charts(
+        symbol="159915.SZ",
+        name="易方达创业板ETF",
+        overlay_result=overlay_result,
+        ema_result=ema_result,
+        ema_metrics=ema_metrics,
+        output_dir=output_dir,
+        report_start="2026-01-05",
+        report_end="2026-02-27",
+    )
+
+    assert calls[0]["trades"]["side"].tolist() == ["buy", "buy", "sell"]
+    assert calls[1]["trades"]["side"].tolist() == ["buy", "sell"]
+    index = pd.read_csv(output_dir / "index.csv")
+    assert index["buy_count"].tolist() == [2, 1]
+    assert index["sell_count"].tolist() == [1, 1]
+    pd.testing.assert_frame_equal(overlay_result.trades, original_overlay)
+    pd.testing.assert_frame_equal(ema_result.trades, original_ema)
+
+
+@pytest.mark.parametrize("strategy", ["overlay", "ema"])
+@pytest.mark.parametrize("invalid_side", [None, "", "hold"])
+def test_render_comparison_rejects_invalid_trade_sides(
+    tmp_path: Any,
+    strategy: str,
+    invalid_side: object,
+) -> None:
+    overlay_result, ema_result, ema_metrics = _comparison_results()
+    trades = overlay_result.trades if strategy == "overlay" else ema_result.trades
+    trades["side"] = pd.Series(
+        [invalid_side, *trades["side"].iloc[1:].tolist()],
+        dtype=object,
+    )
+
+    with pytest.raises(ValueError, match=f"{strategy}.*side"):
+        render_regime_comparison_charts(
+            symbol="159915.SZ",
+            name="易方达创业板ETF",
+            overlay_result=overlay_result,
+            ema_result=ema_result,
+            ema_metrics=ema_metrics,
+            output_dir=tmp_path / "charts",
+            report_start="2026-01-05",
+            report_end="2026-02-27",
+        )
+
+
+@pytest.mark.parametrize("strategy", ["overlay", "ema"])
+def test_render_comparison_requires_trade_side_column(
+    tmp_path: Any,
+    strategy: str,
+) -> None:
+    overlay_result, ema_result, ema_metrics = _comparison_results()
+    if strategy == "overlay":
+        overlay_result.trades = overlay_result.trades.drop(columns="side")
+    else:
+        ema_result.trades = ema_result.trades.drop(columns="side")
+
+    with pytest.raises(ValueError, match=f"{strategy}.*side"):
+        render_regime_comparison_charts(
+            symbol="159915.SZ",
+            name="易方达创业板ETF",
+            overlay_result=overlay_result,
+            ema_result=ema_result,
+            ema_metrics=ema_metrics,
+            output_dir=tmp_path / "charts",
+            report_start="2026-01-05",
+            report_end="2026-02-27",
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_weight",
+    [True, np.nan, np.inf, 0.25, "0.5"],
+)
+def test_render_comparison_rejects_invalid_target_weights(
+    tmp_path: Any,
+    invalid_weight: object,
+) -> None:
+    overlay_result, ema_result, ema_metrics = _comparison_results()
+    overlay_result.signals["target_weight"] = pd.Series(
+        [
+            invalid_weight,
+            *overlay_result.signals["target_weight"].iloc[1:].tolist(),
+        ],
+        dtype=object,
+    )
+
+    with pytest.raises(ValueError, match="target_weight"):
+        render_regime_comparison_charts(
+            symbol="159915.SZ",
+            name="易方达创业板ETF",
+            overlay_result=overlay_result,
+            ema_result=ema_result,
+            ema_metrics=ema_metrics,
+            output_dir=tmp_path / "charts",
+            report_start="2026-01-05",
+            report_end="2026-02-27",
+        )
+
+
+def test_render_comparison_requires_target_weight_column(tmp_path: Any) -> None:
+    overlay_result, ema_result, ema_metrics = _comparison_results()
+    overlay_result.signals = overlay_result.signals.drop(columns="target_weight")
+
+    with pytest.raises(ValueError, match="target_weight"):
+        render_regime_comparison_charts(
+            symbol="159915.SZ",
+            name="易方达创业板ETF",
+            overlay_result=overlay_result,
+            ema_result=ema_result,
+            ema_metrics=ema_metrics,
+            output_dir=tmp_path / "charts",
+            report_start="2026-01-05",
+            report_end="2026-02-27",
+        )
 
 
 def test_render_comparison_rejects_nonempty_output_without_overwrite(
@@ -623,6 +828,44 @@ def test_render_comparison_propagates_image_save_failure(
     assert not list(tmp_path.glob(".charts.*.backup"))
 
 
+def test_render_comparison_rejects_wrong_staged_image_size(
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    overlay_result, ema_result, ema_metrics = _comparison_results()
+    output_dir = tmp_path / "charts"
+    output_dir.mkdir()
+    (output_dir / "old.png").write_bytes(b"old image")
+    (output_dir / "unknown.marker").write_bytes(b"keep me")
+    old_contents = {path.name: path.read_bytes() for path in output_dir.iterdir()}
+    real_save = Image.Image.save
+
+    def save_wrong_size(_image: Image.Image, path: object) -> None:
+        wrong_size = Image.new("RGB", (10, 10))
+        real_save(wrong_size, path)
+
+    monkeypatch.setattr(Image.Image, "save", save_wrong_size)
+
+    with pytest.raises(RuntimeError, match="size"):
+        render_regime_comparison_charts(
+            symbol="159915.SZ",
+            name="易方达创业板ETF",
+            overlay_result=overlay_result,
+            ema_result=ema_result,
+            ema_metrics=ema_metrics,
+            output_dir=output_dir,
+            report_start="2026-01-05",
+            report_end="2026-02-27",
+            overwrite=True,
+        )
+
+    assert {
+        path.name: path.read_bytes() for path in output_dir.iterdir()
+    } == old_contents
+    assert not list(tmp_path.glob(".charts.*.staging"))
+    assert not list(tmp_path.glob(".charts.*.backup"))
+
+
 def test_render_comparison_restores_backup_when_publish_fails(
     tmp_path: Any,
     monkeypatch: pytest.MonkeyPatch,
@@ -659,6 +902,102 @@ def test_render_comparison_restores_backup_when_publish_fails(
         path.name: path.read_bytes() for path in output_dir.iterdir()
     } == old_contents
     assert not list(tmp_path.glob(".charts.*.staging"))
+    assert not list(tmp_path.glob(".charts.*.backup"))
+
+
+def test_render_comparison_preserves_publish_and_restore_failures(
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    overlay_result, ema_result, ema_metrics = _comparison_results()
+    output_dir = tmp_path / "charts"
+    output_dir.mkdir()
+    (output_dir / "old.png").write_bytes(b"old image")
+    (output_dir / "unknown.marker").write_bytes(b"keep me")
+    old_contents = {path.name: path.read_bytes() for path in output_dir.iterdir()}
+    real_replace = Path.replace
+
+    def fail_publish_and_restore(path: Path, target: object) -> Path:
+        if path.name.endswith(".staging"):
+            raise OSError("publish failed")
+        if path.name.endswith(".backup"):
+            raise OSError("restore failed")
+        return real_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", fail_publish_and_restore)
+
+    with pytest.raises(RuntimeError, match="publish.*restore") as error:
+        render_regime_comparison_charts(
+            symbol="159915.SZ",
+            name="易方达创业板ETF",
+            overlay_result=overlay_result,
+            ema_result=ema_result,
+            ema_metrics=ema_metrics,
+            output_dir=output_dir,
+            report_start="2026-01-05",
+            report_end="2026-02-27",
+            overwrite=True,
+        )
+
+    assert "OSError: publish failed" in str(error.value)
+    assert "OSError: restore failed" in str(error.value)
+    assert str(error.value.original_error) == "publish failed"
+    assert str(error.value.recovery_error) == "restore failed"
+    assert error.value.__cause__ is error.value.recovery_error
+    backups = list(tmp_path.glob(".charts.*.backup"))
+    assert len(backups) == 1
+    assert {
+        path.name: path.read_bytes() for path in backups[0].iterdir()
+    } == old_contents
+    assert not output_dir.exists()
+    assert not list(tmp_path.glob(".charts.*.staging"))
+
+
+def test_render_comparison_preserves_operation_and_staging_cleanup_failures(
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    overlay_result, ema_result, ema_metrics = _comparison_results()
+    output_dir = tmp_path / "charts"
+    output_dir.mkdir()
+    (output_dir / "old.png").write_bytes(b"old image")
+    (output_dir / "unknown.marker").write_bytes(b"keep me")
+    old_contents = {path.name: path.read_bytes() for path in output_dir.iterdir()}
+    real_rmtree = regime_charts.shutil.rmtree
+
+    def fail_save(_image: Image.Image, _path: object) -> None:
+        raise OSError("save failed")
+
+    def fail_staging_cleanup(path: object, *args: Any, **kwargs: Any) -> None:
+        if Path(path).name.endswith(".staging"):
+            raise OSError("staging cleanup failed")
+        real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(Image.Image, "save", fail_save)
+    monkeypatch.setattr(regime_charts.shutil, "rmtree", fail_staging_cleanup)
+
+    with pytest.raises(RuntimeError, match="operation.*staging cleanup") as error:
+        render_regime_comparison_charts(
+            symbol="159915.SZ",
+            name="易方达创业板ETF",
+            overlay_result=overlay_result,
+            ema_result=ema_result,
+            ema_metrics=ema_metrics,
+            output_dir=output_dir,
+            report_start="2026-01-05",
+            report_end="2026-02-27",
+            overwrite=True,
+        )
+
+    assert "OSError: save failed" in str(error.value)
+    assert "OSError: staging cleanup failed" in str(error.value)
+    assert str(error.value.original_error) == "save failed"
+    assert str(error.value.recovery_error) == "staging cleanup failed"
+    assert error.value.__cause__ is error.value.recovery_error
+    assert {
+        path.name: path.read_bytes() for path in output_dir.iterdir()
+    } == old_contents
+    assert len(list(tmp_path.glob(".charts.*.staging"))) == 1
     assert not list(tmp_path.glob(".charts.*.backup"))
 
 
@@ -742,8 +1081,11 @@ def test_render_comparison_chains_runtime_error_when_cleanup_rollback_fails(
             overwrite=True,
         )
 
-    assert isinstance(error.value.__cause__, OSError)
-    assert str(error.value.__cause__) == "rollback delete failed"
+    assert "OSError: backup cleanup failed" in str(error.value)
+    assert "OSError: rollback delete failed" in str(error.value)
+    assert str(error.value.original_error) == "backup cleanup failed"
+    assert str(error.value.recovery_error) == "rollback delete failed"
+    assert error.value.__cause__ is error.value.recovery_error
     backups = list(tmp_path.glob(".charts.*.backup"))
     assert len(backups) == 1
     assert {
