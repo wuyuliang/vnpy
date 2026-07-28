@@ -13,6 +13,7 @@ from stock.etf.render_trade_charts import (
     _assign_marker_label_levels,
     _draw_chart_panel,
     _draw_metadata,
+    _draw_trade_markers,
     aggregate_weekly_bars,
     build_trade_markers,
     make_chart_filename,
@@ -20,6 +21,31 @@ from stock.etf.render_trade_charts import (
     render_symbol_card,
     select_daily_window,
 )
+
+
+class _RecordingMarkerDraw:
+    def __init__(self) -> None:
+        self.lines: list[tuple[tuple[int, ...], dict[str, object]]] = []
+        self.polygons: list[tuple[list[tuple[int, int]], dict[str, object]]] = []
+        self.texts: list[tuple[tuple[int, int], str, dict[str, object]]] = []
+
+    def line(self, coordinates: tuple[int, ...], **options: object) -> None:
+        self.lines.append((coordinates, options))
+
+    def polygon(
+        self,
+        points: list[tuple[int, int]],
+        **options: object,
+    ) -> None:
+        self.polygons.append((points, options))
+
+    def text(
+        self,
+        position: tuple[int, int],
+        text: object,
+        **options: object,
+    ) -> None:
+        self.texts.append((position, str(text), options))
 
 
 class TradeChartTransformTests(unittest.TestCase):
@@ -32,6 +58,105 @@ class TradeChartTransformTests(unittest.TestCase):
 
         self.assertEqual(len(set(levels[:6])), 6)
         self.assertEqual(levels[-1], 0)
+
+    def test_dense_trade_markers_keep_all_triangles_and_declutter_labels(
+        self,
+    ) -> None:
+        markers, x_by_date = self._marker_draw_inputs(40, x_step=20)
+        draw = _RecordingMarkerDraw()
+        price_top = 60
+        price_bottom = 340
+
+        def price_y(fill_price: float) -> int:
+            return int(310 - (fill_price - 10.0) * 12)
+
+        _draw_trade_markers(
+            draw,
+            markers,
+            x_by_date,
+            price_y,
+            price_top,
+            price_bottom,
+            _Fonts(),
+        )
+
+        self.assertEqual(len(draw.polygons), len(markers))
+        for index, (points, options) in enumerate(draw.polygons):
+            marker = markers.iloc[index]
+            x = x_by_date[pd.Timestamp(marker["datetime"]).normalize()]
+            y = price_y(float(marker["fill_price"]))
+            if marker["side"] == "buy":
+                expected_points = [(x, y - 7), (x - 6, y + 5), (x + 6, y + 5)]
+                expected_color = "#2563eb"
+            else:
+                expected_points = [(x, y + 7), (x - 6, y - 5), (x + 6, y - 5)]
+                expected_color = "#d97706"
+            self.assertEqual(points, expected_points)
+            self.assertEqual(options["fill"], expected_color)
+
+        self.assertEqual(len(draw.lines), len(markers))
+        for coordinates, options in draw.lines:
+            x1, y1, x2, y2 = coordinates
+            self.assertEqual(x1, x2)
+            self.assertNotEqual((y1, y2), (price_top, price_bottom))
+            self.assertLessEqual(abs(y2 - y1), 20)
+            self.assertEqual(options["width"], 1)
+
+        labels = [label for _, label, _ in draw.texts]
+        self.assertLess(len(labels), len(markers) // 2)
+        self.assertIn("T1", labels)
+        self.assertIn("T40", labels)
+        for position, label, _ in draw.texts:
+            marker = markers.iloc[int(label.removeprefix("T")) - 1]
+            self.assertLessEqual(
+                abs(position[1] - price_y(float(marker["fill_price"]))),
+                20,
+            )
+        last_position, _, last_options = next(
+            recorded_text for recorded_text in draw.texts if recorded_text[1] == "T40"
+        )
+        last_date = pd.Timestamp(markers.iloc[-1]["datetime"]).normalize()
+        self.assertLess(last_position[0], x_by_date[last_date])
+        self.assertEqual(last_options["anchor"], "ra")
+
+    def test_small_trade_marker_sample_keeps_full_guides_and_all_labels(
+        self,
+    ) -> None:
+        markers, x_by_date = self._marker_draw_inputs(30, x_step=50)
+        draw = _RecordingMarkerDraw()
+        price_top = 60
+        price_bottom = 340
+
+        def price_y(fill_price: float) -> int:
+            return int(310 - (fill_price - 10.0) * 12)
+
+        _draw_trade_markers(
+            draw,
+            markers,
+            x_by_date,
+            price_y,
+            price_top,
+            price_bottom,
+            _Fonts(),
+        )
+
+        self.assertEqual(len(draw.polygons), len(markers))
+        self.assertEqual(len(draw.lines), len(markers))
+        for coordinates, options in draw.lines:
+            self.assertEqual(
+                (coordinates[1], coordinates[3]),
+                (price_top, price_bottom),
+            )
+            self.assertEqual(options["width"], 2)
+
+        self.assertEqual(
+            [label for _, label, _ in draw.texts],
+            markers["label"].tolist(),
+        )
+        for index, (position, _, options) in enumerate(draw.texts):
+            date = pd.Timestamp(markers.iloc[index]["datetime"]).normalize()
+            self.assertEqual(position, (x_by_date[date] + 3, price_top + 4))
+            self.assertNotIn("anchor", options)
 
     def test_aggregate_weekly_bars_uses_friday_ohlcv(self) -> None:
         daily = pd.DataFrame(
@@ -754,6 +879,26 @@ class TradeChartTransformTests(unittest.TestCase):
                 "state_color": ["#f3c1bc"] * split + ["#9fd8b5"] * (len(dates) - split),
             }
         )
+
+    @staticmethod
+    def _marker_draw_inputs(
+        count: int,
+        *,
+        x_step: int,
+    ) -> tuple[pd.DataFrame, dict[pd.Timestamp, int]]:
+        dates = pd.bdate_range("2026-01-05", periods=count)
+        markers = pd.DataFrame(
+            {
+                "datetime": dates,
+                "side": ["buy" if index % 2 == 0 else "sell" for index in range(count)],
+                "fill_price": np.linspace(10.0, 20.0, count),
+                "label": [f"T{index + 1}" for index in range(count)],
+            }
+        )
+        x_by_date = {
+            date.normalize(): 100 + index * x_step for index, date in enumerate(dates)
+        }
+        return markers, x_by_date
 
     @staticmethod
     def _bars(dates: pd.DatetimeIndex) -> pd.DataFrame:

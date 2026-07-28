@@ -49,6 +49,9 @@ BUY_COLOR = "#2563eb"
 SELL_COLOR = "#d97706"
 SCORE_1D_COLOR = "#2563eb"
 SCORE_3D_COLOR = "#d97706"
+DENSE_MARKER_THRESHOLD = 30
+DENSE_MARKER_LABEL_SPACING = 48
+DENSE_MARKER_STEM_HALF_LENGTH = 10
 PERFORMANCE_KEYS = (
     "total_return",
     "max_drawdown",
@@ -917,22 +920,80 @@ def _draw_trade_markers(
             continue
         visible_markers.append((marker, x))
 
-    label_levels = _assign_marker_label_levels([x for _, x in visible_markers])
-    for (marker, x), label_level in zip(visible_markers, label_levels, strict=True):
+    dense_mode = len(visible_markers) > DENSE_MARKER_THRESHOLD
+    x_positions = [x for _, x in visible_markers]
+    label_levels = [] if dense_mode else _assign_marker_label_levels(x_positions)
+    dense_label_indexes: set[int] = set()
+    if dense_mode:
+        selected_indexes = [0]
+        for index in range(1, len(x_positions) - 1):
+            if x_positions[index] - x_positions[selected_indexes[-1]] >= (
+                DENSE_MARKER_LABEL_SPACING
+            ):
+                selected_indexes.append(index)
+        last_index = len(x_positions) - 1
+        if (
+            len(selected_indexes) > 1
+            and x_positions[last_index] - x_positions[selected_indexes[-1]]
+            < DENSE_MARKER_LABEL_SPACING
+        ):
+            selected_indexes.pop()
+        selected_indexes.append(last_index)
+        dense_label_indexes = set(selected_indexes)
+
+    for index, (marker, x) in enumerate(visible_markers):
         side = str(marker["side"])
         color = BUY_COLOR if side == "buy" else SELL_COLOR
-        draw.line((x, price_top, x, price_bottom), fill=color, width=2)
         y = max(
             price_top + 6,
             min(price_bottom - 6, int(price_y(float(marker["fill_price"])))),
         )
+        if dense_mode:
+            draw.line(
+                (
+                    x,
+                    max(price_top, y - DENSE_MARKER_STEM_HALF_LENGTH),
+                    x,
+                    min(price_bottom, y + DENSE_MARKER_STEM_HALF_LENGTH),
+                ),
+                fill=color,
+                width=1,
+            )
+        else:
+            draw.line((x, price_top, x, price_bottom), fill=color, width=2)
         if side == "buy":
             points = [(x, y - 7), (x - 6, y + 5), (x + 6, y + 5)]
         else:
             points = [(x, y + 7), (x - 6, y - 5), (x + 6, y - 5)]
         draw.polygon(points, fill=color)
-        label_y = price_top + 4 + label_level * 13
-        draw.text((x + 3, label_y), str(marker["label"]), fill=color, font=fonts.tiny)
+        if dense_mode:
+            if index not in dense_label_indexes:
+                continue
+            label_y = y - 20 if side == "buy" else y + 8
+            label_y = max(price_top + 2, min(price_bottom - 12, label_y))
+            if index == len(visible_markers) - 1:
+                draw.text(
+                    (x - 8, label_y),
+                    str(marker["label"]),
+                    fill=color,
+                    font=fonts.tiny,
+                    anchor="ra",
+                )
+            else:
+                draw.text(
+                    (x + 8, label_y),
+                    str(marker["label"]),
+                    fill=color,
+                    font=fonts.tiny,
+                )
+        else:
+            label_y = price_top + 4 + label_levels[index] * 13
+            draw.text(
+                (x + 3, label_y),
+                str(marker["label"]),
+                fill=color,
+                font=fonts.tiny,
+            )
 
 
 def _assign_marker_label_levels(
