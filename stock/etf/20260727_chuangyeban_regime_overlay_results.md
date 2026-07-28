@@ -172,3 +172,15 @@ stock/etf/output/20260727_chuangyeban_regime_overlay/
 其中 `source_audit.json` 保存 Tushare 端点、实际日期、行数和 SHA-256；
 `signals.csv` 保存逐日预测来源日、EMA 上限、状态上限和最终目标；
 `semiannual_metrics.csv` 与 `annual_metrics.csv` 保存未四舍五入的完整指标。
+
+## 7. 交易图
+
+以下图片与本报告来自同一轮真实 Tushare 回测，并随 CSV/JSON 结果在同一个暂存目录中
+校验后原子发布：
+
+- [状态覆盖策略交易图](output/20260727_chuangyeban_regime_overlay/charts/0001_159915_SZ_易方达创业板ETF_状态覆盖.png)：125 笔成交，63 笔买入、62 笔卖出；周线和日线价格区使用 `score_3d` 五档状态背景，日线附带原始 `score_1d` 与 `score_3d` 双分数轨道。
+- [EMA 基线交易图](output/20260727_chuangyeban_regime_overlay/charts/0002_159915_SZ_易方达创业板ETF_EMA基线.png)：146 笔独立 EMA 成交，75 笔买入、71 笔卖出；不显示状态背景或状态分数。
+
+两张图均覆盖 `2017-08-14` 至 `2026-07-20`，使用同一份因果 OHLCV，但成交和末日
+持仓分别来自各自策略结果。`charts/index.csv` 保存图形顺序和未四舍五入绩效，
+`charts/render_summary.json` 保存状态驱动字段、分数轨道和图片文件审计。
