@@ -237,7 +237,18 @@ def _publish_staging(staging_path: Path, output_path: Path) -> None:
         raise
     else:
         if had_output:
-            shutil.rmtree(backup_path)
+            try:
+                shutil.rmtree(backup_path)
+            except Exception:
+                try:
+                    if output_path.exists():
+                        shutil.rmtree(output_path)
+                    backup_path.replace(output_path)
+                except Exception as rollback_error:
+                    raise RuntimeError(
+                        "failed to roll back charts after backup cleanup failure"
+                    ) from rollback_error
+                raise
 
 
 def render_regime_comparison_charts(

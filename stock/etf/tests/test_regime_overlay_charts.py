@@ -660,3 +660,93 @@ def test_render_comparison_restores_backup_when_publish_fails(
     } == old_contents
     assert not list(tmp_path.glob(".charts.*.staging"))
     assert not list(tmp_path.glob(".charts.*.backup"))
+
+
+def test_render_comparison_restores_old_output_when_backup_cleanup_fails(
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    overlay_result, ema_result, ema_metrics = _comparison_results()
+    output_dir = tmp_path / "charts"
+    output_dir.mkdir()
+    (output_dir / "old.png").write_bytes(b"old image")
+    (output_dir / "unknown.marker").write_bytes(b"keep me")
+    (output_dir / "index.csv").write_bytes(b"old index")
+    (output_dir / "render_summary.json").write_bytes(b"old audit")
+    old_contents = {path.name: path.read_bytes() for path in output_dir.iterdir()}
+    real_rmtree = regime_charts.shutil.rmtree
+
+    def fail_backup_cleanup(path: object, *args: Any, **kwargs: Any) -> None:
+        if Path(path).name.endswith(".backup"):
+            raise OSError("backup cleanup failed")
+        real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(regime_charts.shutil, "rmtree", fail_backup_cleanup)
+
+    with pytest.raises(OSError, match="backup cleanup failed"):
+        render_regime_comparison_charts(
+            symbol="159915.SZ",
+            name="易方达创业板ETF",
+            overlay_result=overlay_result,
+            ema_result=ema_result,
+            ema_metrics=ema_metrics,
+            output_dir=output_dir,
+            report_start="2026-01-05",
+            report_end="2026-02-27",
+            overwrite=True,
+        )
+
+    assert {
+        path.name: path.read_bytes() for path in output_dir.iterdir()
+    } == old_contents
+    assert not list(tmp_path.glob(".charts.*.staging"))
+    assert not list(tmp_path.glob(".charts.*.backup"))
+
+
+def test_render_comparison_chains_runtime_error_when_cleanup_rollback_fails(
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    overlay_result, ema_result, ema_metrics = _comparison_results()
+    output_dir = tmp_path / "charts"
+    output_dir.mkdir()
+    (output_dir / "old.png").write_bytes(b"old image")
+    (output_dir / "unknown.marker").write_bytes(b"keep me")
+    old_contents = {path.name: path.read_bytes() for path in output_dir.iterdir()}
+    real_rmtree = regime_charts.shutil.rmtree
+
+    def fail_cleanup_and_rollback(
+        path: object,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        candidate = Path(path)
+        if candidate.name.endswith(".backup"):
+            raise OSError("backup cleanup failed")
+        if candidate == output_dir:
+            raise OSError("rollback delete failed")
+        real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(regime_charts.shutil, "rmtree", fail_cleanup_and_rollback)
+
+    with pytest.raises(RuntimeError, match="failed to roll back") as error:
+        render_regime_comparison_charts(
+            symbol="159915.SZ",
+            name="易方达创业板ETF",
+            overlay_result=overlay_result,
+            ema_result=ema_result,
+            ema_metrics=ema_metrics,
+            output_dir=output_dir,
+            report_start="2026-01-05",
+            report_end="2026-02-27",
+            overwrite=True,
+        )
+
+    assert isinstance(error.value.__cause__, OSError)
+    assert str(error.value.__cause__) == "rollback delete failed"
+    backups = list(tmp_path.glob(".charts.*.backup"))
+    assert len(backups) == 1
+    assert {
+        path.name: path.read_bytes() for path in backups[0].iterdir()
+    } == old_contents
+    assert not list(tmp_path.glob(".charts.*.staging"))
