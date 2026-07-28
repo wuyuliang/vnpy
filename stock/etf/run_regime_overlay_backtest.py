@@ -35,6 +35,7 @@ from .regime_overlay_strategy import (
 )
 from .regime_overlay_charts import render_regime_comparison_charts
 from .regime_rules import RegimeConfig, predict_regime
+from .render_trade_charts import make_chart_filename
 
 ETF_ROOT = Path(__file__).resolve().parent
 DEFAULT_OUTPUT_DIR = ETF_ROOT / "output/20260727_chuangyeban_regime_overlay"
@@ -49,17 +50,27 @@ OUTPUT_FILES = (
     "summary.json",
     "source_audit.json",
 )
-CHART_FILES = (
-    "0001_159915_SZ_易方达创业板ETF_状态覆盖.png",
-    "0002_159915_SZ_易方达创业板ETF_EMA基线.png",
-    "index.csv",
-    "render_summary.json",
-)
+CHART_AUDIT_FILES = ("index.csv", "render_summary.json")
 OUTPUT_ENTRIES = (*OUTPUT_FILES, "charts")
-OUTPUT_ARTIFACT_PATHS = (
-    *OUTPUT_FILES,
-    *(f"charts/{filename}" for filename in CHART_FILES),
-)
+
+
+def _display_name(symbol: str) -> str:
+    return "易方达创业板ETF" if symbol == "159915.SZ" else symbol
+
+
+def _chart_files(symbol: str, display_name: str) -> tuple[str, ...]:
+    return (
+        make_chart_filename(1, symbol, f"{display_name}_状态覆盖"),
+        make_chart_filename(2, symbol, f"{display_name}_EMA基线"),
+        *CHART_AUDIT_FILES,
+    )
+
+
+def _output_artifact_paths(chart_files: Sequence[str]) -> tuple[str, ...]:
+    return (
+        *OUTPUT_FILES,
+        *(f"charts/{filename}" for filename in chart_files),
+    )
 
 
 def _json_compatible(value: object) -> Any:
@@ -125,7 +136,12 @@ def _publish_staging(staging_dir: Path, output_dir: Path) -> None:
             shutil.rmtree(backup_dir)
 
 
-def _validate_staged_outputs(staging_dir: Path) -> None:
+def _validate_staged_outputs(
+    staging_dir: Path,
+    *,
+    chart_files: Sequence[str],
+    output_artifact_paths: Sequence[str],
+) -> None:
     actual_entries = {path.name for path in staging_dir.iterdir()}
     if actual_entries != set(OUTPUT_ENTRIES):
         raise RuntimeError(
@@ -144,14 +160,14 @@ def _validate_staged_outputs(staging_dir: Path) -> None:
     if not charts_dir.is_dir() or not any(charts_dir.iterdir()):
         raise RuntimeError("staged charts directory is missing or empty")
     actual_chart_files = {path.name for path in charts_dir.iterdir()}
-    if actual_chart_files != set(CHART_FILES):
+    if actual_chart_files != set(chart_files):
         raise RuntimeError(
             "staged chart files do not match expected files: "
             f"{sorted(actual_chart_files)}"
         )
     empty_chart_files = [
         filename
-        for filename in CHART_FILES
+        for filename in chart_files
         if not (charts_dir / filename).is_file()
         or (charts_dir / filename).stat().st_size == 0
     ]
@@ -169,14 +185,14 @@ def _validate_staged_outputs(staging_dir: Path) -> None:
                 ),
             )
         if filename == "summary.json" and payload.get("output_files") != list(
-            OUTPUT_ARTIFACT_PATHS
+            output_artifact_paths
         ):
             raise RuntimeError("summary output_files do not match staged artifacts")
     for filename in OUTPUT_FILES:
         if filename.endswith(".csv"):
             pd.read_csv(staging_dir / filename)
 
-    image_files = CHART_FILES[:2]
+    image_files = chart_files[:2]
     image_sizes = ((1680, 1120), (1680, 1000))
     for filename, expected_size in zip(image_files, image_sizes, strict=True):
         with Image.open(charts_dir / filename) as image:
@@ -267,6 +283,9 @@ def run_regime_overlay_analysis(
     staging_dir = output_dir.with_name(f".{output_dir.name}.{uuid4().hex}.staging")
     staging_dir.mkdir()
     try:
+        display_name = _display_name(symbol)
+        chart_files = _chart_files(symbol, display_name)
+        output_artifact_paths = _output_artifact_paths(chart_files)
         bars = build_causal_bars(daily, factors, price_adjustment_mode)
         bars = bars.loc[bars["symbol"].eq(symbol)].reset_index(drop=True)
         if bars.empty:
@@ -465,7 +484,7 @@ def run_regime_overlay_analysis(
                 "position_ceilings_valid": ceilings_valid,
                 "prediction_alignment": "previous actual symbol bar to next open",
             },
-            "output_files": list(OUTPUT_ARTIFACT_PATHS),
+            "output_files": list(output_artifact_paths),
         }
         source_payload: dict[str, object] = dict(source_audit or {})
         source_payload.update(
@@ -498,7 +517,7 @@ def run_regime_overlay_analysis(
         _write_json(source_payload, staging_dir / "source_audit.json")
         render_regime_comparison_charts(
             symbol=symbol,
-            name="易方达创业板ETF",
+            name=display_name,
             overlay_result=result,
             ema_result=result.ema_result,
             ema_metrics=ema_metrics,
@@ -506,7 +525,11 @@ def run_regime_overlay_analysis(
             report_start=start_date,
             report_end=end_date,
         )
-        _validate_staged_outputs(staging_dir)
+        _validate_staged_outputs(
+            staging_dir,
+            chart_files=chart_files,
+            output_artifact_paths=output_artifact_paths,
+        )
         _publish_staging(staging_dir, output_dir)
         return summary
     except Exception:

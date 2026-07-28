@@ -36,13 +36,13 @@ EXPECTED_ENTRIES = {
 EXPECTED_ARTIFACTS = OUTPUT_FILES + [f"charts/{filename}" for filename in CHART_FILES]
 
 
-def _daily(periods: int = 540) -> pd.DataFrame:
+def _daily(periods: int = 540, symbol: str = "159915.SZ") -> pd.DataFrame:
     index = np.arange(periods, dtype=float)
     close = 10.0 + index * 0.01 + np.sin(index / 8.0) * 0.5
     open_ = close + np.sin(index / 5.0) * 0.03
     return pd.DataFrame(
         {
-            "symbol": ["159915.SZ"] * periods,
+            "symbol": [symbol] * periods,
             "datetime": pd.bdate_range("2016-01-04", periods=periods),
             "open": open_,
             "high": np.maximum(open_, close) + 0.1,
@@ -62,10 +62,15 @@ def _calendar(daily: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame({"datetime": dates, "is_open": 1})
 
 
-def _run(output_dir: Path, *, overwrite: bool = False) -> dict[str, object]:
-    daily = _daily()
+def _run(
+    output_dir: Path,
+    *,
+    symbol: str = "159915.SZ",
+    overwrite: bool = False,
+) -> dict[str, object]:
+    daily = _daily(symbol=symbol)
     return run_regime_overlay_analysis(
-        symbol="159915.SZ",
+        symbol=symbol,
         daily=daily,
         factors=None,
         calendar=_calendar(daily),
@@ -119,6 +124,37 @@ def test_runner_writes_complete_overlay_artifacts(tmp_path: Path) -> None:
     assert index["image_path"].tolist() == CHART_FILES[:2]
     for image_path in index["image_path"]:
         assert (charts / image_path).is_file()
+
+
+def test_runner_publishes_dynamic_chart_artifacts_for_other_symbol(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "overlay"
+    symbol = "510300.SH"
+    chart_files = [
+        "0001_510300_SH_510300_SH_状态覆盖.png",
+        "0002_510300_SH_510300_SH_EMA基线.png",
+        "index.csv",
+        "render_summary.json",
+    ]
+
+    summary = _run(output_dir, symbol=symbol)
+
+    assert {path.name for path in output_dir.iterdir()} == EXPECTED_ENTRIES
+    charts = output_dir / "charts"
+    assert {path.name for path in charts.iterdir()} == set(chart_files)
+
+    index = pd.read_csv(charts / "index.csv")
+    assert index["name"].tolist() == [symbol, symbol]
+    assert index["image_path"].tolist() == chart_files[:2]
+
+    render_summary = json.loads(
+        (charts / "render_summary.json").read_text(encoding="utf-8")
+    )
+    assert render_summary["image_files"] == chart_files[:2]
+    assert summary["output_files"] == OUTPUT_FILES + [
+        f"charts/{filename}" for filename in chart_files
+    ]
 
 
 def test_runner_rejects_nonempty_output_without_overwrite(
