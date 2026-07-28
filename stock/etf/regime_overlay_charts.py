@@ -2,13 +2,25 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isfinite
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
+from PIL import Image
 
+from stock.etf.ema_trend_allocation_strategy import TrendAllocationResult
+from stock.etf.regime_overlay_strategy import RegimeOverlayResult
 from stock.etf.regime_rules import score_to_state
+from stock.etf.render_trade_charts import (
+    aggregate_weekly_bars,
+    make_chart_filename,
+    render_symbol_card,
+)
 
 
 @dataclass(frozen=True)
@@ -33,6 +45,21 @@ TRACK_COLUMNS = [
     "score_3d",
     "state_3d",
     "state_color",
+]
+INDEX_COLUMNS = [
+    "rank",
+    "strategy",
+    "symbol",
+    "name",
+    "trade_count",
+    "buy_count",
+    "sell_count",
+    "is_open",
+    "total_return",
+    "max_drawdown",
+    "sharpe",
+    "annual_one_way_turnover",
+    "image_path",
 ]
 
 
@@ -99,3 +126,210 @@ def aggregate_weekly_state_tracks(daily: pd.DataFrame) -> pd.DataFrame:
         .reset_index()
         .loc[:, TRACK_COLUMNS]
     )
+
+
+def _latest_position(
+    positions: pd.DataFrame,
+    report_end: pd.Timestamp,
+) -> pd.Series | None:
+    if "datetime" not in positions.columns:
+        raise ValueError("positions missing datetime column")
+    dates = pd.to_datetime(positions["datetime"], errors="coerce").dt.normalize()
+    rows = positions.loc[dates.eq(report_end.normalize())]
+    return None if rows.empty else rows.iloc[-1]
+
+
+def _position_is_open(position: pd.Series | None) -> bool:
+    if position is None:
+        return False
+    for column in ("quantity", "weight"):
+        value = position.get(column)
+        if (
+            not isinstance(value, bool)
+            and isinstance(value, (int, float, np.integer, np.floating))
+            and isfinite(float(value))
+            and float(value) > 0
+        ):
+            return True
+    return False
+
+
+def _index_row(
+    *,
+    rank: int,
+    strategy: str,
+    symbol: str,
+    name: str,
+    trades: pd.DataFrame,
+    is_open: bool,
+    metrics: Mapping[str, object],
+    image_path: str,
+) -> dict[str, object]:
+    return {
+        "rank": rank,
+        "strategy": strategy,
+        "symbol": symbol,
+        "name": name,
+        "trade_count": int(len(trades)),
+        "buy_count": int(trades["side"].eq("buy").sum()),
+        "sell_count": int(trades["side"].eq("sell").sum()),
+        "is_open": is_open,
+        "total_return": metrics["total_return"],
+        "max_drawdown": metrics["max_drawdown"],
+        "sharpe": metrics["sharpe"],
+        "annual_one_way_turnover": metrics["annual_one_way_turnover"],
+        "image_path": image_path,
+    }
+
+
+def render_regime_comparison_charts(
+    *,
+    symbol: str,
+    name: str,
+    overlay_result: RegimeOverlayResult,
+    ema_result: TrendAllocationResult,
+    ema_metrics: Mapping[str, object],
+    output_dir: str | Path,
+    report_start: object,
+    report_end: object,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    """Render the regime overlay and independent EMA comparison artifacts."""
+    output_path = Path(output_dir)
+    if output_path.exists():
+        if not output_path.is_dir():
+            raise FileExistsError(f"output path is not a directory: {output_path}")
+        if not overwrite and any(output_path.iterdir()):
+            raise FileExistsError(f"output directory is not empty: {output_path}")
+
+    start_date = pd.Timestamp(report_start).normalize()
+    end_date = pd.Timestamp(report_end).normalize()
+    if pd.isna(start_date) or pd.isna(end_date) or start_date > end_date:
+        raise ValueError("report_start and report_end must define a valid date range")
+    if overlay_result.signals.empty:
+        raise ValueError("overlay signals must not be empty")
+
+    daily_states = prepare_daily_state_tracks(overlay_result.signals)
+    weekly_states = aggregate_weekly_state_tracks(daily_states)
+    weekly_bars = aggregate_weekly_bars(overlay_result.signals)
+    target_counts = overlay_result.signals["target_weight"].value_counts()
+    target_distribution = {
+        f"{weight:g}": {
+            "days": int(target_counts.get(weight, 0)),
+            "fraction": float(target_counts.get(weight, 0))
+            / len(overlay_result.signals),
+        }
+        for weight in (0.0, 0.5, 1.0)
+    }
+    overlay_performance = {
+        **overlay_result.summary,
+        "target_distribution": target_distribution,
+    }
+
+    overlay_latest = _latest_position(overlay_result.positions, end_date)
+    ema_latest = _latest_position(ema_result.positions, end_date)
+    overlay_is_open = _position_is_open(overlay_latest)
+    ema_is_open = _position_is_open(ema_latest)
+    overlay_image = render_symbol_card(
+        symbol=symbol,
+        name=name,
+        fund_type="股票型ETF",
+        daily_bars=overlay_result.signals,
+        weekly_bars=weekly_bars,
+        trades=overlay_result.trades,
+        latest_position=overlay_latest if overlay_is_open else None,
+        report_start=start_date,
+        report_end=end_date,
+        review_label="状态覆盖策略",
+        performance=overlay_performance,
+        daily_state_scores=daily_states,
+        weekly_state_scores=weekly_states,
+    )
+    ema_image = render_symbol_card(
+        symbol=symbol,
+        name=name,
+        fund_type="股票型ETF",
+        daily_bars=overlay_result.signals,
+        weekly_bars=weekly_bars,
+        trades=ema_result.trades,
+        latest_position=ema_latest if ema_is_open else None,
+        report_start=start_date,
+        report_end=end_date,
+        review_label="EMA 基线",
+        performance=ema_metrics,
+    )
+
+    filenames = [
+        make_chart_filename(1, symbol, f"{name}_状态覆盖"),
+        make_chart_filename(2, symbol, f"{name}_EMA基线"),
+    ]
+    images = [
+        (overlay_image, (1680, 1120)),
+        (ema_image, (1680, 1000)),
+    ]
+    for image, expected_size in images:
+        if image.size != expected_size:
+            raise ValueError(
+                f"rendered image has size {image.size}, expected {expected_size}"
+            )
+
+    index = pd.DataFrame(
+        [
+            _index_row(
+                rank=1,
+                strategy="regime_overlay",
+                symbol=symbol,
+                name=name,
+                trades=overlay_result.trades,
+                is_open=overlay_is_open,
+                metrics=overlay_result.summary,
+                image_path=filenames[0],
+            ),
+            _index_row(
+                rank=2,
+                strategy="ema_only",
+                symbol=symbol,
+                name=name,
+                trades=ema_result.trades,
+                is_open=ema_is_open,
+                metrics=ema_metrics,
+                image_path=filenames[1],
+            ),
+        ],
+        columns=INDEX_COLUMNS,
+    )
+    summary = {
+        "schema_version": 1,
+        "symbol": symbol,
+        "report_start": start_date.date().isoformat(),
+        "report_end": end_date.date().isoformat(),
+        "rendered_images": 2,
+        "expected_images": 2,
+        "image_files": filenames,
+        "state_background_driver": "score_3d",
+        "score_tracks": ["score_1d", "score_3d"],
+    }
+    summary_json = json.dumps(
+        summary,
+        allow_nan=False,
+        ensure_ascii=False,
+        sort_keys=True,
+        indent=2,
+    )
+
+    output_path.mkdir(parents=True, exist_ok=True)
+    for (image, _), filename in zip(images, filenames, strict=True):
+        image.save(output_path / filename)
+    for filename in filenames:
+        with Image.open(output_path / filename) as image:
+            image.verify()
+
+    index.to_csv(output_path / "index.csv", index=False)
+    for image_path in index["image_path"]:
+        if not (output_path / image_path).is_file():
+            raise FileNotFoundError(f"index image_path does not exist: {image_path}")
+    (output_path / "render_summary.json").write_text(
+        summary_json,
+        encoding="utf-8",
+    )
+    return summary
