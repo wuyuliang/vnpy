@@ -430,8 +430,6 @@ def _validate_performance(
         return None
     if not isinstance(performance, Mapping):
         raise ValueError("performance must be a mapping")
-    if not performance:
-        return None
     missing = set(PERFORMANCE_KEYS) - set(performance)
     if missing:
         raise ValueError(f"performance missing keys: {sorted(missing)}")

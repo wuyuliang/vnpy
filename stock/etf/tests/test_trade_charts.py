@@ -256,6 +256,7 @@ class TradeChartTransformTests(unittest.TestCase):
         }
 
         invalid_performance = [
+            {},
             "not-a-mapping",
             {"total_return": 0.2},
             {**valid, "sharpe": np.inf},
