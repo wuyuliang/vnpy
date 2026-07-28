@@ -4,13 +4,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from PIL import Image
 
+import stock.etf.run_regime_overlay_backtest as runner
 from stock.etf.run_regime_overlay_backtest import (
     build_parser,
     run_regime_overlay_analysis,
 )
 
-EXPECTED_FILES = {
+OUTPUT_FILES = [
     "signals.csv",
     "trades.csv",
     "positions.csv",
@@ -20,7 +22,18 @@ EXPECTED_FILES = {
     "semiannual_metrics.csv",
     "summary.json",
     "source_audit.json",
+]
+CHART_FILES = [
+    "0001_159915_SZ_易方达创业板ETF_状态覆盖.png",
+    "0002_159915_SZ_易方达创业板ETF_EMA基线.png",
+    "index.csv",
+    "render_summary.json",
+]
+EXPECTED_ENTRIES = {
+    *OUTPUT_FILES,
+    "charts",
 }
+EXPECTED_ARTIFACTS = OUTPUT_FILES + [f"charts/{filename}" for filename in CHART_FILES]
 
 
 def _daily(periods: int = 540) -> pd.DataFrame:
@@ -70,10 +83,11 @@ def test_runner_writes_complete_overlay_artifacts(tmp_path: Path) -> None:
 
     summary = _run(output_dir)
 
-    assert {path.name for path in output_dir.iterdir()} == EXPECTED_FILES
+    assert {path.name for path in output_dir.iterdir()} == EXPECTED_ENTRIES
     assert summary["symbol"] == "159915.SZ"
     assert summary["data"]["prewarm_bar_count"] == 300
     assert summary["anti_lookahead_audit"]["causal_dates_valid"] is True
+    assert summary["output_files"] == EXPECTED_ARTIFACTS
     comparison = pd.read_csv(output_dir / "comparison.csv")
     assert set(comparison["strategy"]) == {
         "regime_overlay",
@@ -86,8 +100,25 @@ def test_runner_writes_complete_overlay_artifacts(tmp_path: Path) -> None:
         "ema_only",
         "buy_hold",
     }
-    for filename in EXPECTED_FILES:
+    for filename in OUTPUT_FILES:
         assert (output_dir / filename).stat().st_size > 0
+
+    charts = output_dir / "charts"
+    assert {path.name for path in charts.iterdir()} == set(CHART_FILES)
+    for filename, expected_size in zip(
+        CHART_FILES[:2],
+        [(1680, 1120), (1680, 1000)],
+        strict=True,
+    ):
+        with Image.open(charts / filename) as image:
+            assert image.size == expected_size
+
+    index = pd.read_csv(charts / "index.csv")
+    assert len(index) == 2
+    assert index["strategy"].tolist() == ["regime_overlay", "ema_only"]
+    assert index["image_path"].tolist() == CHART_FILES[:2]
+    for image_path in index["image_path"]:
+        assert (charts / image_path).is_file()
 
 
 def test_runner_rejects_nonempty_output_without_overwrite(
@@ -125,6 +156,27 @@ def test_runner_failure_preserves_previous_output(tmp_path: Path) -> None:
             source_audit={"provider": "synthetic-test"},
             overwrite=True,
         )
+
+    assert marker.read_text(encoding="utf-8") == "previous"
+    assert {path.name for path in output_dir.iterdir()} == {"previous-success.txt"}
+
+
+def test_chart_failure_preserves_previous_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_dir = tmp_path / "overlay"
+    output_dir.mkdir()
+    marker = output_dir / "previous-success.txt"
+    marker.write_text("previous", encoding="utf-8")
+
+    def fail_render(**kwargs: object) -> None:
+        raise RuntimeError("chart failed")
+
+    monkeypatch.setattr(runner, "render_regime_comparison_charts", fail_render)
+
+    with pytest.raises(RuntimeError, match="chart failed"):
+        _run(output_dir, overwrite=True)
 
     assert marker.read_text(encoding="utf-8") == "previous"
     assert {path.name for path in output_dir.iterdir()} == {"previous-success.txt"}

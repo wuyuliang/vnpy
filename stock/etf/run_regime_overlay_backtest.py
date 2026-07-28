@@ -15,6 +15,7 @@ from uuid import uuid4
 
 import numpy as np
 import pandas as pd
+from PIL import Image
 
 from .ema_trend_allocation_strategy import (
     TRADE_COLUMNS,
@@ -32,6 +33,7 @@ from .regime_overlay_strategy import (
     calendar_periods,
     run_regime_overlay_backtest,
 )
+from .regime_overlay_charts import render_regime_comparison_charts
 from .regime_rules import RegimeConfig, predict_regime
 
 ETF_ROOT = Path(__file__).resolve().parent
@@ -46,6 +48,17 @@ OUTPUT_FILES = (
     "semiannual_metrics.csv",
     "summary.json",
     "source_audit.json",
+)
+CHART_FILES = (
+    "0001_159915_SZ_易方达创业板ETF_状态覆盖.png",
+    "0002_159915_SZ_易方达创业板ETF_EMA基线.png",
+    "index.csv",
+    "render_summary.json",
+)
+OUTPUT_ENTRIES = (*OUTPUT_FILES, "charts")
+OUTPUT_ARTIFACT_PATHS = (
+    *OUTPUT_FILES,
+    *(f"charts/{filename}" for filename in CHART_FILES),
 )
 
 
@@ -113,6 +126,12 @@ def _publish_staging(staging_dir: Path, output_dir: Path) -> None:
 
 
 def _validate_staged_outputs(staging_dir: Path) -> None:
+    actual_entries = {path.name for path in staging_dir.iterdir()}
+    if actual_entries != set(OUTPUT_ENTRIES):
+        raise RuntimeError(
+            "staged output entries do not match expected entries: "
+            f"{sorted(actual_entries)}"
+        )
     missing = [
         filename
         for filename in OUTPUT_FILES
@@ -121,17 +140,86 @@ def _validate_staged_outputs(staging_dir: Path) -> None:
     ]
     if missing:
         raise RuntimeError(f"staged output missing files: {missing}")
+    charts_dir = staging_dir / "charts"
+    if not charts_dir.is_dir() or not any(charts_dir.iterdir()):
+        raise RuntimeError("staged charts directory is missing or empty")
+    actual_chart_files = {path.name for path in charts_dir.iterdir()}
+    if actual_chart_files != set(CHART_FILES):
+        raise RuntimeError(
+            "staged chart files do not match expected files: "
+            f"{sorted(actual_chart_files)}"
+        )
+    empty_chart_files = [
+        filename
+        for filename in CHART_FILES
+        if not (charts_dir / filename).is_file()
+        or (charts_dir / filename).stat().st_size == 0
+    ]
+    if empty_chart_files:
+        raise RuntimeError(
+            f"staged chart files are missing or empty: {empty_chart_files}"
+        )
+
     for filename in ("summary.json", "source_audit.json"):
         with (staging_dir / filename).open(encoding="utf-8") as file:
-            json.load(
+            payload = json.load(
                 file,
                 parse_constant=lambda value: (_ for _ in ()).throw(
                     ValueError(f"non-standard JSON constant: {value}")
                 ),
             )
+        if filename == "summary.json" and payload.get("output_files") != list(
+            OUTPUT_ARTIFACT_PATHS
+        ):
+            raise RuntimeError("summary output_files do not match staged artifacts")
     for filename in OUTPUT_FILES:
         if filename.endswith(".csv"):
             pd.read_csv(staging_dir / filename)
+
+    image_files = CHART_FILES[:2]
+    image_sizes = ((1680, 1120), (1680, 1000))
+    for filename, expected_size in zip(image_files, image_sizes, strict=True):
+        with Image.open(charts_dir / filename) as image:
+            image.load()
+            if image.size != expected_size:
+                raise RuntimeError(
+                    f"staged chart {filename} has size {image.size}, "
+                    f"expected {expected_size}"
+                )
+
+    index = pd.read_csv(charts_dir / "index.csv")
+    expected_strategies = ["regime_overlay", "ema_only"]
+    if (
+        len(index) != 2
+        or "strategy" not in index
+        or "image_path" not in index
+        or index["strategy"].tolist() != expected_strategies
+        or index["image_path"].tolist() != list(image_files)
+    ):
+        raise RuntimeError("staged chart index does not match expected rows")
+    for image_path in index["image_path"]:
+        if not (charts_dir / image_path).is_file():
+            raise RuntimeError(f"staged chart index image does not exist: {image_path}")
+
+    with (charts_dir / "render_summary.json").open(encoding="utf-8") as file:
+        render_summary = json.load(
+            file,
+            parse_constant=lambda value: (_ for _ in ()).throw(
+                ValueError(f"non-standard JSON constant: {value}")
+            ),
+        )
+    expected_render_summary = {
+        "rendered_images": 2,
+        "expected_images": 2,
+        "image_files": list(image_files),
+        "state_background_driver": "score_3d",
+        "score_tracks": ["score_1d", "score_3d"],
+    }
+    if any(
+        render_summary.get(key) != value
+        for key, value in expected_render_summary.items()
+    ):
+        raise RuntimeError("staged render summary does not match expected chart audit")
 
 
 def _empty_trades() -> pd.DataFrame:
@@ -377,7 +465,7 @@ def run_regime_overlay_analysis(
                 "position_ceilings_valid": ceilings_valid,
                 "prediction_alignment": "previous actual symbol bar to next open",
             },
-            "output_files": list(OUTPUT_FILES),
+            "output_files": list(OUTPUT_ARTIFACT_PATHS),
         }
         source_payload: dict[str, object] = dict(source_audit or {})
         source_payload.update(
@@ -408,6 +496,16 @@ def run_regime_overlay_analysis(
         )
         summary = _write_json(summary_payload, staging_dir / "summary.json")
         _write_json(source_payload, staging_dir / "source_audit.json")
+        render_regime_comparison_charts(
+            symbol=symbol,
+            name="易方达创业板ETF",
+            overlay_result=result,
+            ema_result=result.ema_result,
+            ema_metrics=ema_metrics,
+            output_dir=staging_dir / "charts",
+            report_start=start_date,
+            report_end=end_date,
+        )
         _validate_staged_outputs(staging_dir)
         _publish_staging(staging_dir, output_dir)
         return summary
