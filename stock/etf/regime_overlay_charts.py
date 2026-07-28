@@ -63,7 +63,7 @@ def prepare_daily_state_tracks(signals: pd.DataFrame) -> pd.DataFrame:
 
     frame = signals.loc[:, required].copy()
     try:
-        dates = pd.to_datetime(frame["datetime"], errors="raise")
+        dates = pd.to_datetime(frame["datetime"], format="mixed", errors="raise")
     except (TypeError, ValueError) as exc:
         raise ValueError("datetime must contain parseable dates") from exc
     if dates.isna().any():

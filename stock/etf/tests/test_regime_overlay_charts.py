@@ -1,3 +1,4 @@
+import warnings
 from dataclasses import FrozenInstanceError
 
 import numpy as np
@@ -131,6 +132,24 @@ def test_prepare_daily_state_tracks_normalizes_sorts_and_does_not_fill() -> None
     pd.testing.assert_frame_equal(signals, original)
 
 
+def test_prepare_daily_state_tracks_parses_mixed_date_formats() -> None:
+    signals = pd.DataFrame(
+        {
+            "datetime": ["07/07/2026 15:00", "2026-07-06 09:30"],
+            "score_1d": [1.5, -1.5],
+            "score_3d": [1.5, -1.5],
+            "state_3d": ["震荡向上", "震荡向下"],
+        }
+    )
+
+    daily = prepare_daily_state_tracks(signals)
+
+    assert daily["datetime"].tolist() == [
+        pd.Timestamp("2026-07-06"),
+        pd.Timestamp("2026-07-07"),
+    ]
+
+
 @pytest.mark.parametrize(
     "column",
     ["datetime", "score_1d", "score_3d", "state_3d"],
@@ -147,8 +166,10 @@ def test_prepare_daily_state_tracks_rejects_invalid_dates(
     signals = _signals()
     signals.loc[0, "datetime"] = invalid_date
 
-    with pytest.raises(ValueError, match="datetime"):
-        prepare_daily_state_tracks(signals)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        with pytest.raises(ValueError, match="datetime"):
+            prepare_daily_state_tracks(signals)
 
 
 def test_prepare_daily_state_tracks_rejects_duplicate_normalized_dates() -> None:
@@ -212,6 +233,25 @@ def test_aggregate_weekly_state_tracks_uses_last_actual_row_without_fill() -> No
         daily.loc[daily["datetime"].eq("2026-07-16")].iloc[0].drop(labels="datetime"),
         check_names=False,
     )
+
+
+def test_aggregate_weekly_state_tracks_omits_fully_missing_week() -> None:
+    signals = pd.DataFrame(
+        {
+            "datetime": ["2026-07-10", "2026-07-24"],
+            "score_1d": [-2.5, 2.5],
+            "score_3d": [-2.5, 2.5],
+            "state_3d": ["趋势向下", "趋势向上"],
+        }
+    )
+
+    weekly = aggregate_weekly_state_tracks(prepare_daily_state_tracks(signals))
+
+    assert weekly["datetime"].tolist() == [
+        pd.Timestamp("2026-07-10"),
+        pd.Timestamp("2026-07-24"),
+    ]
+    assert not weekly.isna().any(axis=None)
 
 
 def test_mutating_future_week_does_not_change_prior_week() -> None:
