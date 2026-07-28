@@ -251,6 +251,12 @@ def render_symbol_card(
     if not isinstance(review_label, str) or not review_label.strip():
         raise ValueError("review_label must be a non-empty string")
     review_label = review_label.strip()
+    for parameter, frame in (
+        ("daily_state_scores", daily_state_scores),
+        ("weekly_state_scores", weekly_state_scores),
+    ):
+        if frame is not None and not isinstance(frame, pd.DataFrame):
+            raise ValueError(f"{parameter} must be a DataFrame or None")
     has_state_scores = any(
         frame is not None and not frame.empty
         for frame in (daily_state_scores, weekly_state_scores)
@@ -531,11 +537,11 @@ def _draw_chart_panel(
     left, top, right, bottom = rect
     draw.rounded_rectangle(rect, radius=14, fill=PANEL_BACKGROUND, outline="#e2d6bd")
     draw.text((left + 14, top + 10), title, fill=INK, font=fonts.heading)
+    states = _normalize_state_scores(state_scores, require_scores=draw_score_tracks)
     if bars.empty:
         draw.text((left + 20, top + 62), "No OHLCV data", fill=MUTED, font=fonts.body)
         return
 
-    states = _normalize_state_scores(state_scores, require_scores=draw_score_tracks)
     plot_left = left + 56
     plot_right = right - 18
     price_top = top + 40
@@ -662,10 +668,10 @@ def _normalize_state_scores(
     *,
     require_scores: bool,
 ) -> pd.DataFrame | None:
+    if state_scores is not None and not isinstance(state_scores, pd.DataFrame):
+        raise ValueError("state_scores must be a DataFrame or None")
     if state_scores is None or state_scores.empty:
         return None
-    if not isinstance(state_scores, pd.DataFrame):
-        raise ValueError("state_scores must be a DataFrame")
     required = {"datetime", "state_3d", "state_color"}
     if require_scores:
         required.update({"score_1d", "score_3d"})
@@ -674,12 +680,43 @@ def _normalize_state_scores(
         raise ValueError(f"state_scores missing columns: {sorted(missing)}")
 
     states = state_scores.copy()
-    states["datetime"] = pd.to_datetime(
-        states["datetime"], errors="coerce"
-    ).dt.normalize()
+    normalized_dates: list[pd.Timestamp] = []
+    for value in states["datetime"]:
+        try:
+            timestamp = pd.Timestamp(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("state_scores datetime contains invalid values") from exc
+        if pd.isna(timestamp):
+            raise ValueError("state_scores datetime contains invalid values")
+        if timestamp.tzinfo is not None:
+            raise ValueError("state_scores datetime must be timezone-naive")
+        normalized_dates.append(timestamp.normalize())
+    states["datetime"] = normalized_dates
+
+    for column in ("state_3d", "state_color"):
+        if any(pd.isna(value) or not str(value).strip() for value in states[column]):
+            raise ValueError(f"state_scores {column} must not contain empty values")
+
     if require_scores:
         for column in ("score_1d", "score_3d"):
-            states[column] = pd.to_numeric(states[column], errors="coerce")
+            validated_scores: list[float] = []
+            for value in states[column]:
+                try:
+                    score = float(value)
+                except (TypeError, ValueError, OverflowError) as exc:
+                    raise ValueError(
+                        f"state_scores {column} must contain finite values in [-3, 3]"
+                    ) from exc
+                if (
+                    isinstance(value, bool)
+                    or not math.isfinite(score)
+                    or not -3.0 <= score <= 3.0
+                ):
+                    raise ValueError(
+                        f"state_scores {column} must contain finite values in [-3, 3]"
+                    )
+                validated_scores.append(score)
+            states[column] = validated_scores
     return states
 
 

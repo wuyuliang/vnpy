@@ -2,6 +2,7 @@ import inspect
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -317,10 +318,126 @@ class TradeChartTransformTests(unittest.TestCase):
         parameters = inspect.signature(_draw_chart_panel).parameters
 
         self.assertIn("draw_score_tracks", parameters)
+
+    def test_render_symbol_card_enables_score_tracks_only_for_daily_panel(
+        self,
+    ) -> None:
+        arguments = self._card_arguments()
+        dates = pd.bdate_range("2026-03-02", periods=60)
+        weekly = aggregate_weekly_bars(self._bars(dates))
+        daily_states = self._state_scores(dates)
+        weekly_states = self._state_scores(pd.DatetimeIndex(weekly["datetime"]))
+
+        with patch("stock.etf.render_trade_charts._draw_chart_panel") as draw_panel:
+            render_symbol_card(
+                **arguments,
+                daily_state_scores=daily_states,
+                weekly_state_scores=weekly_states,
+            )
+
+        self.assertEqual(draw_panel.call_count, 2)
+        calls_by_period = {
+            str(panel_call.args[2]).split()[0]: panel_call.kwargs
+            for panel_call in draw_panel.call_args_list
+        }
+        self.assertFalse(calls_by_period["Weekly"].get("draw_score_tracks", False))
+        self.assertTrue(calls_by_period["Daily"]["draw_score_tracks"])
         self.assertEqual(
-            [name for name in parameters if name.startswith("draw_")],
-            ["draw_score_tracks"],
+            sum(
+                bool(panel_call.kwargs.get("draw_score_tracks", False))
+                for panel_call in draw_panel.call_args_list
+            ),
+            1,
         )
+
+    def test_render_symbol_card_rejects_non_dataframe_state_scores(self) -> None:
+        for parameter in ("daily_state_scores", "weekly_state_scores"):
+            with self.subTest(parameter=parameter):
+                arguments = self._card_arguments()
+                arguments[parameter] = ["not", "a", "dataframe"]
+
+                with self.assertRaisesRegex(ValueError, parameter):
+                    render_symbol_card(**arguments)
+
+    def test_empty_bars_do_not_skip_state_structure_validation(self) -> None:
+        empty_bars = pd.DataFrame(
+            columns=["datetime", "open", "high", "low", "close", "volume"]
+        )
+        incomplete_states = pd.DataFrame(
+            {
+                "datetime": [pd.Timestamp("2026-03-02")],
+                "state_3d": ["趋势向上"],
+            }
+        )
+
+        for bars_parameter, states_parameter in (
+            ("daily_bars", "daily_state_scores"),
+            ("weekly_bars", "weekly_state_scores"),
+        ):
+            with self.subTest(states_parameter=states_parameter):
+                arguments = self._card_arguments()
+                arguments[bars_parameter] = empty_bars
+                arguments[states_parameter] = incomplete_states
+
+                with self.assertRaisesRegex(ValueError, "state_scores missing columns"):
+                    render_symbol_card(**arguments)
+
+    def test_render_symbol_card_rejects_invalid_state_dates(self) -> None:
+        dates = pd.bdate_range("2026-03-02", periods=60)
+        invalid_date_frames: list[tuple[str, pd.DataFrame]] = []
+        for label, invalid_date in (
+            ("unparseable", "not-a-date"),
+            ("nat", pd.NaT),
+        ):
+            states = self._state_scores(dates)
+            states["datetime"] = states["datetime"].astype(object)
+            states.at[0, "datetime"] = invalid_date
+            invalid_date_frames.append((label, states))
+        timezone_states = self._state_scores(dates)
+        timezone_states["datetime"] = pd.DatetimeIndex(
+            timezone_states["datetime"]
+        ).tz_localize("UTC")
+        invalid_date_frames.append(("timezone", timezone_states))
+
+        for label, states in invalid_date_frames:
+            with self.subTest(label=label):
+                with self.assertRaisesRegex(ValueError, "datetime"):
+                    render_symbol_card(
+                        **self._card_arguments(),
+                        daily_state_scores=states,
+                    )
+
+    def test_render_symbol_card_rejects_empty_state_labels(self) -> None:
+        dates = pd.bdate_range("2026-03-02", periods=60)
+
+        for column in ("state_3d", "state_color"):
+            for value in (None, "   "):
+                with self.subTest(column=column, value=value):
+                    states = self._state_scores(dates)
+                    states[column] = states[column].astype(object)
+                    states.at[0, column] = value
+
+                    with self.assertRaisesRegex(ValueError, column):
+                        render_symbol_card(
+                            **self._card_arguments(),
+                            daily_state_scores=states,
+                        )
+
+    def test_render_symbol_card_rejects_invalid_score_tracks(self) -> None:
+        dates = pd.bdate_range("2026-03-02", periods=60)
+
+        for column in ("score_1d", "score_3d"):
+            for value in ("bad-score", 99.0, np.nan, np.inf, -np.inf):
+                with self.subTest(column=column, value=value):
+                    states = self._state_scores(dates)
+                    states[column] = states[column].astype(object)
+                    states.at[0, column] = value
+
+                    with self.assertRaisesRegex(ValueError, column):
+                        render_symbol_card(
+                            **self._card_arguments(),
+                            daily_state_scores=states,
+                        )
 
     def test_batch_render_records_symbol_with_missing_daily_data(self) -> None:
         with TemporaryDirectory() as directory:
