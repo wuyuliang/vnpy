@@ -2,18 +2,34 @@
 
 from __future__ import annotations
 
+import argparse
 from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import date
+import json
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
 
+from cta.strategy.brooks.scalp.config import load_config as load_scalp_config
+from cta.strategy.brooks.scalp.metadata import MetadataBundle
 from cta.strategy.brooks.scalp.report import (
     CHART_BACKGROUND,
     CHART_INK,
     CHART_MUTED,
     _draw_candlestick_panel,
 )
+
+from ..config import load_config
+from ..instruments.sessions import (
+    aggregate_completed_bars,
+    aggregate_completed_daily_bars,
+)
+from ..legacy_adapters.scalp import load_normalized_symbol
+from .scanner import build_symbol_replay_frames
+from .timeframes import TimeframeSet
 
 
 _CANDIDATE_COLUMNS = {
@@ -43,6 +59,15 @@ _PANEL_RECTS = (
     (42, 472, 1638, 800),
     (42, 820, 1638, 1148),
 )
+DEFAULT_DATA_ROOT = Path("cta/data/origin/minute")
+
+
+@dataclass(frozen=True)
+class _ChartContext:
+    daily: pd.DataFrame
+    hourly: pd.DataFrame
+    minute: pd.DataFrame
+    long: pd.DataFrame
 
 
 def _diagnose_candidates(
@@ -229,6 +254,200 @@ def render_candidate_card(
     return image.convert("RGB")
 
 
+def generate_candidate_charts(
+    report_dir: str | Path,
+    *,
+    data_root: str | Path = DEFAULT_DATA_ROOT,
+) -> pd.DataFrame:
+    """Write candidate cards, an index, and a large-cycle explanation."""
+    report = Path(report_dir)
+    summary_path = report / "summary.json"
+    candidates_path = report / "candidates.csv"
+    rejections_path = report / "rejections.csv"
+    missing = [
+        str(path.name)
+        for path in (summary_path, candidates_path, rejections_path)
+        if not path.is_file()
+    ]
+    if missing:
+        raise FileNotFoundError("candidate chart report is missing: " + ",".join(missing))
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    candidates = pd.read_csv(candidates_path)
+    rejections = pd.read_csv(rejections_path)
+    if candidates.empty:
+        raise ValueError("candidate chart report has no candidates")
+    context = _load_chart_context(summary, Path(data_root))
+    diagnosed = _diagnose_candidates(candidates, rejections, context.long)
+
+    output_dir = report / "candidate_charts"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    chart_paths: list[str] = []
+    for row in diagnosed.to_dict("records"):
+        signal = _shanghai_timestamp(row["signal_time"])
+        direction = "LONG" if int(row["direction"]) == 1 else "SHORT"
+        filename = (
+            f"{int(row['sequence']):03d}_{signal:%Y%m%d_%H%M%S}_"
+            f"{row['setup']}_{direction}.png"
+        )
+        path = output_dir / filename
+        image = render_candidate_card(
+            row,
+            daily=context.daily,
+            hourly=context.hourly,
+            minute=context.minute,
+        )
+        image.save(path, format="PNG")
+        chart_paths.append(str(path.relative_to(report)))
+    index = diagnosed.copy()
+    index["chart_path"] = chart_paths
+    index.to_csv(output_dir / "index.csv", index=False)
+    (report / "LARGE_CYCLE_UNAVAILABLE.md").write_text(
+        _render_large_cycle_explanation(index, summary),
+        encoding="utf-8",
+    )
+    return index
+
+
+def _load_chart_context(
+    summary: Mapping[str, Any],
+    data_root: Path,
+) -> _ChartContext:
+    requested = tuple(str(value) for value in summary.get("requested_symbols", ()))
+    loaded_symbols = tuple(str(value) for value in summary.get("loaded_symbols", ()))
+    if len(requested) != 1 or requested != loaded_symbols:
+        raise ValueError("candidate charts require one successfully loaded symbol")
+    metadata_update = summary.get("execution_metadata_update", {})
+    metadata_root = str(metadata_update.get("metadata_root", "")).strip()
+    if not metadata_root:
+        raise ValueError("candidate charts require the run metadata cache")
+    start = date.fromisoformat(str(summary["requested_start"]))
+    end = date.fromisoformat(str(summary["requested_end"]))
+    metadata = MetadataBundle.load(metadata_root)
+    loaded = load_normalized_symbol(
+        symbol=requested[0],
+        start=start,
+        end=end,
+        data_root=data_root,
+        metadata=metadata,
+        config=load_scalp_config(),
+    )
+    timeframe_values = summary.get("timeframes", {})
+    timeframes = TimeframeSet.from_values(
+        str(timeframe_values["long"]),
+        str(timeframe_values["medium"]),
+        str(timeframe_values["short"]),
+    )
+    if timeframes.long.minutes != 30:
+        raise ValueError("candidate chart explanation requires strategy large_tf=30min")
+    replay = build_symbol_replay_frames(
+        loaded,
+        config=load_config(),
+        timeframes=timeframes,
+    )
+    daily = aggregate_completed_daily_bars(
+        loaded.minute_bars,
+        sessions=loaded.sessions,
+    )
+    hourly = aggregate_completed_bars(
+        loaded.minute_bars,
+        minutes=60,
+        sessions=loaded.sessions,
+    )
+    return _ChartContext(
+        daily=_as_chart_frame(daily),
+        hourly=_as_chart_frame(hourly),
+        minute=_as_chart_frame(loaded.minute_bars),
+        long=replay.long,
+    )
+
+
+def _as_chart_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    _require_columns(frame, _OHLCV_COLUMNS | {"bar_end"}, "candidate chart bars")
+    result = frame.loc[:, ["bar_end", "open", "high", "low", "close", "volume"]].copy()
+    result["bar_end"] = result["bar_end"].map(_shanghai_timestamp)
+    for column in _OHLCV_COLUMNS:
+        result[column] = pd.to_numeric(result[column], errors="raise")
+    return (
+        result.sort_values("bar_end", kind="stable")
+        .drop_duplicates("bar_end", keep="last")
+        .set_index("bar_end")
+    )
+
+
+def _render_large_cycle_explanation(
+    index: pd.DataFrame,
+    summary: Mapping[str, Any],
+) -> str:
+    lines = [
+        "# LARGE_CYCLE_UNAVAILABLE",
+        "",
+        "## Result",
+        "",
+        (
+            f"This run produced {len(index)} candidates. Every candidate was retained "
+            "in the audit, but no order was created because the configured 30min "
+            "large cycle was `UNAVAILABLE` at its rejection event."
+        ),
+        "",
+        "60min is review context only. The strategy decision used the latest "
+        "completed 30min snapshot visible at `rejection_feature_asof`.",
+        "",
+        "## Exact Requirement",
+        "",
+        "`assess_direction_permission` checks the large cycle before confidence, "
+        "direction agreement, sizing, or order creation:",
+        "",
+        "1. `UNAVAILABLE` or `TRANSITION` returns `LARGE_CYCLE_UNAVAILABLE`.",
+        "2. A usable directional or trading-range state is required to continue.",
+        "3. The medium cycle, minimum confidence, direction, Always-In state, risk, "
+        "and sizing gates are evaluated only after the large-cycle availability gate.",
+        "",
+        "The causal market-cycle classifier can return `UNAVAILABLE` for three "
+        "data-completeness reasons:",
+        "",
+        "- `INSUFFICIENT_CAUSAL_HISTORY`: fewer than 252 completed prior 30min bars "
+        "are available for the configured percentile lookback.",
+        "- `NON_FINITE_REQUIRED_STATE_INPUT`: at least one required cycle feature is "
+        "missing or non-finite.",
+        "- `INSUFFICIENT_PRESSURE_HISTORY`: 252 finite prior directional-pressure "
+        "observations have not yet accumulated after the initial feature history.",
+        "",
+        "With all inputs finite, the first possible classified snapshot is the 505th "
+        "completed 30min bar: 252 prior feature-history bars plus 252 prior pressure "
+        "observations. `TRANSITION` remains blocked even after this warm-up because it "
+        "does not provide stable large-cycle direction permission.",
+        "",
+        "## Candidates",
+        "",
+        "| # | Signal (Asia/Shanghai) | Active | Setup | Direction | Medium cycle | Large reason | Chart |",
+        "|---:|---|---|---|---|---|---|---|",
+    ]
+    for row in index.to_dict("records"):
+        signal = _shanghai_timestamp(row["signal_time"])
+        active = _shanghai_timestamp(row["active_time"])
+        direction = "LONG" if int(row["direction"]) == 1 else "SHORT"
+        lines.append(
+            f"| {int(row['sequence'])} | {signal:%Y-%m-%d %H:%M} | "
+            f"{active:%Y-%m-%d %H:%M} | {row['setup']} | {direction} | "
+            f"{row['cycle']} | `{row['large_reason']}` | "
+            f"[{Path(str(row['chart_path'])).name}]({row['chart_path']}) |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Run Context",
+            "",
+            f"- Requested interval: `{summary['requested_start']}..{summary['requested_end']}`",
+            f"- Requested and loaded symbol: `{summary['loaded_symbols'][0]}`",
+            "- Chart panels: exchange-trade-date daily / completed 60min / raw 1min",
+            "- Bars right of each SIGNAL marker: `POST-EVENT REVIEW ONLY`",
+            "- Orders, fills, and round trips: `0 / 0 / 0`",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _draw_candidate_overlay(
     image: Image.Image,
     rect: tuple[int, int, int, int],
@@ -277,12 +496,58 @@ def _draw_candidate_overlay(
         (stop, "STOP", "#b42318"),
         (target, "TARGET", "#16835f"),
     )
+    visible_levels: list[tuple[float, str, str]] = []
     for value, label, color in levels:
         if not low <= value <= high:
             continue
         y = chart[3] - (value - low) / (high - low) * (chart[3] - chart[1])
+        visible_levels.append((y, label, color))
+    visible_levels.sort(key=lambda item: item[0])
+    label_positions = _separate_label_positions(
+        [item[0] for item in visible_levels],
+        top=float(chart[1]),
+        bottom=float(chart[3] - 10),
+        minimum_gap=14.0,
+    )
+    for (y, label, color), label_y in zip(
+        visible_levels,
+        label_positions,
+        strict=True,
+    ):
         draw.line((chart[0], y, chart[2], y), fill=color, width=1)
-        draw.text((chart[2] - 92, max(chart[1], y - 12)), label, fill=color)
+        draw.line(
+            (chart[2] - 112, y, chart[2] - 100, label_y + 4),
+            fill=color,
+            width=1,
+        )
+        draw.text((chart[2] - 96, label_y), label, fill=color)
+
+
+def _separate_label_positions(
+    values: list[float],
+    *,
+    top: float,
+    bottom: float,
+    minimum_gap: float,
+) -> list[float]:
+    """Separate sorted vertical labels while keeping them inside a chart."""
+    if bottom < top or minimum_gap < 0:
+        raise ValueError("candidate level label bounds are invalid")
+    if not values:
+        return []
+    ordered = sorted(float(value) for value in values)
+    available_gap = (bottom - top) / max(len(ordered) - 1, 1)
+    gap = min(minimum_gap, available_gap)
+    result = [min(max(ordered[0], top), bottom)]
+    for value in ordered[1:]:
+        result.append(max(min(value, bottom), result[-1] + gap))
+    overflow = result[-1] - bottom
+    if overflow > 0:
+        result = [value - overflow for value in result]
+    if result[0] < top:
+        shift = top - result[0]
+        result = [value + shift for value in result]
+    return result
 
 
 def _event_x(
@@ -335,4 +600,33 @@ def _shanghai_timestamp(value: object) -> pd.Timestamp:
     return parsed.tz_convert("Asia/Shanghai")
 
 
-__all__ = ["render_candidate_card"]
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--report-dir", type=Path, required=True)
+    parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
+    args = parser.parse_args(argv)
+    index = generate_candidate_charts(
+        args.report_dir,
+        data_root=args.data_root,
+    )
+    print(
+        json.dumps(
+            {
+                "status": "COMPLETE",
+                "report_dir": str(args.report_dir),
+                "candidate_count": len(index),
+                "image_count": len(index),
+                "index": str(args.report_dir / "candidate_charts" / "index.csv"),
+                "explanation": str(args.report_dir / "LARGE_CYCLE_UNAVAILABLE.md"),
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+__all__ = ["generate_candidate_charts", "render_candidate_card"]
