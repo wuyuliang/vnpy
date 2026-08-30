@@ -4,6 +4,8 @@ import pandas as pd
 
 from cta.strategy.brooks.cycle_v1.backtest.candidate_charts import (
     _diagnose_candidates,
+    _select_event_window,
+    render_candidate_card,
 )
 
 
@@ -67,3 +69,84 @@ def test_diagnose_candidates_uses_latest_visible_large_snapshot() -> None:
     assert result["diagnostic_source"].eq(
         "recomputed_30min_snapshot"
     ).all()
+
+
+def test_select_event_window_keeps_requested_context() -> None:
+    minute = _bars("2026-01-12 12:30", periods=180, frequency="1min")
+    signal = pd.Timestamp("2026-01-12 14:25:00", tz="Asia/Shanghai")
+
+    selected = _select_event_window(minute, signal, before=80, after=40)
+
+    assert len(selected) == 121
+    assert selected.index[80] == signal
+
+
+def test_render_candidate_card_has_three_panel_dimensions() -> None:
+    row = _diagnosed_candidate_row()
+    daily = _bars("2025-12-20", periods=30, frequency="1D")
+    hourly = _bars("2026-01-10 09:00", periods=80, frequency="1h")
+    minute = _bars("2026-01-12 12:30", periods=180, frequency="1min")
+
+    image = render_candidate_card(
+        row,
+        daily=daily,
+        hourly=hourly,
+        minute=minute,
+    )
+
+    assert image.size == (1680, 1240)
+    assert image.getbbox() == (0, 0, 1680, 1240)
+
+
+def _diagnosed_candidate_row() -> pd.Series:
+    return pd.Series(
+        {
+            "sequence": 1,
+            "candidate_id": "candidate-ag",
+            "symbol": "AG",
+            "contract_code": "AG2604.SHF",
+            "setup": "H2",
+            "direction": 1,
+            "cycle": "BULL_TIGHT_CHANNEL",
+            "signal_time": pd.Timestamp(
+                "2026-01-12 14:25:00", tz="Asia/Shanghai"
+            ),
+            "active_time": pd.Timestamp(
+                "2026-01-12 14:27:00", tz="Asia/Shanghai"
+            ),
+            "entry": 20874.0,
+            "stop": 20838.0,
+            "target": 20933.0,
+            "rejection_feature_asof": pd.Timestamp(
+                "2026-01-12 14:26:00", tz="Asia/Shanghai"
+            ),
+            "rejection_code": "LARGE_CYCLE_UNAVAILABLE",
+            "large_cycle": "UNAVAILABLE",
+            "large_reason": "INSUFFICIENT_CAUSAL_HISTORY",
+        }
+    )
+
+
+def _bars(
+    start: str,
+    *,
+    periods: int,
+    frequency: str,
+) -> pd.DataFrame:
+    index = pd.date_range(
+        start,
+        periods=periods,
+        freq=frequency,
+        tz="Asia/Shanghai",
+    )
+    base = pd.Series(range(periods), dtype=float).to_numpy() + 20_000.0
+    return pd.DataFrame(
+        {
+            "open": base,
+            "high": base + 12.0,
+            "low": base - 8.0,
+            "close": base + 4.0,
+            "volume": base - 19_900.0,
+        },
+        index=index,
+    )
