@@ -10,6 +10,7 @@ import pytest
 from cta.strategy.brooks.cycle_v1.backtest import candidate_charts
 from cta.strategy.brooks.cycle_v1.backtest.candidate_charts import (
     _diagnose_candidates,
+    _require_config_hash,
     _select_event_window,
     _separate_label_positions,
     render_candidate_card,
@@ -115,6 +116,11 @@ def test_level_labels_are_separated_inside_chart() -> None:
 
     assert all(100.0 <= value <= 220.0 for value in result)
     assert all(right - left >= 14.0 for left, right in zip(result, result[1:]))
+
+
+def test_report_config_hash_must_match_recomputed_cycle_config() -> None:
+    with pytest.raises(ValueError, match="config hash"):
+        _require_config_hash({"config_hash": "report-hash"}, "current-hash")
 
 
 def test_generate_candidate_charts_writes_index_images_and_explanation(

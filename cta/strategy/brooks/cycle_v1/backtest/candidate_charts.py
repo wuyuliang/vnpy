@@ -339,9 +339,11 @@ def _load_chart_context(
     )
     if timeframes.long.minutes != 30:
         raise ValueError("candidate chart explanation requires strategy large_tf=30min")
+    cycle_config = load_config()
+    _require_config_hash(summary, cycle_config.config_hash)
     replay = build_symbol_replay_frames(
         loaded,
-        config=load_config(),
+        config=cycle_config,
         timeframes=timeframes,
     )
     daily = aggregate_completed_daily_bars(
@@ -589,6 +591,17 @@ def _require_columns(frame: pd.DataFrame, required: set[str], label: str) -> Non
     missing = sorted(required.difference(frame.columns))
     if missing:
         raise ValueError(f"{label} are missing columns: {','.join(missing)}")
+
+
+def _require_config_hash(
+    summary: Mapping[str, Any],
+    current_hash: str,
+) -> None:
+    report_hash = str(summary.get("config_hash", "")).strip()
+    if not report_hash or report_hash != str(current_hash):
+        raise ValueError(
+            "candidate chart config hash does not match the backtest report"
+        )
 
 
 def _shanghai_timestamp(value: object) -> pd.Timestamp:
