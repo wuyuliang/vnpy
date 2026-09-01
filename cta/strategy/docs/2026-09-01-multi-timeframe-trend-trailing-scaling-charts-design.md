@@ -32,8 +32,8 @@ short_ema_permission = EMA5 < EMA10 < EMA20
 为每个 5 分钟候选附加信号时刻已知的日线极值：
 
 ```text
-prior_5d_high = 此前 5 根已完成日线最高价的最大值
-prior_5d_low  = 此前 5 根已完成日线最低价的最小值
+prior_5d_high = 此前 5 根已完成日线开盘价和收盘价的最大值
+prior_5d_low  = 此前 5 根已完成日线开盘价和收盘价的最小值
 ```
 
 候选的最终许可为：
