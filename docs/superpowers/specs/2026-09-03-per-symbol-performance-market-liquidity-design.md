@@ -10,6 +10,7 @@
 
 ```text
 performance_by_symbol.csv
+daily_equity_curve.png
 ```
 
 该文件对每个已加载品种输出一行，按 `symbol` 升序排列。即使某品种没有成交，也保留一行，交易数和金额类指标写 `0`，没有定义的胜率与比率写空值。
@@ -98,8 +99,22 @@ prior_Nd_avg_market_turnover
 2. `runner.py` 仅为已成交交易抽取实际入场分钟对应的交易所交易日，避免把整份分钟数据复制到报告层。
 3. `report.py` 在写盘前计算滚动市场流动性，并将带六个新增字段的交易表写入 `trades.csv`。
 4. `report.py` 基于同一交易表生成 `performance_by_symbol.csv`。
-5. 现有 `summary.json`、`report.md`、`performance_by_group.csv` 和图表逻辑不改变；新增逐笔字段不能影响组合正式绩效。
+5. 现有 `summary.json`、`report.md`、`performance_by_group.csv` 和机会图表逻辑不改变；新增逐笔字段不能影响组合正式绩效。
 6. 空回测仍生成只含表头的 `performance_by_symbol.csv`；若已有加载品种但没有交易，则按上述零交易规则保留品种行。
+
+## 每日权益图
+
+`daily_equity_curve.png` 只使用最终写出的 `daily_equity.csv` 中的 `date`、`equity` 和报告参数 `initial_equity` 生成，不重新计算权益：
+
+```text
+equity_pct = 100 * equity / initial_equity
+```
+
+- 横轴为交易所交易日日期，按自然日期每隔 `5` 天显示一个刻度，标签采用 `YYYY-MM-DD`。
+- 纵轴显示初始资金百分比并带 `%`，初始资金对应 `100%`；纵轴刻度根据实际数据范围自动等距分布。
+- 绘制每日权益折线、点状水平网格和 `100%` 初始资金基准线，不增加其他绩效曲线或交易标记。
+- 图片使用静态 PNG 和无界面绘图后端，回测命令无需新增参数。
+- 当 `daily_equity.csv` 为空时仍生成同名图片，但只显示无可用每日权益数据的提示，不绘制虚假曲线。
 
 ## 测试
 
@@ -112,4 +127,5 @@ prior_Nd_avg_market_turnover
 7. 验证交易笔数、净收益、收益率、胜率、利润因子、平均盈亏比和期望 R 公式。
 8. 验证累计净收益先盈利后亏损、开局连续亏损等情况下的最大回撤金额和百分比。
 9. 验证最终写出的 CSV 列序与内存结果一致。
-10. 运行全部多周期趋势策略测试，确认回测交易行为和正式组合绩效不变。
+10. 验证每日权益图使用 `equity / initial_equity`、每 5 个自然日日期刻度和 `100%` 基准线，并能处理空权益表。
+11. 运行全部多周期趋势策略测试，确认回测交易行为和正式组合绩效不变。
