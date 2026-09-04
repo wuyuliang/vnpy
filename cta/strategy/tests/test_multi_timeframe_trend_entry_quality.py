@@ -395,6 +395,8 @@ def test_session_range_ignores_bars_of_other_contracts_order() -> None:
 # --------------------------------------------------------------------------
 from cta.strategy.multi_timeframe_trend_backtest.engine import (  # noqa: E402
     _ChaseHighState,
+    _VirtualPosition,
+    _cancel_virtual_on_roll,
     _chase_high_gate_open,
     _VirtualOrder,
     _virtual_entry_price,
@@ -494,6 +496,7 @@ def _order(direction: int = 1, trigger: float = 100.0) -> _VirtualOrder:
     return _VirtualOrder(
         root_symbol="AG",
         candidate_id="AG-1",
+        contract_code="AG2602.SHF",
         direction=direction,
         trigger=trigger,
         stop_price=trigger - 2.0 * direction,
@@ -501,6 +504,36 @@ def _order(direction: int = 1, trigger: float = 100.0) -> _VirtualOrder:
         active_at=_at("2026-01-05 10:00"),
         tick_size=0.1,
     )
+
+
+def test_virtual_position_is_discarded_on_roll_without_recording_r() -> None:
+    order = _order()
+    orders = {"AG": order}
+    positions = {
+        "AG": _VirtualPosition(
+            root_symbol="AG",
+            candidate_id=order.candidate_id,
+            contract_code=order.contract_code,
+            direction=order.direction,
+            entry_time=_at("2026-01-05 10:01"),
+            entry_price=100.0,
+            stop_price=98.0,
+            initial_risk=2.0,
+            tick_size=0.1,
+        )
+    }
+    state = _ChaseHighState()
+
+    assert _cancel_virtual_on_roll(
+        "AG",
+        "AG2603.SHF",
+        orders,
+        positions,
+    )
+
+    assert orders == {}
+    assert positions == {}
+    assert state.outcomes == []
 
 
 def test_virtual_stop_order_does_not_fill_below_its_trigger() -> None:

@@ -769,6 +769,7 @@ class _PortfolioScalingState:
 class _VirtualOrder:
     root_symbol: str
     candidate_id: str
+    contract_code: str
     direction: int
     trigger: float
     stop_price: float
@@ -781,6 +782,7 @@ class _VirtualOrder:
 class _VirtualPosition:
     root_symbol: str
     candidate_id: str
+    contract_code: str
     direction: int
     entry_time: pd.Timestamp
     entry_price: float
@@ -807,6 +809,25 @@ class _ChaseHighState:
         if not self.outcomes:
             return math.nan
         return float(sum(self.window(lookback)))
+
+
+def _cancel_virtual_on_roll(
+    root_symbol: str,
+    active_contract: str,
+    virtual_orders: dict[str, _VirtualOrder],
+    virtual_positions: dict[str, _VirtualPosition],
+) -> bool:
+    """Discard shadow exposure tied to a contract that is no longer active."""
+    cancelled = False
+    order = virtual_orders.get(root_symbol)
+    if order is not None and order.contract_code != active_contract:
+        virtual_orders.pop(root_symbol, None)
+        cancelled = True
+    position = virtual_positions.get(root_symbol)
+    if position is not None and position.contract_code != active_contract:
+        virtual_positions.pop(root_symbol, None)
+        cancelled = True
+    return cancelled
 
 
 def _advance_virtual_book(
@@ -849,6 +870,7 @@ def _advance_virtual_book(
         virtual_positions[root_symbol] = _VirtualPosition(
             root_symbol=root_symbol,
             candidate_id=order.candidate_id,
+            contract_code=order.contract_code,
             direction=order.direction,
             entry_time=timestamp,
             entry_price=fill,
@@ -912,6 +934,7 @@ def _handle_chase_high_candidate(
         virtual_orders[root_symbol] = _VirtualOrder(
             root_symbol=root_symbol,
             candidate_id=str(candidate["candidate_id"]),
+            contract_code=str(candidate["contract_code"]),
             direction=int(candidate["direction"]),
             trigger=float(candidate["trigger"]),
             stop_price=float(candidate["stop_price"]),
@@ -1538,6 +1561,12 @@ def replay_trend_strategy(
         timestamp = pd.Timestamp(bar["bar_end"])
         contract = str(bar["contract_code"])
         if active_contract and contract != active_contract:
+            _cancel_virtual_on_roll(
+                root_symbol,
+                contract,
+                virtual_orders,
+                virtual_positions,
+            )
             if pending is not None:
                 order_rows.append(
                     _order_row(pending, "CANCELLED", "ROLL_MAPPING_CHANGED", timestamp)
@@ -2162,6 +2191,12 @@ def replay_trend_portfolio(
             contract = str(bar["contract_code"])
             previous_contract = active_contract.get(root_symbol, "")
             if previous_contract and contract != previous_contract:
+                _cancel_virtual_on_roll(
+                    root_symbol,
+                    contract,
+                    virtual_orders,
+                    virtual_positions,
+                )
                 old_pending = pending.pop(root_symbol, None)
                 if old_pending is not None:
                     order_rows.append(
@@ -2213,10 +2248,14 @@ def replay_trend_portfolio(
                 )
 
         if config.chase_high_virtual_enabled:
+            virtual_bars = {
+                root_symbol: position_bars.get(root_symbol, bar)
+                for root_symbol, bar in bars_at_event.items()
+            }
             _advance_virtual_book(
                 virtual_orders,
                 virtual_positions,
-                bars_at_event,
+                virtual_bars,
                 contexts,
                 timestamp,
                 chase_state,

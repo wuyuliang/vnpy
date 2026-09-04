@@ -3165,6 +3165,13 @@ python3 -m pytest -q cta/feature/tests/test_feature_modules_smoke.py cta/feature
 - 金标准与 R-07 后 `trades.csv` SHA-256 均为 `6685b6b89476c22b2c8d1b070e8140c81d108edfb0b79b3e963e7e9fbf850f0d`，`cmp` 逐字节一致；拒绝码分布不变。
 - 验证：`python3 -m pytest -q cta/strategy/tests`，548 passed。
 
+## 2026-09-04 · fix · R-04 影子仓换月作废
+
+- 追高影子订单和持仓新增实际 `contract_code`，主力切换时作废旧合约影子状态，不向追高门槛写入虚假 R。
+- 组合影子仓使用与真实持仓相同的 roll-aware bar 映射推进；单品种回放同步执行换月作废。
+- 新增换月同时清理影子订单/仓位且 `chase_state.outcomes` 不增加的测试。
+- 验收区间未触发影子仓换月，拒绝码分布及 `trades.csv` 与金标准一致；验证：`python3 -m pytest -q cta/strategy/tests`，549 passed。
+
 ---
 
 ## 2026-05-30 · current · OOT 日度仓位分布改为“当时资金占比(%)”
