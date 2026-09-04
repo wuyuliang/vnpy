@@ -1,0 +1,17 @@
+{
+  "run_tag": "20260627",
+  "generated_at": "2026-06-27T11:33:50.632126",
+  "python_version": "3.13.3 (v3.13.3:6280bb54784, Apr  8 2025, 10:47:54) [Clang 15.0.0 (clang-1500.3.9.4)]",
+  "platform": "macOS-15.7.3-arm64-arm-64bit-Mach-O",
+  "git_commit": "60a04422",
+  "candidate_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_OTHER_day_both_model_pipeline/20260627_GRP_CLUSTER_OTHER_day_both_candidates.csv",
+  "feature_table_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_OTHER_day_both_model_pipeline/20260627_GRP_CLUSTER_OTHER_day_both_feature_table.csv",
+  "prediction_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_OTHER_day_both_model_pipeline/20260627_GRP_CLUSTER_OTHER_day_both_predictions.csv",
+  "metrics_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_OTHER_day_both_model_pipeline/20260627_GRP_CLUSTER_OTHER_day_both_metrics.csv",
+  "top_feature_importance_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_OTHER_day_both_model_pipeline/20260627_GRP_CLUSTER_OTHER_day_both_top10_feature_importance.csv",
+  "data_snapshot_hash": "sha256:cea6d78f3ce105d710e057929bcddc7a774a62a493e25510720f56460c3b8786",
+  "feature_manifest_hash": "sha256:7aed568936455d96cabc18cef76d1e0002784120368b89c9de39572b561f05e8",
+  "prediction_hash": "sha256:cdc78c7ec0c6178ed28481e0fc77ae8983384c386b7fef366e3c6c8e6ea5bdf0",
+  "metrics_hash": "sha256:ae3512ff56d3de4c9d2e02f2144f4fa93f9017939faf9b000a206b5093220c15",
+  "features_doc_hash": "sha256:d79be5b8fe16a3018069b7359794f490767b298018c2daee165a7f44f7c4b63c"
+}

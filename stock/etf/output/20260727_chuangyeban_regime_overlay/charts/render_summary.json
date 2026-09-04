@@ -1,0 +1,17 @@
+{
+  "expected_images": 2,
+  "image_files": [
+    "0001_159915_SZ_易方达创业板ETF_状态覆盖.png",
+    "0002_159915_SZ_易方达创业板ETF_EMA基线.png"
+  ],
+  "rendered_images": 2,
+  "report_end": "2026-07-20",
+  "report_start": "2017-08-14",
+  "schema_version": 1,
+  "score_tracks": [
+    "score_1d",
+    "score_3d"
+  ],
+  "state_background_driver": "score_3d",
+  "symbol": "159915.SZ"
+}

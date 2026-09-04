@@ -65,7 +65,7 @@ eligible(D) = EMA1(D-1) > EMA3(D-1) > EMA5(D-1)
 
 每个已选择品种用其真实交易所调用 `fetch_fut_mapping(f"{root}0", exchange)`，再按请求日期下载映射出的实际合约分钟数据。仍保持：
 
-- 只允许 `2026-01-01` 至 `2026-07-27`；
+- 接受任意 `end >= start` 的日期区间，并只下载请求的 `start..end`；
 - 已存在日分区不覆盖；
 - 空响应记为 `empty`；
 - 写临时文件后原子替换；
@@ -90,7 +90,7 @@ ranking_csv
 day_root
 ```
 
-每个 selected 项记录 `root_symbol`、`exchange` 和来源集合。每个拒绝项记录 `root_symbol`、阶段和 reason code。下载统计继续按根品种输出 `requested_dates/skipped/downloaded/empty/converted_schema`。
+每个 selected 项记录 `root_symbol`、`exchange` 和来源集合。每个拒绝项记录 `root_symbol`、阶段和 reason code；无 EMA 命中使用 `NO_EMA_ELIGIBLE_DATE`，与缺失或损坏的日线分离。下载统计继续按根品种输出 `requested_dates/skipped/downloaded/empty/converted_schema`。`files` 对新下载、已有跳过文件和 CU schema 受控迁移分别记录 `status=downloaded/skipped/converted_schema`、实际合约、路径与 SHA256。目录身份发现异常时必须 fail-closed，不得退回猜测目录导致重复 alias；已有 CU schema 修复异常只阻断该文件，不中断其他品种。
 
 ## 测试与验收
 
@@ -107,4 +107,4 @@ day_root
 9. 审计 JSON 可序列化且包含选择来源与文件哈希；
 10. `cycle_v1` 下载器聚焦测试、Ruff 和编译通过。
 
-不在本次范围内：下载日期扩展到 2026-07-27 以外、自动生成历史交易机制元数据、修改 cycle_v1 信号或风险规则、实际回测或实盘下单。
+不在本次范围内：自动下载 `start` 之前的策略预热行情、自动生成历史交易机制元数据、修改 cycle_v1 信号或风险规则、实际回测或实盘下单。

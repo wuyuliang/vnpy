@@ -1,0 +1,53 @@
+{
+  "requested_interval_status": "BLOCKED_METADATA",
+  "official_performance": null,
+  "primary_curve_for_requested_interval": null,
+  "signal_only_label": "SIGNAL_ONLY_DIAGNOSTIC",
+  "covered_subset_status": "COVERED_SUBPERIOD_DIAGNOSTIC",
+  "assumed_mechanics_appendix": "NON_CAUSAL_SCENARIO",
+  "metadata_gaps": [
+    {
+      "root_symbol": "RB",
+      "field": "contract_lifecycle",
+      "reason_code": "BLOCKED_LIFECYCLE",
+      "reason": "audited historical execution table is not available to the cycle_v1 CLI"
+    },
+    {
+      "root_symbol": "RB",
+      "field": "trading_status",
+      "reason_code": "BLOCKED_TRADING_STATUS",
+      "reason": "audited historical execution table is not available to the cycle_v1 CLI"
+    },
+    {
+      "root_symbol": "RB",
+      "field": "order_capability",
+      "reason_code": "BLOCKED_ORDER_CAPABILITY",
+      "reason": "audited historical execution table is not available to the cycle_v1 CLI"
+    }
+  ],
+  "funnel": {
+    "discovered_symbols": 2,
+    "requested_symbols": 1,
+    "loaded_symbols": 1,
+    "eligible_symbol_days": 41,
+    "cycle_snapshots": 207
+  },
+  "schema": "brooks_cycle_v1",
+  "strategy_version": "cycle_v1",
+  "config_hash": "bc1a88e2104276546566b354ebfef0725c612004b29a07dd71a62336f53e6083",
+  "requested_start": "2026-03-18",
+  "requested_end": "2026-03-27",
+  "warmup_start": "2025-08-12",
+  "timeframes": {
+    "long": "1hour",
+    "medium": "30min",
+    "short": "5min"
+  },
+  "requested_symbols": [
+    "RB0.SHFE"
+  ],
+  "loaded_symbols": [
+    "RB0.SHFE"
+  ],
+  "ema_filter": "prior completed daily EMA(1) > EMA(3) > EMA(5)"
+}

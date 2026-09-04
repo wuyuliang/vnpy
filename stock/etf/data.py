@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from .industry import SHARE_SIZE_COLUMNS, normalize_share_size
+
 LOGGER = logging.getLogger(__name__)
 
 STANDARD_DAILY_COLUMNS = [
@@ -305,6 +307,34 @@ class TushareEtfDownloader:
             end_date=end.replace("-", ""),
         )
         return normalize_daily_frame(raw, amount_in_thousands=True)
+
+    def fetch_share_size(
+        self,
+        metadata: pd.DataFrame,
+        start: str,
+        end: str,
+    ) -> pd.DataFrame:
+        """Download ETF share-size history for every metadata symbol."""
+        symbols = sorted(metadata["symbol"].dropna().astype(str).unique())
+        frames: list[pd.DataFrame] = []
+        for index, symbol in enumerate(symbols):
+            raw = _query_tushare(
+                lambda symbol=symbol: self.pro.etf_share_size(
+                    ts_code=symbol,
+                    start_date=start.replace("-", ""),
+                    end_date=end.replace("-", ""),
+                    fields=(
+                        "trade_date,ts_code,total_share,total_size,nav,close,exchange"
+                    ),
+                )
+            )
+            if not raw.empty:
+                frames.append(raw)
+            if index < len(symbols) - 1:
+                time.sleep(REQUEST_INTERVAL_SECONDS)
+        if not frames:
+            return pd.DataFrame(columns=SHARE_SIZE_COLUMNS)
+        return normalize_share_size(pd.concat(frames, ignore_index=True))
 
     def fetch_etfs(
         self,

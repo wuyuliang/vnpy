@@ -1,0 +1,26 @@
+{
+  "selection_status": "no_variant_passed_all_gates",
+  "reported_configuration": "clean_atr5_adx10",
+  "reported_configuration_role": "most_credible_research_baseline_not_live_ready",
+  "reported_metrics": {
+    "annual_one_way_turnover": 11.644112,
+    "max_drawdown": -0.258806,
+    "sharpe": 0.385004,
+    "total_return": 0.417678,
+    "trade_count": 1142
+  },
+  "reported_failure": "annual_one_way_turnover_exceeds_10",
+  "preregistered_failure": [
+    "net_return_and_sharpe_not_both_above_clean_baseline",
+    "drawdown_worse_than_volatility_matched_csi300"
+  ],
+  "charts": "../20260717_full_clean_atr5_adx10_live/charts",
+  "chart_count": 90,
+  "data_cache": "../../data/20260717_2018_20260717_point_in_time_live",
+  "clean_etf_data": "../../data/20260717_2018_20260717_point_in_time_live/etfs_lifecycle_clean.csv",
+  "data_quality": "../../data/20260717_2018_20260717_point_in_time_live/data_quality.json",
+  "comparison": "experiment_summary.csv",
+  "annual_results": "annual_returns.csv",
+  "rolling_results": "rolling_12m_returns.csv",
+  "selection_audit": "selection_audit.json"
+}

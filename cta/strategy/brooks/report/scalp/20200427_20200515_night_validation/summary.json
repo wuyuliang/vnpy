@@ -1,0 +1,357 @@
+{
+  "accepted_candidate_count": 0,
+  "baselines": {
+    "always_in_only": {
+      "status": "NOT_ENABLED_IN_FROZEN_RULE_RUN"
+    },
+    "brooks_v3_existing": {
+      "status": "NOT_COMPARABLE_OLD_ACCOUNTING"
+    },
+    "no_trade": {
+      "net_pnl": 0.0,
+      "status": "REFERENCE"
+    },
+    "scalp_rule_full": {
+      "net_pnl": 0.0
+    }
+  },
+  "candidate_count": 0,
+  "config_sha256": "12105f911baf4d1e19f73fc26221dfffa4d0691b4e20b606412e05b4d8e7b4c5",
+  "daily_target_passed": false,
+  "independent_symbol_results": {
+    "CU0.SHFE": {
+      "equity_metrics": {
+        "average_daily_return": 0.0,
+        "average_monthly_return": 0.0,
+        "daily_count": 12,
+        "es99": 0.0,
+        "max_drawdown": 0.0,
+        "var99": 0.0,
+        "worst_daily_return": 0.0
+      },
+      "final_equity": 200000.0,
+      "risk_score": {
+        "bootstrap_loss_probability": null,
+        "items": [
+          {
+            "maximum": 10,
+            "name": "max_drawdown",
+            "passed": true,
+            "points": 10
+          },
+          {
+            "maximum": 8,
+            "name": "margin_survival",
+            "passed": true,
+            "points": 8
+          },
+          {
+            "maximum": 7,
+            "name": "bootstrap_survival",
+            "passed": false,
+            "points": 0
+          },
+          {
+            "maximum": 8,
+            "name": "worst_day",
+            "passed": true,
+            "points": 8
+          },
+          {
+            "maximum": 6,
+            "name": "var99",
+            "passed": true,
+            "points": 6
+          },
+          {
+            "maximum": 6,
+            "name": "es99",
+            "passed": true,
+            "points": 6
+          },
+          {
+            "maximum": 8,
+            "name": "fee_stress",
+            "passed": false,
+            "points": 0
+          },
+          {
+            "maximum": 8,
+            "name": "slippage_stress",
+            "passed": false,
+            "points": 0
+          },
+          {
+            "maximum": 4,
+            "name": "gap_limit_stress",
+            "passed": true,
+            "points": 4
+          },
+          {
+            "maximum": 5,
+            "name": "risk_budgets",
+            "passed": true,
+            "points": 5
+          },
+          {
+            "maximum": 5,
+            "name": "circuit_breakers",
+            "passed": true,
+            "points": 5
+          },
+          {
+            "maximum": 5,
+            "name": "session_flat",
+            "passed": true,
+            "points": 5
+          },
+          {
+            "maximum": 4,
+            "name": "positive_years",
+            "passed": false,
+            "points": 0
+          },
+          {
+            "maximum": 3,
+            "name": "positive_quarters",
+            "passed": false,
+            "points": 0
+          },
+          {
+            "maximum": 3,
+            "name": "rb_cu_survival",
+            "passed": true,
+            "points": 3
+          },
+          {
+            "maximum": 4,
+            "name": "causal_audit",
+            "passed": true,
+            "points": 4
+          },
+          {
+            "maximum": 3,
+            "name": "rollover_audit",
+            "passed": true,
+            "points": 3
+          },
+          {
+            "maximum": 3,
+            "name": "ledger_audit",
+            "passed": true,
+            "points": 3
+          }
+        ],
+        "score": 70,
+        "status": "FAILED",
+        "vetoes": []
+      },
+      "status": "INCONCLUSIVE",
+      "trade_metrics": {
+        "average_holding_1m_bars": 0.0,
+        "average_mae_r": 0.0,
+        "average_mfe_r": 0.0,
+        "expected_pnl": 0.0,
+        "expected_r": 0.0,
+        "loss_count": 0,
+        "net_average_payoff": 0.0,
+        "net_pnl": 0.0,
+        "net_win_rate": 0.0,
+        "profit_factor": 0.0,
+        "sample_count": 0,
+        "scratch_count": 0,
+        "total_fee": 0.0,
+        "total_slippage": 0.0,
+        "wilson_high": 0.0,
+        "wilson_low": 0.0,
+        "win_count": 0
+      }
+    },
+    "RB0.SHFE": {
+      "equity_metrics": {
+        "average_daily_return": 0.0,
+        "average_monthly_return": 0.0,
+        "daily_count": 12,
+        "es99": 0.0,
+        "max_drawdown": 0.0,
+        "var99": 0.0,
+        "worst_daily_return": 0.0
+      },
+      "final_equity": 200000.0,
+      "risk_score": {
+        "bootstrap_loss_probability": null,
+        "items": [
+          {
+            "maximum": 10,
+            "name": "max_drawdown",
+            "passed": true,
+            "points": 10
+          },
+          {
+            "maximum": 8,
+            "name": "margin_survival",
+            "passed": true,
+            "points": 8
+          },
+          {
+            "maximum": 7,
+            "name": "bootstrap_survival",
+            "passed": false,
+            "points": 0
+          },
+          {
+            "maximum": 8,
+            "name": "worst_day",
+            "passed": true,
+            "points": 8
+          },
+          {
+            "maximum": 6,
+            "name": "var99",
+            "passed": true,
+            "points": 6
+          },
+          {
+            "maximum": 6,
+            "name": "es99",
+            "passed": true,
+            "points": 6
+          },
+          {
+            "maximum": 8,
+            "name": "fee_stress",
+            "passed": false,
+            "points": 0
+          },
+          {
+            "maximum": 8,
+            "name": "slippage_stress",
+            "passed": false,
+            "points": 0
+          },
+          {
+            "maximum": 4,
+            "name": "gap_limit_stress",
+            "passed": true,
+            "points": 4
+          },
+          {
+            "maximum": 5,
+            "name": "risk_budgets",
+            "passed": true,
+            "points": 5
+          },
+          {
+            "maximum": 5,
+            "name": "circuit_breakers",
+            "passed": true,
+            "points": 5
+          },
+          {
+            "maximum": 5,
+            "name": "session_flat",
+            "passed": true,
+            "points": 5
+          },
+          {
+            "maximum": 4,
+            "name": "positive_years",
+            "passed": false,
+            "points": 0
+          },
+          {
+            "maximum": 3,
+            "name": "positive_quarters",
+            "passed": false,
+            "points": 0
+          },
+          {
+            "maximum": 3,
+            "name": "rb_cu_survival",
+            "passed": true,
+            "points": 3
+          },
+          {
+            "maximum": 4,
+            "name": "causal_audit",
+            "passed": true,
+            "points": 4
+          },
+          {
+            "maximum": 3,
+            "name": "rollover_audit",
+            "passed": true,
+            "points": 3
+          },
+          {
+            "maximum": 3,
+            "name": "ledger_audit",
+            "passed": true,
+            "points": 3
+          }
+        ],
+        "score": 70,
+        "status": "FAILED",
+        "vetoes": []
+      },
+      "status": "INCONCLUSIVE",
+      "trade_metrics": {
+        "average_holding_1m_bars": 0.0,
+        "average_mae_r": 0.0,
+        "average_mfe_r": 0.0,
+        "expected_pnl": 0.0,
+        "expected_r": 0.0,
+        "loss_count": 0,
+        "net_average_payoff": 0.0,
+        "net_pnl": 0.0,
+        "net_win_rate": 0.0,
+        "profit_factor": 0.0,
+        "sample_count": 0,
+        "scratch_count": 0,
+        "total_fee": 0.0,
+        "total_slippage": 0.0,
+        "wilson_high": 0.0,
+        "wilson_low": 0.0,
+        "win_count": 0
+      }
+    }
+  },
+  "monthly_target_passed": false,
+  "portfolio_metrics": {
+    "average_daily_return": 0.0,
+    "average_monthly_return": 0.0,
+    "daily_count": 12,
+    "es99": 0.0,
+    "max_drawdown": 0.0,
+    "var99": 0.0,
+    "worst_daily_return": 0.0
+  },
+  "portfolio_status": "INCONCLUSIVE",
+  "requested_symbols": [
+    "RB0.SHFE",
+    "CU0.SHFE"
+  ],
+  "research_only": true,
+  "status": "INCONCLUSIVE",
+  "strategy_version": "scalp-12105f911baf",
+  "trade_count": 0,
+  "trade_metrics": {
+    "average_holding_1m_bars": 0.0,
+    "average_mae_r": 0.0,
+    "average_mfe_r": 0.0,
+    "expected_pnl": 0.0,
+    "expected_r": 0.0,
+    "loss_count": 0,
+    "net_average_payoff": 0.0,
+    "net_pnl": 0.0,
+    "net_win_rate": 0.0,
+    "profit_factor": 0.0,
+    "sample_count": 0,
+    "scratch_count": 0,
+    "total_fee": 0.0,
+    "total_slippage": 0.0,
+    "wilson_high": 0.0,
+    "wilson_low": 0.0,
+    "win_count": 0
+  }
+}

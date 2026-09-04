@@ -16,13 +16,13 @@ return_20min
 return_30min
 ```
 
-所有字段保存小数收益率，不乘 `100`。多头和空头统一使用：
+所有字段保存乘 `100` 后的百分比数值，但不写入 `%` 字符。多头和空头统一使用：
 
 ```text
-return = direction * (observed_price - entry_price) / entry_price
+return = 100 * direction * (observed_price - entry_price) / entry_price
 ```
 
-其中 `direction` 的多头值为 `1`，空头值为 `-1`，因此交易方向上的盈利始终为正，亏损始终为负。
+其中 `direction` 的多头值为 `1`，空头值为 `-1`，因此交易方向上的盈利始终为正，亏损始终为负。例如价格方向收益为 `5%` 时写入 `5.0`。
 
 `total_return` 的 `observed_price` 使用交易最终汇总后的加权 `exit_price`。若一笔交易发生隔夜保证金部分减仓，则沿用当前 `trades.csv` 的最终加权退出价，不按退出腿新增多行。
 

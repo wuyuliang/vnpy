@@ -1,0 +1,17 @@
+{
+  "run_tag": "20260627",
+  "generated_at": "2026-06-27T11:13:18.757112",
+  "python_version": "3.13.3 (v3.13.3:6280bb54784, Apr  8 2025, 10:47:54) [Clang 15.0.0 (clang-1500.3.9.4)]",
+  "platform": "macOS-15.7.3-arm64-arm-64bit-Mach-O",
+  "git_commit": "60a04422",
+  "candidate_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_METAL_day_both_model_pipeline/20260627_GRP_CLUSTER_METAL_day_both_candidates.csv",
+  "feature_table_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_METAL_day_both_model_pipeline/20260627_GRP_CLUSTER_METAL_day_both_feature_table.csv",
+  "prediction_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_METAL_day_both_model_pipeline/20260627_GRP_CLUSTER_METAL_day_both_predictions.csv",
+  "metrics_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_METAL_day_both_model_pipeline/20260627_GRP_CLUSTER_METAL_day_both_metrics.csv",
+  "top_feature_importance_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_METAL_day_both_model_pipeline/20260627_GRP_CLUSTER_METAL_day_both_top10_feature_importance.csv",
+  "data_snapshot_hash": "sha256:9e2efef57210fe3fe63763b8699c78dec93358b71b5e12c9442a674d8aa499cc",
+  "feature_manifest_hash": "sha256:49f37da38e732b0ec4e1e49527f91629209a9b28c831e6b7d19cd2498b8f718b",
+  "prediction_hash": "sha256:9659606882199c13b255ebf60b5feef838441b9b9dd8ce2af76be01baf540942",
+  "metrics_hash": "sha256:8fbbd54ae094f70452e20cf82ff6b6db7a31a13b76adfd271539223be6856c02",
+  "features_doc_hash": "sha256:d79be5b8fe16a3018069b7359794f490767b298018c2daee165a7f44f7c4b63c"
+}

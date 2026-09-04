@@ -1,0 +1,15 @@
+{
+  "daily_csv": "stock/etf/data/20260717_last2months_live/etfs.csv",
+  "existing_images": 0,
+  "input_symbols": 26,
+  "input_trades": 76,
+  "metadata_csv": "stock/etf/data/20260717_last2months_live/metadata.csv",
+  "missing_daily_data": 0,
+  "missing_names": 0,
+  "output_dir": "stock/etf/output/20260717_last2months_live/charts",
+  "positions_csv": "stock/etf/output/20260717_last2months_live/positions.csv",
+  "rendered_images": 26,
+  "report_end": "2026-07-17",
+  "report_start": "2026-05-17",
+  "trades_csv": "stock/etf/output/20260717_last2months_live/trades.csv"
+}

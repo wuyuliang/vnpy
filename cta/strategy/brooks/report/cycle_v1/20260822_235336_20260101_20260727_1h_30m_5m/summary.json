@@ -1,0 +1,47 @@
+{
+  "requested_interval_status": "BLOCKED_METADATA",
+  "official_performance": null,
+  "primary_curve_for_requested_interval": null,
+  "signal_only_label": "SIGNAL_ONLY_DIAGNOSTIC",
+  "covered_subset_status": "COVERED_SUBPERIOD_DIAGNOSTIC",
+  "assumed_mechanics_appendix": "NON_CAUSAL_SCENARIO",
+  "metadata_gaps": [
+    {
+      "root_symbol": "CU",
+      "field": "normalized_input",
+      "reason_code": "MISSING_TRADE_DATE_BARS",
+      "reason": "CU0.SHFE missing complete open dates: ['2026-04-17', '2026-04-20', '2026-04-21', '2026-04-22', '2026-04-23', '2026-04-24', '2026-04-27', '2026-04-28', '2026-04-29', '2026-04-30']"
+    },
+    {
+      "root_symbol": "RB",
+      "field": "normalized_input",
+      "reason_code": "BLOCKED_METADATA",
+      "reason": "BLOCKED_METADATA: expected one contract_daily row for RB2610.SHF 2026-04-17, got 0"
+    }
+  ],
+  "funnel": {
+    "discovered_symbols": 2,
+    "requested_symbols": 2,
+    "loaded_symbols": 0,
+    "eligible_symbol_days": 0,
+    "cycle_snapshots": 0
+  },
+  "schema": "brooks_cycle_v1",
+  "strategy_version": "cycle_v1",
+  "config_hash": "bc1a88e2104276546566b354ebfef0725c612004b29a07dd71a62336f53e6083",
+  "requested_start": "2026-01-01",
+  "requested_end": "2026-07-27",
+  "warmup_start": "2025-05-28",
+  "timeframes": {
+    "long": "1hour",
+    "medium": "30min",
+    "short": "5min"
+  },
+  "requested_symbols": [
+    "CU0.SHFE",
+    "RB0.SHFE"
+  ],
+  "loaded_symbols": [],
+  "partition_overlap_rows_removed": {},
+  "ema_filter": "prior completed daily EMA(1) > EMA(3) > EMA(5)"
+}

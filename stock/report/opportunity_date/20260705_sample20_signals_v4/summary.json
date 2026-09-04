@@ -1,0 +1,4272 @@
+{
+  "run_id": "20260705_sample20_signals_v4",
+  "date_count": 474,
+  "dates": [
+    {
+      "rank": 1,
+      "opportunity_date": "2026-07-03",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0001_2026-07-03"
+    },
+    {
+      "rank": 2,
+      "opportunity_date": "2026-06-30",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0002_2026-06-30"
+    },
+    {
+      "rank": 3,
+      "opportunity_date": "2026-06-23",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0003_2026-06-23"
+    },
+    {
+      "rank": 4,
+      "opportunity_date": "2026-06-16",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0004_2026-06-16"
+    },
+    {
+      "rank": 5,
+      "opportunity_date": "2026-06-15",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0005_2026-06-15"
+    },
+    {
+      "rank": 6,
+      "opportunity_date": "2026-06-12",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0006_2026-06-12"
+    },
+    {
+      "rank": 7,
+      "opportunity_date": "2026-06-09",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0007_2026-06-09"
+    },
+    {
+      "rank": 8,
+      "opportunity_date": "2026-06-08",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0008_2026-06-08"
+    },
+    {
+      "rank": 9,
+      "opportunity_date": "2026-06-04",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0009_2026-06-04"
+    },
+    {
+      "rank": 10,
+      "opportunity_date": "2026-06-01",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0010_2026-06-01"
+    },
+    {
+      "rank": 11,
+      "opportunity_date": "2026-05-28",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0011_2026-05-28"
+    },
+    {
+      "rank": 12,
+      "opportunity_date": "2026-05-27",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0012_2026-05-27"
+    },
+    {
+      "rank": 13,
+      "opportunity_date": "2026-05-26",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0013_2026-05-26"
+    },
+    {
+      "rank": 14,
+      "opportunity_date": "2026-05-25",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0014_2026-05-25"
+    },
+    {
+      "rank": 15,
+      "opportunity_date": "2026-05-22",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0015_2026-05-22"
+    },
+    {
+      "rank": 16,
+      "opportunity_date": "2026-05-13",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0016_2026-05-13"
+    },
+    {
+      "rank": 17,
+      "opportunity_date": "2026-05-12",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0017_2026-05-12"
+    },
+    {
+      "rank": 18,
+      "opportunity_date": "2026-05-07",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0018_2026-05-07"
+    },
+    {
+      "rank": 19,
+      "opportunity_date": "2026-05-06",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0019_2026-05-06"
+    },
+    {
+      "rank": 20,
+      "opportunity_date": "2026-04-30",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0020_2026-04-30"
+    },
+    {
+      "rank": 21,
+      "opportunity_date": "2026-04-29",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0021_2026-04-29"
+    },
+    {
+      "rank": 22,
+      "opportunity_date": "2026-04-28",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0022_2026-04-28"
+    },
+    {
+      "rank": 23,
+      "opportunity_date": "2026-04-27",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0023_2026-04-27"
+    },
+    {
+      "rank": 24,
+      "opportunity_date": "2026-04-24",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0024_2026-04-24"
+    },
+    {
+      "rank": 25,
+      "opportunity_date": "2026-04-23",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0025_2026-04-23"
+    },
+    {
+      "rank": 26,
+      "opportunity_date": "2026-04-21",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0026_2026-04-21"
+    },
+    {
+      "rank": 27,
+      "opportunity_date": "2026-04-16",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0027_2026-04-16"
+    },
+    {
+      "rank": 28,
+      "opportunity_date": "2026-04-15",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0028_2026-04-15"
+    },
+    {
+      "rank": 29,
+      "opportunity_date": "2026-04-13",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0029_2026-04-13"
+    },
+    {
+      "rank": 30,
+      "opportunity_date": "2026-04-09",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0030_2026-04-09"
+    },
+    {
+      "rank": 31,
+      "opportunity_date": "2026-04-03",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0031_2026-04-03"
+    },
+    {
+      "rank": 32,
+      "opportunity_date": "2026-04-02",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0032_2026-04-02"
+    },
+    {
+      "rank": 33,
+      "opportunity_date": "2026-04-01",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0033_2026-04-01"
+    },
+    {
+      "rank": 34,
+      "opportunity_date": "2026-03-30",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0034_2026-03-30"
+    },
+    {
+      "rank": 35,
+      "opportunity_date": "2026-03-24",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0035_2026-03-24"
+    },
+    {
+      "rank": 36,
+      "opportunity_date": "2026-03-18",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0036_2026-03-18"
+    },
+    {
+      "rank": 37,
+      "opportunity_date": "2026-03-17",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0037_2026-03-17"
+    },
+    {
+      "rank": 38,
+      "opportunity_date": "2026-03-16",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0038_2026-03-16"
+    },
+    {
+      "rank": 39,
+      "opportunity_date": "2026-03-13",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0039_2026-03-13"
+    },
+    {
+      "rank": 40,
+      "opportunity_date": "2026-03-10",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0040_2026-03-10"
+    },
+    {
+      "rank": 41,
+      "opportunity_date": "2026-03-09",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0041_2026-03-09"
+    },
+    {
+      "rank": 42,
+      "opportunity_date": "2026-03-05",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0042_2026-03-05"
+    },
+    {
+      "rank": 43,
+      "opportunity_date": "2026-03-04",
+      "opportunity_count": 5,
+      "symbol_count": 5,
+      "rendered_images": 5,
+      "missing_bars": 0,
+      "path": "0043_2026-03-04"
+    },
+    {
+      "rank": 44,
+      "opportunity_date": "2026-03-03",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0044_2026-03-03"
+    },
+    {
+      "rank": 45,
+      "opportunity_date": "2026-03-02",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0045_2026-03-02"
+    },
+    {
+      "rank": 46,
+      "opportunity_date": "2026-02-25",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0046_2026-02-25"
+    },
+    {
+      "rank": 47,
+      "opportunity_date": "2026-01-30",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0047_2026-01-30"
+    },
+    {
+      "rank": 48,
+      "opportunity_date": "2026-01-29",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0048_2026-01-29"
+    },
+    {
+      "rank": 49,
+      "opportunity_date": "2026-01-27",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0049_2026-01-27"
+    },
+    {
+      "rank": 50,
+      "opportunity_date": "2026-01-22",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0050_2026-01-22"
+    },
+    {
+      "rank": 51,
+      "opportunity_date": "2026-01-21",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0051_2026-01-21"
+    },
+    {
+      "rank": 52,
+      "opportunity_date": "2026-01-14",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0052_2026-01-14"
+    },
+    {
+      "rank": 53,
+      "opportunity_date": "2026-01-13",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0053_2026-01-13"
+    },
+    {
+      "rank": 54,
+      "opportunity_date": "2026-01-09",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0054_2026-01-09"
+    },
+    {
+      "rank": 55,
+      "opportunity_date": "2026-01-08",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0055_2026-01-08"
+    },
+    {
+      "rank": 56,
+      "opportunity_date": "2026-01-07",
+      "opportunity_count": 6,
+      "symbol_count": 6,
+      "rendered_images": 6,
+      "missing_bars": 0,
+      "path": "0056_2026-01-07"
+    },
+    {
+      "rank": 57,
+      "opportunity_date": "2026-01-06",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0057_2026-01-06"
+    },
+    {
+      "rank": 58,
+      "opportunity_date": "2025-12-30",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0058_2025-12-30"
+    },
+    {
+      "rank": 59,
+      "opportunity_date": "2025-12-29",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0059_2025-12-29"
+    },
+    {
+      "rank": 60,
+      "opportunity_date": "2025-12-26",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0060_2025-12-26"
+    },
+    {
+      "rank": 61,
+      "opportunity_date": "2025-12-24",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0061_2025-12-24"
+    },
+    {
+      "rank": 62,
+      "opportunity_date": "2025-12-23",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0062_2025-12-23"
+    },
+    {
+      "rank": 63,
+      "opportunity_date": "2025-12-22",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0063_2025-12-22"
+    },
+    {
+      "rank": 64,
+      "opportunity_date": "2025-12-19",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0064_2025-12-19"
+    },
+    {
+      "rank": 65,
+      "opportunity_date": "2025-12-18",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0065_2025-12-18"
+    },
+    {
+      "rank": 66,
+      "opportunity_date": "2025-12-17",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0066_2025-12-17"
+    },
+    {
+      "rank": 67,
+      "opportunity_date": "2025-12-16",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0067_2025-12-16"
+    },
+    {
+      "rank": 68,
+      "opportunity_date": "2025-12-15",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0068_2025-12-15"
+    },
+    {
+      "rank": 69,
+      "opportunity_date": "2025-12-09",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0069_2025-12-09"
+    },
+    {
+      "rank": 70,
+      "opportunity_date": "2025-12-08",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0070_2025-12-08"
+    },
+    {
+      "rank": 71,
+      "opportunity_date": "2025-12-04",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0071_2025-12-04"
+    },
+    {
+      "rank": 72,
+      "opportunity_date": "2025-12-02",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0072_2025-12-02"
+    },
+    {
+      "rank": 73,
+      "opportunity_date": "2025-11-21",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0073_2025-11-21"
+    },
+    {
+      "rank": 74,
+      "opportunity_date": "2025-11-20",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0074_2025-11-20"
+    },
+    {
+      "rank": 75,
+      "opportunity_date": "2025-11-17",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0075_2025-11-17"
+    },
+    {
+      "rank": 76,
+      "opportunity_date": "2025-11-14",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0076_2025-11-14"
+    },
+    {
+      "rank": 77,
+      "opportunity_date": "2025-11-13",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0077_2025-11-13"
+    },
+    {
+      "rank": 78,
+      "opportunity_date": "2025-11-12",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0078_2025-11-12"
+    },
+    {
+      "rank": 79,
+      "opportunity_date": "2025-11-11",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0079_2025-11-11"
+    },
+    {
+      "rank": 80,
+      "opportunity_date": "2025-11-10",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0080_2025-11-10"
+    },
+    {
+      "rank": 81,
+      "opportunity_date": "2025-11-07",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0081_2025-11-07"
+    },
+    {
+      "rank": 82,
+      "opportunity_date": "2025-11-05",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0082_2025-11-05"
+    },
+    {
+      "rank": 83,
+      "opportunity_date": "2025-11-04",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0083_2025-11-04"
+    },
+    {
+      "rank": 84,
+      "opportunity_date": "2025-11-03",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0084_2025-11-03"
+    },
+    {
+      "rank": 85,
+      "opportunity_date": "2025-10-31",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0085_2025-10-31"
+    },
+    {
+      "rank": 86,
+      "opportunity_date": "2025-10-29",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0086_2025-10-29"
+    },
+    {
+      "rank": 87,
+      "opportunity_date": "2025-10-28",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0087_2025-10-28"
+    },
+    {
+      "rank": 88,
+      "opportunity_date": "2025-10-27",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0088_2025-10-27"
+    },
+    {
+      "rank": 89,
+      "opportunity_date": "2025-10-24",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0089_2025-10-24"
+    },
+    {
+      "rank": 90,
+      "opportunity_date": "2025-10-23",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0090_2025-10-23"
+    },
+    {
+      "rank": 91,
+      "opportunity_date": "2025-10-15",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0091_2025-10-15"
+    },
+    {
+      "rank": 92,
+      "opportunity_date": "2025-10-10",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0092_2025-10-10"
+    },
+    {
+      "rank": 93,
+      "opportunity_date": "2025-09-30",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0093_2025-09-30"
+    },
+    {
+      "rank": 94,
+      "opportunity_date": "2025-09-19",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0094_2025-09-19"
+    },
+    {
+      "rank": 95,
+      "opportunity_date": "2025-09-16",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0095_2025-09-16"
+    },
+    {
+      "rank": 96,
+      "opportunity_date": "2025-09-15",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0096_2025-09-15"
+    },
+    {
+      "rank": 97,
+      "opportunity_date": "2025-09-12",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0097_2025-09-12"
+    },
+    {
+      "rank": 98,
+      "opportunity_date": "2025-09-10",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0098_2025-09-10"
+    },
+    {
+      "rank": 99,
+      "opportunity_date": "2025-09-09",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0099_2025-09-09"
+    },
+    {
+      "rank": 100,
+      "opportunity_date": "2025-09-03",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0100_2025-09-03"
+    },
+    {
+      "rank": 101,
+      "opportunity_date": "2025-09-01",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0101_2025-09-01"
+    },
+    {
+      "rank": 102,
+      "opportunity_date": "2025-08-28",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0102_2025-08-28"
+    },
+    {
+      "rank": 103,
+      "opportunity_date": "2025-08-27",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0103_2025-08-27"
+    },
+    {
+      "rank": 104,
+      "opportunity_date": "2025-08-26",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0104_2025-08-26"
+    },
+    {
+      "rank": 105,
+      "opportunity_date": "2025-08-25",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0105_2025-08-25"
+    },
+    {
+      "rank": 106,
+      "opportunity_date": "2025-08-22",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0106_2025-08-22"
+    },
+    {
+      "rank": 107,
+      "opportunity_date": "2025-08-21",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0107_2025-08-21"
+    },
+    {
+      "rank": 108,
+      "opportunity_date": "2025-08-20",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0108_2025-08-20"
+    },
+    {
+      "rank": 109,
+      "opportunity_date": "2025-08-19",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0109_2025-08-19"
+    },
+    {
+      "rank": 110,
+      "opportunity_date": "2025-08-18",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0110_2025-08-18"
+    },
+    {
+      "rank": 111,
+      "opportunity_date": "2025-08-15",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0111_2025-08-15"
+    },
+    {
+      "rank": 112,
+      "opportunity_date": "2025-08-14",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0112_2025-08-14"
+    },
+    {
+      "rank": 113,
+      "opportunity_date": "2025-08-13",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0113_2025-08-13"
+    },
+    {
+      "rank": 114,
+      "opportunity_date": "2025-08-12",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0114_2025-08-12"
+    },
+    {
+      "rank": 115,
+      "opportunity_date": "2025-08-07",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0115_2025-08-07"
+    },
+    {
+      "rank": 116,
+      "opportunity_date": "2025-08-06",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0116_2025-08-06"
+    },
+    {
+      "rank": 117,
+      "opportunity_date": "2025-08-05",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0117_2025-08-05"
+    },
+    {
+      "rank": 118,
+      "opportunity_date": "2025-08-04",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0118_2025-08-04"
+    },
+    {
+      "rank": 119,
+      "opportunity_date": "2025-07-30",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0119_2025-07-30"
+    },
+    {
+      "rank": 120,
+      "opportunity_date": "2025-07-29",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0120_2025-07-29"
+    },
+    {
+      "rank": 121,
+      "opportunity_date": "2025-07-28",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0121_2025-07-28"
+    },
+    {
+      "rank": 122,
+      "opportunity_date": "2025-07-25",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0122_2025-07-25"
+    },
+    {
+      "rank": 123,
+      "opportunity_date": "2025-07-24",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0123_2025-07-24"
+    },
+    {
+      "rank": 124,
+      "opportunity_date": "2025-07-23",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0124_2025-07-23"
+    },
+    {
+      "rank": 125,
+      "opportunity_date": "2025-07-22",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0125_2025-07-22"
+    },
+    {
+      "rank": 126,
+      "opportunity_date": "2025-07-21",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0126_2025-07-21"
+    },
+    {
+      "rank": 127,
+      "opportunity_date": "2025-07-18",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0127_2025-07-18"
+    },
+    {
+      "rank": 128,
+      "opportunity_date": "2025-07-16",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0128_2025-07-16"
+    },
+    {
+      "rank": 129,
+      "opportunity_date": "2025-07-15",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0129_2025-07-15"
+    },
+    {
+      "rank": 130,
+      "opportunity_date": "2025-07-14",
+      "opportunity_count": 9,
+      "symbol_count": 9,
+      "rendered_images": 9,
+      "missing_bars": 0,
+      "path": "0130_2025-07-14"
+    },
+    {
+      "rank": 131,
+      "opportunity_date": "2025-07-11",
+      "opportunity_count": 8,
+      "symbol_count": 8,
+      "rendered_images": 8,
+      "missing_bars": 0,
+      "path": "0131_2025-07-11"
+    },
+    {
+      "rank": 132,
+      "opportunity_date": "2025-07-10",
+      "opportunity_count": 5,
+      "symbol_count": 5,
+      "rendered_images": 5,
+      "missing_bars": 0,
+      "path": "0132_2025-07-10"
+    },
+    {
+      "rank": 133,
+      "opportunity_date": "2025-07-09",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0133_2025-07-09"
+    },
+    {
+      "rank": 134,
+      "opportunity_date": "2025-07-07",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0134_2025-07-07"
+    },
+    {
+      "rank": 135,
+      "opportunity_date": "2025-07-04",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0135_2025-07-04"
+    },
+    {
+      "rank": 136,
+      "opportunity_date": "2025-07-03",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0136_2025-07-03"
+    },
+    {
+      "rank": 137,
+      "opportunity_date": "2025-07-02",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0137_2025-07-02"
+    },
+    {
+      "rank": 138,
+      "opportunity_date": "2025-07-01",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0138_2025-07-01"
+    },
+    {
+      "rank": 139,
+      "opportunity_date": "2025-06-30",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0139_2025-06-30"
+    },
+    {
+      "rank": 140,
+      "opportunity_date": "2025-06-27",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0140_2025-06-27"
+    },
+    {
+      "rank": 141,
+      "opportunity_date": "2025-06-26",
+      "opportunity_count": 7,
+      "symbol_count": 7,
+      "rendered_images": 7,
+      "missing_bars": 0,
+      "path": "0141_2025-06-26"
+    },
+    {
+      "rank": 142,
+      "opportunity_date": "2025-06-25",
+      "opportunity_count": 6,
+      "symbol_count": 6,
+      "rendered_images": 6,
+      "missing_bars": 0,
+      "path": "0142_2025-06-25"
+    },
+    {
+      "rank": 143,
+      "opportunity_date": "2025-06-24",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0143_2025-06-24"
+    },
+    {
+      "rank": 144,
+      "opportunity_date": "2025-06-23",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0144_2025-06-23"
+    },
+    {
+      "rank": 145,
+      "opportunity_date": "2025-06-20",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0145_2025-06-20"
+    },
+    {
+      "rank": 146,
+      "opportunity_date": "2025-06-19",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0146_2025-06-19"
+    },
+    {
+      "rank": 147,
+      "opportunity_date": "2025-06-18",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0147_2025-06-18"
+    },
+    {
+      "rank": 148,
+      "opportunity_date": "2025-06-17",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0148_2025-06-17"
+    },
+    {
+      "rank": 149,
+      "opportunity_date": "2025-06-16",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0149_2025-06-16"
+    },
+    {
+      "rank": 150,
+      "opportunity_date": "2025-06-13",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0150_2025-06-13"
+    },
+    {
+      "rank": 151,
+      "opportunity_date": "2025-06-12",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0151_2025-06-12"
+    },
+    {
+      "rank": 152,
+      "opportunity_date": "2025-06-11",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0152_2025-06-11"
+    },
+    {
+      "rank": 153,
+      "opportunity_date": "2025-06-10",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0153_2025-06-10"
+    },
+    {
+      "rank": 154,
+      "opportunity_date": "2025-06-09",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0154_2025-06-09"
+    },
+    {
+      "rank": 155,
+      "opportunity_date": "2025-06-06",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0155_2025-06-06"
+    },
+    {
+      "rank": 156,
+      "opportunity_date": "2025-06-05",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0156_2025-06-05"
+    },
+    {
+      "rank": 157,
+      "opportunity_date": "2025-06-04",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0157_2025-06-04"
+    },
+    {
+      "rank": 158,
+      "opportunity_date": "2025-06-03",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0158_2025-06-03"
+    },
+    {
+      "rank": 159,
+      "opportunity_date": "2025-05-29",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0159_2025-05-29"
+    },
+    {
+      "rank": 160,
+      "opportunity_date": "2025-05-26",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0160_2025-05-26"
+    },
+    {
+      "rank": 161,
+      "opportunity_date": "2025-05-23",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0161_2025-05-23"
+    },
+    {
+      "rank": 162,
+      "opportunity_date": "2025-05-22",
+      "opportunity_count": 6,
+      "symbol_count": 6,
+      "rendered_images": 6,
+      "missing_bars": 0,
+      "path": "0162_2025-05-22"
+    },
+    {
+      "rank": 163,
+      "opportunity_date": "2025-05-21",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0163_2025-05-21"
+    },
+    {
+      "rank": 164,
+      "opportunity_date": "2025-05-20",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0164_2025-05-20"
+    },
+    {
+      "rank": 165,
+      "opportunity_date": "2025-05-19",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0165_2025-05-19"
+    },
+    {
+      "rank": 166,
+      "opportunity_date": "2025-05-16",
+      "opportunity_count": 6,
+      "symbol_count": 6,
+      "rendered_images": 6,
+      "missing_bars": 0,
+      "path": "0166_2025-05-16"
+    },
+    {
+      "rank": 167,
+      "opportunity_date": "2025-05-15",
+      "opportunity_count": 7,
+      "symbol_count": 7,
+      "rendered_images": 7,
+      "missing_bars": 0,
+      "path": "0167_2025-05-15"
+    },
+    {
+      "rank": 168,
+      "opportunity_date": "2025-05-14",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0168_2025-05-14"
+    },
+    {
+      "rank": 169,
+      "opportunity_date": "2025-05-13",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0169_2025-05-13"
+    },
+    {
+      "rank": 170,
+      "opportunity_date": "2025-05-08",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0170_2025-05-08"
+    },
+    {
+      "rank": 171,
+      "opportunity_date": "2025-05-06",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0171_2025-05-06"
+    },
+    {
+      "rank": 172,
+      "opportunity_date": "2025-04-30",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0172_2025-04-30"
+    },
+    {
+      "rank": 173,
+      "opportunity_date": "2025-04-29",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0173_2025-04-29"
+    },
+    {
+      "rank": 174,
+      "opportunity_date": "2025-04-25",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0174_2025-04-25"
+    },
+    {
+      "rank": 175,
+      "opportunity_date": "2025-04-24",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0175_2025-04-24"
+    },
+    {
+      "rank": 176,
+      "opportunity_date": "2025-04-23",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0176_2025-04-23"
+    },
+    {
+      "rank": 177,
+      "opportunity_date": "2025-04-17",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0177_2025-04-17"
+    },
+    {
+      "rank": 178,
+      "opportunity_date": "2025-04-10",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0178_2025-04-10"
+    },
+    {
+      "rank": 179,
+      "opportunity_date": "2025-04-09",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0179_2025-04-09"
+    },
+    {
+      "rank": 180,
+      "opportunity_date": "2025-04-08",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0180_2025-04-08"
+    },
+    {
+      "rank": 181,
+      "opportunity_date": "2025-04-07",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0181_2025-04-07"
+    },
+    {
+      "rank": 182,
+      "opportunity_date": "2025-04-02",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0182_2025-04-02"
+    },
+    {
+      "rank": 183,
+      "opportunity_date": "2025-04-01",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0183_2025-04-01"
+    },
+    {
+      "rank": 184,
+      "opportunity_date": "2025-03-28",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0184_2025-03-28"
+    },
+    {
+      "rank": 185,
+      "opportunity_date": "2025-03-27",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0185_2025-03-27"
+    },
+    {
+      "rank": 186,
+      "opportunity_date": "2025-03-26",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0186_2025-03-26"
+    },
+    {
+      "rank": 187,
+      "opportunity_date": "2025-03-25",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0187_2025-03-25"
+    },
+    {
+      "rank": 188,
+      "opportunity_date": "2025-03-21",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0188_2025-03-21"
+    },
+    {
+      "rank": 189,
+      "opportunity_date": "2025-03-20",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0189_2025-03-20"
+    },
+    {
+      "rank": 190,
+      "opportunity_date": "2025-03-19",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0190_2025-03-19"
+    },
+    {
+      "rank": 191,
+      "opportunity_date": "2025-03-18",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0191_2025-03-18"
+    },
+    {
+      "rank": 192,
+      "opportunity_date": "2025-03-17",
+      "opportunity_count": 9,
+      "symbol_count": 9,
+      "rendered_images": 9,
+      "missing_bars": 0,
+      "path": "0192_2025-03-17"
+    },
+    {
+      "rank": 193,
+      "opportunity_date": "2025-03-14",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0193_2025-03-14"
+    },
+    {
+      "rank": 194,
+      "opportunity_date": "2025-03-13",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0194_2025-03-13"
+    },
+    {
+      "rank": 195,
+      "opportunity_date": "2025-03-12",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0195_2025-03-12"
+    },
+    {
+      "rank": 196,
+      "opportunity_date": "2025-03-10",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0196_2025-03-10"
+    },
+    {
+      "rank": 197,
+      "opportunity_date": "2025-03-07",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0197_2025-03-07"
+    },
+    {
+      "rank": 198,
+      "opportunity_date": "2025-02-25",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0198_2025-02-25"
+    },
+    {
+      "rank": 199,
+      "opportunity_date": "2025-02-24",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0199_2025-02-24"
+    },
+    {
+      "rank": 200,
+      "opportunity_date": "2025-02-21",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0200_2025-02-21"
+    },
+    {
+      "rank": 201,
+      "opportunity_date": "2025-02-19",
+      "opportunity_count": 5,
+      "symbol_count": 5,
+      "rendered_images": 5,
+      "missing_bars": 0,
+      "path": "0201_2025-02-19"
+    },
+    {
+      "rank": 202,
+      "opportunity_date": "2025-02-18",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0202_2025-02-18"
+    },
+    {
+      "rank": 203,
+      "opportunity_date": "2025-02-17",
+      "opportunity_count": 5,
+      "symbol_count": 5,
+      "rendered_images": 5,
+      "missing_bars": 0,
+      "path": "0203_2025-02-17"
+    },
+    {
+      "rank": 204,
+      "opportunity_date": "2025-02-14",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0204_2025-02-14"
+    },
+    {
+      "rank": 205,
+      "opportunity_date": "2025-02-13",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0205_2025-02-13"
+    },
+    {
+      "rank": 206,
+      "opportunity_date": "2025-02-11",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0206_2025-02-11"
+    },
+    {
+      "rank": 207,
+      "opportunity_date": "2025-02-10",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0207_2025-02-10"
+    },
+    {
+      "rank": 208,
+      "opportunity_date": "2025-02-07",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0208_2025-02-07"
+    },
+    {
+      "rank": 209,
+      "opportunity_date": "2025-02-06",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0209_2025-02-06"
+    },
+    {
+      "rank": 210,
+      "opportunity_date": "2025-02-05",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0210_2025-02-05"
+    },
+    {
+      "rank": 211,
+      "opportunity_date": "2025-01-27",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0211_2025-01-27"
+    },
+    {
+      "rank": 212,
+      "opportunity_date": "2025-01-24",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0212_2025-01-24"
+    },
+    {
+      "rank": 213,
+      "opportunity_date": "2025-01-22",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0213_2025-01-22"
+    },
+    {
+      "rank": 214,
+      "opportunity_date": "2025-01-21",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0214_2025-01-21"
+    },
+    {
+      "rank": 215,
+      "opportunity_date": "2025-01-16",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0215_2025-01-16"
+    },
+    {
+      "rank": 216,
+      "opportunity_date": "2025-01-15",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0216_2025-01-15"
+    },
+    {
+      "rank": 217,
+      "opportunity_date": "2025-01-10",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0217_2025-01-10"
+    },
+    {
+      "rank": 218,
+      "opportunity_date": "2025-01-09",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0218_2025-01-09"
+    },
+    {
+      "rank": 219,
+      "opportunity_date": "2025-01-03",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0219_2025-01-03"
+    },
+    {
+      "rank": 220,
+      "opportunity_date": "2024-12-31",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0220_2024-12-31"
+    },
+    {
+      "rank": 221,
+      "opportunity_date": "2024-12-30",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0221_2024-12-30"
+    },
+    {
+      "rank": 222,
+      "opportunity_date": "2024-12-27",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0222_2024-12-27"
+    },
+    {
+      "rank": 223,
+      "opportunity_date": "2024-12-26",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0223_2024-12-26"
+    },
+    {
+      "rank": 224,
+      "opportunity_date": "2024-12-25",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0224_2024-12-25"
+    },
+    {
+      "rank": 225,
+      "opportunity_date": "2024-12-24",
+      "opportunity_count": 6,
+      "symbol_count": 6,
+      "rendered_images": 6,
+      "missing_bars": 0,
+      "path": "0225_2024-12-24"
+    },
+    {
+      "rank": 226,
+      "opportunity_date": "2024-12-19",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0226_2024-12-19"
+    },
+    {
+      "rank": 227,
+      "opportunity_date": "2024-12-18",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0227_2024-12-18"
+    },
+    {
+      "rank": 228,
+      "opportunity_date": "2024-12-17",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0228_2024-12-17"
+    },
+    {
+      "rank": 229,
+      "opportunity_date": "2024-12-16",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0229_2024-12-16"
+    },
+    {
+      "rank": 230,
+      "opportunity_date": "2024-12-13",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0230_2024-12-13"
+    },
+    {
+      "rank": 231,
+      "opportunity_date": "2024-12-11",
+      "opportunity_count": 9,
+      "symbol_count": 9,
+      "rendered_images": 9,
+      "missing_bars": 0,
+      "path": "0231_2024-12-11"
+    },
+    {
+      "rank": 232,
+      "opportunity_date": "2024-12-10",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0232_2024-12-10"
+    },
+    {
+      "rank": 233,
+      "opportunity_date": "2024-12-09",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0233_2024-12-09"
+    },
+    {
+      "rank": 234,
+      "opportunity_date": "2024-12-06",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0234_2024-12-06"
+    },
+    {
+      "rank": 235,
+      "opportunity_date": "2024-12-05",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0235_2024-12-05"
+    },
+    {
+      "rank": 236,
+      "opportunity_date": "2024-12-04",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0236_2024-12-04"
+    },
+    {
+      "rank": 237,
+      "opportunity_date": "2024-11-21",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0237_2024-11-21"
+    },
+    {
+      "rank": 238,
+      "opportunity_date": "2024-11-19",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0238_2024-11-19"
+    },
+    {
+      "rank": 239,
+      "opportunity_date": "2024-11-08",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0239_2024-11-08"
+    },
+    {
+      "rank": 240,
+      "opportunity_date": "2024-11-01",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0240_2024-11-01"
+    },
+    {
+      "rank": 241,
+      "opportunity_date": "2024-10-31",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0241_2024-10-31"
+    },
+    {
+      "rank": 242,
+      "opportunity_date": "2024-10-22",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0242_2024-10-22"
+    },
+    {
+      "rank": 243,
+      "opportunity_date": "2024-10-11",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0243_2024-10-11"
+    },
+    {
+      "rank": 244,
+      "opportunity_date": "2024-10-10",
+      "opportunity_count": 6,
+      "symbol_count": 6,
+      "rendered_images": 6,
+      "missing_bars": 0,
+      "path": "0244_2024-10-10"
+    },
+    {
+      "rank": 245,
+      "opportunity_date": "2024-10-09",
+      "opportunity_count": 12,
+      "symbol_count": 12,
+      "rendered_images": 12,
+      "missing_bars": 0,
+      "path": "0245_2024-10-09"
+    },
+    {
+      "rank": 246,
+      "opportunity_date": "2024-10-08",
+      "opportunity_count": 19,
+      "symbol_count": 19,
+      "rendered_images": 19,
+      "missing_bars": 0,
+      "path": "0246_2024-10-08"
+    },
+    {
+      "rank": 247,
+      "opportunity_date": "2024-09-30",
+      "opportunity_count": 11,
+      "symbol_count": 11,
+      "rendered_images": 11,
+      "missing_bars": 0,
+      "path": "0247_2024-09-30"
+    },
+    {
+      "rank": 248,
+      "opportunity_date": "2024-09-27",
+      "opportunity_count": 6,
+      "symbol_count": 6,
+      "rendered_images": 6,
+      "missing_bars": 0,
+      "path": "0248_2024-09-27"
+    },
+    {
+      "rank": 249,
+      "opportunity_date": "2024-09-26",
+      "opportunity_count": 9,
+      "symbol_count": 9,
+      "rendered_images": 9,
+      "missing_bars": 0,
+      "path": "0249_2024-09-26"
+    },
+    {
+      "rank": 250,
+      "opportunity_date": "2024-09-25",
+      "opportunity_count": 9,
+      "symbol_count": 9,
+      "rendered_images": 9,
+      "missing_bars": 0,
+      "path": "0250_2024-09-25"
+    },
+    {
+      "rank": 251,
+      "opportunity_date": "2024-09-20",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0251_2024-09-20"
+    },
+    {
+      "rank": 252,
+      "opportunity_date": "2024-09-19",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0252_2024-09-19"
+    },
+    {
+      "rank": 253,
+      "opportunity_date": "2024-09-12",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0253_2024-09-12"
+    },
+    {
+      "rank": 254,
+      "opportunity_date": "2024-09-09",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0254_2024-09-09"
+    },
+    {
+      "rank": 255,
+      "opportunity_date": "2024-09-06",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0255_2024-09-06"
+    },
+    {
+      "rank": 256,
+      "opportunity_date": "2024-09-04",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0256_2024-09-04"
+    },
+    {
+      "rank": 257,
+      "opportunity_date": "2024-09-02",
+      "opportunity_count": 6,
+      "symbol_count": 6,
+      "rendered_images": 6,
+      "missing_bars": 0,
+      "path": "0257_2024-09-02"
+    },
+    {
+      "rank": 258,
+      "opportunity_date": "2024-08-29",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0258_2024-08-29"
+    },
+    {
+      "rank": 259,
+      "opportunity_date": "2024-08-28",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0259_2024-08-28"
+    },
+    {
+      "rank": 260,
+      "opportunity_date": "2024-08-27",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0260_2024-08-27"
+    },
+    {
+      "rank": 261,
+      "opportunity_date": "2024-08-26",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0261_2024-08-26"
+    },
+    {
+      "rank": 262,
+      "opportunity_date": "2024-08-23",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0262_2024-08-23"
+    },
+    {
+      "rank": 263,
+      "opportunity_date": "2024-08-20",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0263_2024-08-20"
+    },
+    {
+      "rank": 264,
+      "opportunity_date": "2024-08-19",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0264_2024-08-19"
+    },
+    {
+      "rank": 265,
+      "opportunity_date": "2024-08-16",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0265_2024-08-16"
+    },
+    {
+      "rank": 266,
+      "opportunity_date": "2024-08-13",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0266_2024-08-13"
+    },
+    {
+      "rank": 267,
+      "opportunity_date": "2024-08-05",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0267_2024-08-05"
+    },
+    {
+      "rank": 268,
+      "opportunity_date": "2024-08-01",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0268_2024-08-01"
+    },
+    {
+      "rank": 269,
+      "opportunity_date": "2024-07-29",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0269_2024-07-29"
+    },
+    {
+      "rank": 270,
+      "opportunity_date": "2024-07-25",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0270_2024-07-25"
+    },
+    {
+      "rank": 271,
+      "opportunity_date": "2024-07-23",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0271_2024-07-23"
+    },
+    {
+      "rank": 272,
+      "opportunity_date": "2024-07-22",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0272_2024-07-22"
+    },
+    {
+      "rank": 273,
+      "opportunity_date": "2024-07-19",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0273_2024-07-19"
+    },
+    {
+      "rank": 274,
+      "opportunity_date": "2024-07-18",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0274_2024-07-18"
+    },
+    {
+      "rank": 275,
+      "opportunity_date": "2024-07-17",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0275_2024-07-17"
+    },
+    {
+      "rank": 276,
+      "opportunity_date": "2024-07-16",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0276_2024-07-16"
+    },
+    {
+      "rank": 277,
+      "opportunity_date": "2024-07-15",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0277_2024-07-15"
+    },
+    {
+      "rank": 278,
+      "opportunity_date": "2024-07-12",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0278_2024-07-12"
+    },
+    {
+      "rank": 279,
+      "opportunity_date": "2024-07-11",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0279_2024-07-11"
+    },
+    {
+      "rank": 280,
+      "opportunity_date": "2024-07-10",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0280_2024-07-10"
+    },
+    {
+      "rank": 281,
+      "opportunity_date": "2024-07-09",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0281_2024-07-09"
+    },
+    {
+      "rank": 282,
+      "opportunity_date": "2024-07-05",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0282_2024-07-05"
+    },
+    {
+      "rank": 283,
+      "opportunity_date": "2024-07-04",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0283_2024-07-04"
+    },
+    {
+      "rank": 284,
+      "opportunity_date": "2024-07-03",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0284_2024-07-03"
+    },
+    {
+      "rank": 285,
+      "opportunity_date": "2024-07-02",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0285_2024-07-02"
+    },
+    {
+      "rank": 286,
+      "opportunity_date": "2024-07-01",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0286_2024-07-01"
+    },
+    {
+      "rank": 287,
+      "opportunity_date": "2024-06-28",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0287_2024-06-28"
+    },
+    {
+      "rank": 288,
+      "opportunity_date": "2024-06-27",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0288_2024-06-27"
+    },
+    {
+      "rank": 289,
+      "opportunity_date": "2024-06-26",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0289_2024-06-26"
+    },
+    {
+      "rank": 290,
+      "opportunity_date": "2024-06-17",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0290_2024-06-17"
+    },
+    {
+      "rank": 291,
+      "opportunity_date": "2024-06-14",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0291_2024-06-14"
+    },
+    {
+      "rank": 292,
+      "opportunity_date": "2024-06-13",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0292_2024-06-13"
+    },
+    {
+      "rank": 293,
+      "opportunity_date": "2024-06-12",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0293_2024-06-12"
+    },
+    {
+      "rank": 294,
+      "opportunity_date": "2024-06-11",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0294_2024-06-11"
+    },
+    {
+      "rank": 295,
+      "opportunity_date": "2024-06-07",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0295_2024-06-07"
+    },
+    {
+      "rank": 296,
+      "opportunity_date": "2024-06-06",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0296_2024-06-06"
+    },
+    {
+      "rank": 297,
+      "opportunity_date": "2024-06-05",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0297_2024-06-05"
+    },
+    {
+      "rank": 298,
+      "opportunity_date": "2024-06-04",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0298_2024-06-04"
+    },
+    {
+      "rank": 299,
+      "opportunity_date": "2024-05-31",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0299_2024-05-31"
+    },
+    {
+      "rank": 300,
+      "opportunity_date": "2024-05-30",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0300_2024-05-30"
+    },
+    {
+      "rank": 301,
+      "opportunity_date": "2024-05-29",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0301_2024-05-29"
+    },
+    {
+      "rank": 302,
+      "opportunity_date": "2024-05-28",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0302_2024-05-28"
+    },
+    {
+      "rank": 303,
+      "opportunity_date": "2024-05-27",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0303_2024-05-27"
+    },
+    {
+      "rank": 304,
+      "opportunity_date": "2024-05-23",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0304_2024-05-23"
+    },
+    {
+      "rank": 305,
+      "opportunity_date": "2024-05-22",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0305_2024-05-22"
+    },
+    {
+      "rank": 306,
+      "opportunity_date": "2024-05-21",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0306_2024-05-21"
+    },
+    {
+      "rank": 307,
+      "opportunity_date": "2024-05-20",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0307_2024-05-20"
+    },
+    {
+      "rank": 308,
+      "opportunity_date": "2024-05-17",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0308_2024-05-17"
+    },
+    {
+      "rank": 309,
+      "opportunity_date": "2024-05-15",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0309_2024-05-15"
+    },
+    {
+      "rank": 310,
+      "opportunity_date": "2024-05-14",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0310_2024-05-14"
+    },
+    {
+      "rank": 311,
+      "opportunity_date": "2024-05-13",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0311_2024-05-13"
+    },
+    {
+      "rank": 312,
+      "opportunity_date": "2024-05-09",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0312_2024-05-09"
+    },
+    {
+      "rank": 313,
+      "opportunity_date": "2024-05-07",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0313_2024-05-07"
+    },
+    {
+      "rank": 314,
+      "opportunity_date": "2024-05-06",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0314_2024-05-06"
+    },
+    {
+      "rank": 315,
+      "opportunity_date": "2024-04-30",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0315_2024-04-30"
+    },
+    {
+      "rank": 316,
+      "opportunity_date": "2024-04-29",
+      "opportunity_count": 5,
+      "symbol_count": 5,
+      "rendered_images": 5,
+      "missing_bars": 0,
+      "path": "0316_2024-04-29"
+    },
+    {
+      "rank": 317,
+      "opportunity_date": "2024-04-26",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0317_2024-04-26"
+    },
+    {
+      "rank": 318,
+      "opportunity_date": "2024-04-22",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0318_2024-04-22"
+    },
+    {
+      "rank": 319,
+      "opportunity_date": "2024-04-19",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0319_2024-04-19"
+    },
+    {
+      "rank": 320,
+      "opportunity_date": "2024-04-18",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0320_2024-04-18"
+    },
+    {
+      "rank": 321,
+      "opportunity_date": "2024-04-17",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0321_2024-04-17"
+    },
+    {
+      "rank": 322,
+      "opportunity_date": "2024-04-16",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0322_2024-04-16"
+    },
+    {
+      "rank": 323,
+      "opportunity_date": "2024-04-09",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0323_2024-04-09"
+    },
+    {
+      "rank": 324,
+      "opportunity_date": "2024-04-03",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0324_2024-04-03"
+    },
+    {
+      "rank": 325,
+      "opportunity_date": "2024-04-02",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0325_2024-04-02"
+    },
+    {
+      "rank": 326,
+      "opportunity_date": "2024-03-27",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0326_2024-03-27"
+    },
+    {
+      "rank": 327,
+      "opportunity_date": "2024-03-22",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0327_2024-03-22"
+    },
+    {
+      "rank": 328,
+      "opportunity_date": "2024-03-21",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0328_2024-03-21"
+    },
+    {
+      "rank": 329,
+      "opportunity_date": "2024-03-20",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0329_2024-03-20"
+    },
+    {
+      "rank": 330,
+      "opportunity_date": "2024-03-19",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0330_2024-03-19"
+    },
+    {
+      "rank": 331,
+      "opportunity_date": "2024-03-18",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0331_2024-03-18"
+    },
+    {
+      "rank": 332,
+      "opportunity_date": "2024-03-15",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0332_2024-03-15"
+    },
+    {
+      "rank": 333,
+      "opportunity_date": "2024-03-13",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0333_2024-03-13"
+    },
+    {
+      "rank": 334,
+      "opportunity_date": "2024-03-12",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0334_2024-03-12"
+    },
+    {
+      "rank": 335,
+      "opportunity_date": "2024-03-11",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0335_2024-03-11"
+    },
+    {
+      "rank": 336,
+      "opportunity_date": "2024-03-08",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0336_2024-03-08"
+    },
+    {
+      "rank": 337,
+      "opportunity_date": "2024-03-06",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0337_2024-03-06"
+    },
+    {
+      "rank": 338,
+      "opportunity_date": "2024-03-05",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0338_2024-03-05"
+    },
+    {
+      "rank": 339,
+      "opportunity_date": "2024-03-04",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0339_2024-03-04"
+    },
+    {
+      "rank": 340,
+      "opportunity_date": "2024-03-01",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0340_2024-03-01"
+    },
+    {
+      "rank": 341,
+      "opportunity_date": "2024-02-28",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0341_2024-02-28"
+    },
+    {
+      "rank": 342,
+      "opportunity_date": "2024-02-27",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0342_2024-02-27"
+    },
+    {
+      "rank": 343,
+      "opportunity_date": "2024-02-26",
+      "opportunity_count": 7,
+      "symbol_count": 7,
+      "rendered_images": 7,
+      "missing_bars": 0,
+      "path": "0343_2024-02-26"
+    },
+    {
+      "rank": 344,
+      "opportunity_date": "2024-02-23",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0344_2024-02-23"
+    },
+    {
+      "rank": 345,
+      "opportunity_date": "2024-02-22",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0345_2024-02-22"
+    },
+    {
+      "rank": 346,
+      "opportunity_date": "2024-02-21",
+      "opportunity_count": 5,
+      "symbol_count": 5,
+      "rendered_images": 5,
+      "missing_bars": 0,
+      "path": "0346_2024-02-21"
+    },
+    {
+      "rank": 347,
+      "opportunity_date": "2024-02-20",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0347_2024-02-20"
+    },
+    {
+      "rank": 348,
+      "opportunity_date": "2024-02-08",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0348_2024-02-08"
+    },
+    {
+      "rank": 349,
+      "opportunity_date": "2024-02-07",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0349_2024-02-07"
+    },
+    {
+      "rank": 350,
+      "opportunity_date": "2024-02-06",
+      "opportunity_count": 5,
+      "symbol_count": 5,
+      "rendered_images": 5,
+      "missing_bars": 0,
+      "path": "0350_2024-02-06"
+    },
+    {
+      "rank": 351,
+      "opportunity_date": "2024-02-05",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0351_2024-02-05"
+    },
+    {
+      "rank": 352,
+      "opportunity_date": "2024-02-01",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0352_2024-02-01"
+    },
+    {
+      "rank": 353,
+      "opportunity_date": "2024-01-30",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0353_2024-01-30"
+    },
+    {
+      "rank": 354,
+      "opportunity_date": "2024-01-29",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0354_2024-01-29"
+    },
+    {
+      "rank": 355,
+      "opportunity_date": "2024-01-26",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0355_2024-01-26"
+    },
+    {
+      "rank": 356,
+      "opportunity_date": "2024-01-23",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0356_2024-01-23"
+    },
+    {
+      "rank": 357,
+      "opportunity_date": "2024-01-22",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0357_2024-01-22"
+    },
+    {
+      "rank": 358,
+      "opportunity_date": "2024-01-19",
+      "opportunity_count": 7,
+      "symbol_count": 7,
+      "rendered_images": 7,
+      "missing_bars": 0,
+      "path": "0358_2024-01-19"
+    },
+    {
+      "rank": 359,
+      "opportunity_date": "2024-01-18",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0359_2024-01-18"
+    },
+    {
+      "rank": 360,
+      "opportunity_date": "2024-01-17",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0360_2024-01-17"
+    },
+    {
+      "rank": 361,
+      "opportunity_date": "2024-01-16",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0361_2024-01-16"
+    },
+    {
+      "rank": 362,
+      "opportunity_date": "2024-01-15",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0362_2024-01-15"
+    },
+    {
+      "rank": 363,
+      "opportunity_date": "2024-01-08",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0363_2024-01-08"
+    },
+    {
+      "rank": 364,
+      "opportunity_date": "2024-01-05",
+      "opportunity_count": 5,
+      "symbol_count": 5,
+      "rendered_images": 5,
+      "missing_bars": 0,
+      "path": "0364_2024-01-05"
+    },
+    {
+      "rank": 365,
+      "opportunity_date": "2024-01-04",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0365_2024-01-04"
+    },
+    {
+      "rank": 366,
+      "opportunity_date": "2024-01-03",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0366_2024-01-03"
+    },
+    {
+      "rank": 367,
+      "opportunity_date": "2024-01-02",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0367_2024-01-02"
+    },
+    {
+      "rank": 368,
+      "opportunity_date": "2023-12-29",
+      "opportunity_count": 5,
+      "symbol_count": 5,
+      "rendered_images": 5,
+      "missing_bars": 0,
+      "path": "0368_2023-12-29"
+    },
+    {
+      "rank": 369,
+      "opportunity_date": "2023-12-28",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0369_2023-12-28"
+    },
+    {
+      "rank": 370,
+      "opportunity_date": "2023-12-27",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0370_2023-12-27"
+    },
+    {
+      "rank": 371,
+      "opportunity_date": "2023-12-26",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0371_2023-12-26"
+    },
+    {
+      "rank": 372,
+      "opportunity_date": "2023-12-22",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0372_2023-12-22"
+    },
+    {
+      "rank": 373,
+      "opportunity_date": "2023-12-21",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0373_2023-12-21"
+    },
+    {
+      "rank": 374,
+      "opportunity_date": "2023-12-20",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0374_2023-12-20"
+    },
+    {
+      "rank": 375,
+      "opportunity_date": "2023-12-19",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0375_2023-12-19"
+    },
+    {
+      "rank": 376,
+      "opportunity_date": "2023-12-15",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0376_2023-12-15"
+    },
+    {
+      "rank": 377,
+      "opportunity_date": "2023-12-14",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0377_2023-12-14"
+    },
+    {
+      "rank": 378,
+      "opportunity_date": "2023-12-05",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0378_2023-12-05"
+    },
+    {
+      "rank": 379,
+      "opportunity_date": "2023-12-01",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0379_2023-12-01"
+    },
+    {
+      "rank": 380,
+      "opportunity_date": "2023-11-21",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0380_2023-11-21"
+    },
+    {
+      "rank": 381,
+      "opportunity_date": "2023-11-08",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0381_2023-11-08"
+    },
+    {
+      "rank": 382,
+      "opportunity_date": "2023-11-07",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0382_2023-11-07"
+    },
+    {
+      "rank": 383,
+      "opportunity_date": "2023-11-02",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0383_2023-11-02"
+    },
+    {
+      "rank": 384,
+      "opportunity_date": "2023-10-31",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0384_2023-10-31"
+    },
+    {
+      "rank": 385,
+      "opportunity_date": "2023-10-30",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0385_2023-10-30"
+    },
+    {
+      "rank": 386,
+      "opportunity_date": "2023-10-26",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0386_2023-10-26"
+    },
+    {
+      "rank": 387,
+      "opportunity_date": "2023-10-24",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0387_2023-10-24"
+    },
+    {
+      "rank": 388,
+      "opportunity_date": "2023-10-19",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0388_2023-10-19"
+    },
+    {
+      "rank": 389,
+      "opportunity_date": "2023-10-18",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0389_2023-10-18"
+    },
+    {
+      "rank": 390,
+      "opportunity_date": "2023-10-17",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0390_2023-10-17"
+    },
+    {
+      "rank": 391,
+      "opportunity_date": "2023-10-16",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0391_2023-10-16"
+    },
+    {
+      "rank": 392,
+      "opportunity_date": "2023-10-13",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0392_2023-10-13"
+    },
+    {
+      "rank": 393,
+      "opportunity_date": "2023-10-12",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0393_2023-10-12"
+    },
+    {
+      "rank": 394,
+      "opportunity_date": "2023-10-11",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0394_2023-10-11"
+    },
+    {
+      "rank": 395,
+      "opportunity_date": "2023-09-26",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0395_2023-09-26"
+    },
+    {
+      "rank": 396,
+      "opportunity_date": "2023-09-25",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0396_2023-09-25"
+    },
+    {
+      "rank": 397,
+      "opportunity_date": "2023-09-18",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0397_2023-09-18"
+    },
+    {
+      "rank": 398,
+      "opportunity_date": "2023-09-15",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0398_2023-09-15"
+    },
+    {
+      "rank": 399,
+      "opportunity_date": "2023-09-14",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0399_2023-09-14"
+    },
+    {
+      "rank": 400,
+      "opportunity_date": "2023-09-13",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0400_2023-09-13"
+    },
+    {
+      "rank": 401,
+      "opportunity_date": "2023-09-12",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0401_2023-09-12"
+    },
+    {
+      "rank": 402,
+      "opportunity_date": "2023-08-30",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0402_2023-08-30"
+    },
+    {
+      "rank": 403,
+      "opportunity_date": "2023-08-29",
+      "opportunity_count": 7,
+      "symbol_count": 7,
+      "rendered_images": 7,
+      "missing_bars": 0,
+      "path": "0403_2023-08-29"
+    },
+    {
+      "rank": 404,
+      "opportunity_date": "2023-08-28",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0404_2023-08-28"
+    },
+    {
+      "rank": 405,
+      "opportunity_date": "2023-08-14",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0405_2023-08-14"
+    },
+    {
+      "rank": 406,
+      "opportunity_date": "2023-08-07",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0406_2023-08-07"
+    },
+    {
+      "rank": 407,
+      "opportunity_date": "2023-08-03",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0407_2023-08-03"
+    },
+    {
+      "rank": 408,
+      "opportunity_date": "2023-08-01",
+      "opportunity_count": 6,
+      "symbol_count": 6,
+      "rendered_images": 6,
+      "missing_bars": 0,
+      "path": "0408_2023-08-01"
+    },
+    {
+      "rank": 409,
+      "opportunity_date": "2023-07-31",
+      "opportunity_count": 10,
+      "symbol_count": 10,
+      "rendered_images": 10,
+      "missing_bars": 0,
+      "path": "0409_2023-07-31"
+    },
+    {
+      "rank": 410,
+      "opportunity_date": "2023-07-28",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0410_2023-07-28"
+    },
+    {
+      "rank": 411,
+      "opportunity_date": "2023-07-27",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0411_2023-07-27"
+    },
+    {
+      "rank": 412,
+      "opportunity_date": "2023-07-26",
+      "opportunity_count": 13,
+      "symbol_count": 13,
+      "rendered_images": 13,
+      "missing_bars": 0,
+      "path": "0412_2023-07-26"
+    },
+    {
+      "rank": 413,
+      "opportunity_date": "2023-07-25",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0413_2023-07-25"
+    },
+    {
+      "rank": 414,
+      "opportunity_date": "2023-07-24",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0414_2023-07-24"
+    },
+    {
+      "rank": 415,
+      "opportunity_date": "2023-07-18",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0415_2023-07-18"
+    },
+    {
+      "rank": 416,
+      "opportunity_date": "2023-07-17",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0416_2023-07-17"
+    },
+    {
+      "rank": 417,
+      "opportunity_date": "2023-07-14",
+      "opportunity_count": 6,
+      "symbol_count": 6,
+      "rendered_images": 6,
+      "missing_bars": 0,
+      "path": "0417_2023-07-14"
+    },
+    {
+      "rank": 418,
+      "opportunity_date": "2023-07-05",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0418_2023-07-05"
+    },
+    {
+      "rank": 419,
+      "opportunity_date": "2023-06-19",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0419_2023-06-19"
+    },
+    {
+      "rank": 420,
+      "opportunity_date": "2023-06-16",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0420_2023-06-16"
+    },
+    {
+      "rank": 421,
+      "opportunity_date": "2023-06-15",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0421_2023-06-15"
+    },
+    {
+      "rank": 422,
+      "opportunity_date": "2023-06-13",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0422_2023-06-13"
+    },
+    {
+      "rank": 423,
+      "opportunity_date": "2023-06-05",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0423_2023-06-05"
+    },
+    {
+      "rank": 424,
+      "opportunity_date": "2023-05-23",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0424_2023-05-23"
+    },
+    {
+      "rank": 425,
+      "opportunity_date": "2023-05-16",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0425_2023-05-16"
+    },
+    {
+      "rank": 426,
+      "opportunity_date": "2023-05-11",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0426_2023-05-11"
+    },
+    {
+      "rank": 427,
+      "opportunity_date": "2023-05-10",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0427_2023-05-10"
+    },
+    {
+      "rank": 428,
+      "opportunity_date": "2023-05-09",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0428_2023-05-09"
+    },
+    {
+      "rank": 429,
+      "opportunity_date": "2023-05-08",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0429_2023-05-08"
+    },
+    {
+      "rank": 430,
+      "opportunity_date": "2023-05-05",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0430_2023-05-05"
+    },
+    {
+      "rank": 431,
+      "opportunity_date": "2023-05-04",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0431_2023-05-04"
+    },
+    {
+      "rank": 432,
+      "opportunity_date": "2023-04-28",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0432_2023-04-28"
+    },
+    {
+      "rank": 433,
+      "opportunity_date": "2023-04-26",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0433_2023-04-26"
+    },
+    {
+      "rank": 434,
+      "opportunity_date": "2023-04-25",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0434_2023-04-25"
+    },
+    {
+      "rank": 435,
+      "opportunity_date": "2023-04-21",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0435_2023-04-21"
+    },
+    {
+      "rank": 436,
+      "opportunity_date": "2023-04-20",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0436_2023-04-20"
+    },
+    {
+      "rank": 437,
+      "opportunity_date": "2023-04-19",
+      "opportunity_count": 7,
+      "symbol_count": 7,
+      "rendered_images": 7,
+      "missing_bars": 0,
+      "path": "0437_2023-04-19"
+    },
+    {
+      "rank": 438,
+      "opportunity_date": "2023-04-18",
+      "opportunity_count": 9,
+      "symbol_count": 9,
+      "rendered_images": 9,
+      "missing_bars": 0,
+      "path": "0438_2023-04-18"
+    },
+    {
+      "rank": 439,
+      "opportunity_date": "2023-04-17",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0439_2023-04-17"
+    },
+    {
+      "rank": 440,
+      "opportunity_date": "2023-04-14",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0440_2023-04-14"
+    },
+    {
+      "rank": 441,
+      "opportunity_date": "2023-04-13",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0441_2023-04-13"
+    },
+    {
+      "rank": 442,
+      "opportunity_date": "2023-04-12",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0442_2023-04-12"
+    },
+    {
+      "rank": 443,
+      "opportunity_date": "2023-04-11",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0443_2023-04-11"
+    },
+    {
+      "rank": 444,
+      "opportunity_date": "2023-04-10",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0444_2023-04-10"
+    },
+    {
+      "rank": 445,
+      "opportunity_date": "2023-04-07",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0445_2023-04-07"
+    },
+    {
+      "rank": 446,
+      "opportunity_date": "2023-04-04",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0446_2023-04-04"
+    },
+    {
+      "rank": 447,
+      "opportunity_date": "2023-04-03",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0447_2023-04-03"
+    },
+    {
+      "rank": 448,
+      "opportunity_date": "2023-03-31",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0448_2023-03-31"
+    },
+    {
+      "rank": 449,
+      "opportunity_date": "2023-03-30",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0449_2023-03-30"
+    },
+    {
+      "rank": 450,
+      "opportunity_date": "2023-03-24",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0450_2023-03-24"
+    },
+    {
+      "rank": 451,
+      "opportunity_date": "2023-03-23",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0451_2023-03-23"
+    },
+    {
+      "rank": 452,
+      "opportunity_date": "2023-03-22",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0452_2023-03-22"
+    },
+    {
+      "rank": 453,
+      "opportunity_date": "2023-03-21",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0453_2023-03-21"
+    },
+    {
+      "rank": 454,
+      "opportunity_date": "2023-03-20",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0454_2023-03-20"
+    },
+    {
+      "rank": 455,
+      "opportunity_date": "2023-03-17",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0455_2023-03-17"
+    },
+    {
+      "rank": 456,
+      "opportunity_date": "2023-03-15",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0456_2023-03-15"
+    },
+    {
+      "rank": 457,
+      "opportunity_date": "2023-03-09",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0457_2023-03-09"
+    },
+    {
+      "rank": 458,
+      "opportunity_date": "2023-03-08",
+      "opportunity_count": 7,
+      "symbol_count": 7,
+      "rendered_images": 7,
+      "missing_bars": 0,
+      "path": "0458_2023-03-08"
+    },
+    {
+      "rank": 459,
+      "opportunity_date": "2023-03-07",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0459_2023-03-07"
+    },
+    {
+      "rank": 460,
+      "opportunity_date": "2023-03-06",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0460_2023-03-06"
+    },
+    {
+      "rank": 461,
+      "opportunity_date": "2023-03-03",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0461_2023-03-03"
+    },
+    {
+      "rank": 462,
+      "opportunity_date": "2023-03-02",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0462_2023-03-02"
+    },
+    {
+      "rank": 463,
+      "opportunity_date": "2023-02-24",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0463_2023-02-24"
+    },
+    {
+      "rank": 464,
+      "opportunity_date": "2023-02-23",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0464_2023-02-23"
+    },
+    {
+      "rank": 465,
+      "opportunity_date": "2023-02-22",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0465_2023-02-22"
+    },
+    {
+      "rank": 466,
+      "opportunity_date": "2023-02-21",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0466_2023-02-21"
+    },
+    {
+      "rank": 467,
+      "opportunity_date": "2023-02-17",
+      "opportunity_count": 2,
+      "symbol_count": 2,
+      "rendered_images": 2,
+      "missing_bars": 0,
+      "path": "0467_2023-02-17"
+    },
+    {
+      "rank": 468,
+      "opportunity_date": "2023-02-16",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0468_2023-02-16"
+    },
+    {
+      "rank": 469,
+      "opportunity_date": "2023-02-14",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0469_2023-02-14"
+    },
+    {
+      "rank": 470,
+      "opportunity_date": "2023-02-09",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0470_2023-02-09"
+    },
+    {
+      "rank": 471,
+      "opportunity_date": "2023-02-01",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0471_2023-02-01"
+    },
+    {
+      "rank": 472,
+      "opportunity_date": "2023-01-31",
+      "opportunity_count": 3,
+      "symbol_count": 3,
+      "rendered_images": 3,
+      "missing_bars": 0,
+      "path": "0472_2023-01-31"
+    },
+    {
+      "rank": 473,
+      "opportunity_date": "2023-01-30",
+      "opportunity_count": 1,
+      "symbol_count": 1,
+      "rendered_images": 1,
+      "missing_bars": 0,
+      "path": "0473_2023-01-30"
+    },
+    {
+      "rank": 474,
+      "opportunity_date": "2023-01-17",
+      "opportunity_count": 4,
+      "symbol_count": 4,
+      "rendered_images": 4,
+      "missing_bars": 0,
+      "path": "0474_2023-01-17"
+    }
+  ]
+}

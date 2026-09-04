@@ -105,3 +105,51 @@ def test_scalp_hot_paths_do_not_use_row_series_iteration() -> None:
 
 def test_vectorized_aggregation_invalidates_p04_cache_entries() -> None:
     assert AGGREGATION_CACHE_VERSION == 2
+
+
+def test_one_bucket_assignment_can_aggregate_signal_and_actual(
+    monkeypatch,
+) -> None:
+    assert hasattr(cycle_sessions, "build_aggregation_assignments")
+    sessions = (
+        cycle_sessions.SessionSpec(
+            session_id="day",
+            is_night=False,
+            segments=(
+                cycle_sessions.SessionSegment("day", time(9), time(9, 5), time(9)),
+            ),
+        ),
+    )
+    actual = _bars(
+        pd.date_range("2026-03-02 09:01", periods=5, freq="1min", tz=TZ)
+    )
+    signal = actual.copy()
+    signal.loc[:, ["open", "high", "low", "close"]] += 100.0
+    original = cycle_sessions._assign_segments
+    calls = 0
+
+    def counted(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(cycle_sessions, "_assign_segments", counted)
+    assignments = cycle_sessions.build_aggregation_assignments(
+        actual, minutes=5, sessions=sessions
+    )
+    actual_result = cycle_sessions.aggregate_completed_bars(
+        actual,
+        minutes=5,
+        sessions=sessions,
+        assignments=assignments,
+    )
+    signal_result = cycle_sessions.aggregate_completed_bars(
+        signal,
+        minutes=5,
+        sessions=sessions,
+        assignments=assignments,
+    )
+
+    assert calls == 1
+    assert actual_result.loc[0, "open"] == 100.0
+    assert signal_result.loc[0, "open"] == 200.0

@@ -1,0 +1,17 @@
+{
+  "run_tag": "20260627",
+  "generated_at": "2026-06-27T11:41:21.956018",
+  "python_version": "3.13.3 (v3.13.3:6280bb54784, Apr  8 2025, 10:47:54) [Clang 15.0.0 (clang-1500.3.9.4)]",
+  "platform": "macOS-15.7.3-arm64-arm-64bit-Mach-O",
+  "git_commit": "60a04422",
+  "candidate_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_BOND_day_both_model_pipeline/20260627_GRP_CLUSTER_BOND_day_both_candidates.csv",
+  "feature_table_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_BOND_day_both_model_pipeline/20260627_GRP_CLUSTER_BOND_day_both_feature_table.csv",
+  "prediction_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_BOND_day_both_model_pipeline/20260627_GRP_CLUSTER_BOND_day_both_predictions.csv",
+  "metrics_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_BOND_day_both_model_pipeline/20260627_GRP_CLUSTER_BOND_day_both_metrics.csv",
+  "top_feature_importance_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_BOND_day_both_model_pipeline/20260627_GRP_CLUSTER_BOND_day_both_top10_feature_importance.csv",
+  "data_snapshot_hash": "sha256:74cf99ae6825784bb7c299c73082da04916d544b23eaa8757c530032a69c43bc",
+  "feature_manifest_hash": "sha256:483ce5a45f859c1dc0d30ec37957eb4d90290c5faddc54c44b0ff58b0d3efa49",
+  "prediction_hash": "sha256:fad3942e65e5c6fa947d2c711b2bf6a932145d49a48c3b0f707db7b4f225dbac",
+  "metrics_hash": "sha256:d733fe86e680c0cb7883d431f438f34897102d5d201af53ae84d9b08665ce942",
+  "features_doc_hash": "sha256:d79be5b8fe16a3018069b7359794f490767b298018c2daee165a7f44f7c4b63c"
+}

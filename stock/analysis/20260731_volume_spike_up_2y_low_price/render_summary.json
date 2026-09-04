@@ -1,0 +1,9 @@
+{
+  "opportunity_csv": "/Users/wuyuliang/code/vnpy/stock/report/opportunities/20260731_volume_spike_up_2y_low_price_stock_signal_opportunities.csv",
+  "output_dir": "/Users/wuyuliang/code/vnpy/stock/analysis/20260731_volume_spike_up_2y_low_price",
+  "data_root": "/Users/wuyuliang/code/vnpy/stock/data/origin",
+  "input_rows": 10563,
+  "symbols": 2431,
+  "rendered_images": 2431,
+  "missing_bars": 0
+}

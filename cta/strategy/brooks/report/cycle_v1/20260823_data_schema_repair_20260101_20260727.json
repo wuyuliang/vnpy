@@ -1,0 +1,25 @@
+{
+  "converted_schema": {
+    "CU": 68,
+    "RB": 0
+  },
+  "downloaded": {
+    "CU": 0,
+    "RB": 0
+  },
+  "empty": {
+    "CU": 0,
+    "RB": 0
+  },
+  "end": "2026-07-27",
+  "files": [],
+  "requested_dates": {
+    "CU": 135,
+    "RB": 135
+  },
+  "skipped": {
+    "CU": 135,
+    "RB": 135
+  },
+  "start": "2026-01-01"
+}

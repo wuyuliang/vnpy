@@ -336,6 +336,86 @@ class DataTests(unittest.TestCase):
         self.assertEqual(result["symbol"].tolist(), ["A.SH"])
         self.assertEqual(sleep.call_args_list, [call(61.0)])
 
+    def test_downloader_fetches_share_size_by_sorted_symbol(self) -> None:
+        class FakePro:
+            def __init__(self) -> None:
+                self.calls: list[dict[str, str]] = []
+
+            def etf_share_size(self, **kwargs: str) -> pd.DataFrame:
+                self.calls.append(kwargs)
+                if kwargs["ts_code"] == "B.SH":
+                    return pd.DataFrame()
+                return pd.DataFrame(
+                    {
+                        "ts_code": ["A.SH"],
+                        "trade_date": ["20260102"],
+                        "total_share": [12.0],
+                        "total_size": [121.2],
+                        "close": [1.01],
+                    }
+                )
+
+        downloader = object.__new__(TushareEtfDownloader)
+        downloader.pro = FakePro()
+        metadata = pd.DataFrame({"symbol": ["B.SH", "A.SH", "A.SH"]})
+
+        with patch("time.sleep") as sleep:
+            result = downloader.fetch_share_size(
+                metadata,
+                "2026-01-01",
+                "2026-01-31",
+            )
+
+        self.assertEqual(
+            downloader.pro.calls,
+            [
+                {
+                    "ts_code": "A.SH",
+                    "start_date": "20260101",
+                    "end_date": "20260131",
+                    "fields": (
+                        "trade_date,ts_code,total_share,total_size,nav,close,exchange"
+                    ),
+                },
+                {
+                    "ts_code": "B.SH",
+                    "start_date": "20260101",
+                    "end_date": "20260131",
+                    "fields": (
+                        "trade_date,ts_code,total_share,total_size,nav,close,exchange"
+                    ),
+                },
+            ],
+        )
+        self.assertEqual(result["fund_units"].tolist(), [120_000.0])
+        self.assertEqual(sleep.call_args_list, [call(0.35)])
+
+    def test_downloader_returns_normalized_empty_share_size(self) -> None:
+        class FakePro:
+            def etf_share_size(self, **kwargs: str) -> pd.DataFrame:
+                return pd.DataFrame()
+
+        downloader = object.__new__(TushareEtfDownloader)
+        downloader.pro = FakePro()
+
+        result = downloader.fetch_share_size(
+            pd.DataFrame({"symbol": ["A.SH"]}),
+            "2026-01-01",
+            "2026-01-31",
+        )
+
+        self.assertTrue(result.empty)
+        self.assertEqual(
+            result.columns.tolist(),
+            [
+                "symbol",
+                "datetime",
+                "fund_units",
+                "market_close",
+                "reported_total_size",
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

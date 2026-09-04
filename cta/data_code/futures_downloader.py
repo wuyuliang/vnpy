@@ -49,6 +49,28 @@ RESAMPLE_FREQ: Dict[str, str] = {
 
 # 商品期货交易所白名单
 COMMODITY_EXCHANGES = {"DCE", "CZCE", "SHFE", "INE", "GFEX"}
+REFERENCE_EXCHANGES: tuple[str, ...] = (
+    "SHFE",
+    "DCE",
+    "CZCE",
+    "INE",
+    "GFEX",
+    "CFFEX",
+)
+_CANONICAL_EXCHANGE = {
+    "CFX": "CFFEX",
+    "CZC": "CZCE",
+    "GFE": "GFEX",
+    "SHF": "SHFE",
+    "ZCE": "CZCE",
+}
+
+
+def _format_reference_dates(frame: pd.DataFrame, column: str) -> pd.Series:
+    if column not in frame:
+        return pd.Series([None] * len(frame), index=frame.index, dtype=object)
+    parsed = pd.to_datetime(frame[column], errors="coerce")
+    return parsed.dt.strftime("%Y-%m-%d").where(parsed.notna(), None)
 
 
 @dataclass
@@ -185,6 +207,7 @@ class FuturesDownloader:
         variants = tushare_exchange_variants(exchange)
 
         last_err: Optional[Exception] = None
+        successful_response = False
         for suf in variants:
             ts_code = f"{prefix}.{suf}"
             try:
@@ -194,6 +217,7 @@ class FuturesDownloader:
                     ts_code=ts_code,
                     retries=3, wait=2.0,
                 )
+                successful_response = True
                 if df is None or df.empty:
                     logger.info(f"    fut_mapping {ts_code} 返回空")
                     continue
@@ -207,9 +231,105 @@ class FuturesDownloader:
                 logger.warning(f"    fut_mapping {ts_code} 失败: {e}")
                 continue
 
-        if last_err:
-            logger.error(f"    所有 exchange 变体均失败: {variants}, last err = {last_err}")
+        if last_err and not successful_response:
+            raise RuntimeError(
+                f"fut_mapping failed for {prefix} variants={variants}: {last_err}"
+            ) from last_err
         return pd.DataFrame(columns=["trade_date", "mapping_ts_code"]), ""
+
+    def fetch_contract_reference(
+        self,
+        exchanges: Iterable[str] = REFERENCE_EXCHANGES,
+    ) -> pd.DataFrame:
+        """Fetch listed-contract identities without supplying trading mechanics."""
+        fields = "ts_code,symbol,exchange,fut_code,list_date,delist_date"
+        parts: list[pd.DataFrame] = []
+        for requested in exchanges:
+            canonical = _CANONICAL_EXCHANGE.get(
+                str(requested).strip().upper(),
+                str(requested).strip().upper(),
+            )
+            if canonical not in REFERENCE_EXCHANGES:
+                raise ValueError(f"unsupported futures exchange: {requested}")
+            variants = (canonical,) + tuple(
+                variant
+                for variant in tushare_exchange_variants(canonical)
+                if variant != canonical
+            )
+            raw = pd.DataFrame()
+            last_error: Exception | None = None
+            successful_response = False
+            for variant in variants:
+                try:
+                    self._limiter.acquire()
+                    candidate = _safe_retry(
+                        self._get_pro().fut_basic,
+                        exchange=variant,
+                        fut_type="1",
+                        fields=fields,
+                        retries=3,
+                        wait=2.0,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    last_error = exc
+                    logger.warning("fut_basic %s failed: %s", variant, exc)
+                    continue
+                successful_response = True
+                if candidate is not None and not candidate.empty:
+                    raw = candidate.copy()
+                    break
+            if last_error and not successful_response:
+                raise RuntimeError(
+                    f"fut_basic failed for {canonical} variants={variants}: {last_error}"
+                ) from last_error
+            if raw.empty:
+                continue
+            required = {"ts_code", "symbol", "exchange", "fut_code"}
+            missing = sorted(required.difference(raw.columns))
+            if missing:
+                raise ValueError(
+                    f"fut_basic response is missing columns: {','.join(missing)}"
+                )
+            response_exchanges = {
+                _CANONICAL_EXCHANGE.get(value, value)
+                for value in raw["exchange"].astype(str).str.upper().str.strip()
+            }
+            if response_exchanges != {canonical}:
+                observed = ",".join(sorted(response_exchanges)) or "EMPTY"
+                raise ValueError(
+                    f"fut_basic response exchange {observed} does not match {canonical}"
+                )
+            part = pd.DataFrame(
+                {
+                    "contract_code": raw["ts_code"].astype(str).str.upper().str.strip(),
+                    "root_symbol": raw["fut_code"].astype(str).str.upper().str.strip(),
+                    "exchange": canonical,
+                    "list_date": _format_reference_dates(raw, "list_date"),
+                    "delist_date": _format_reference_dates(raw, "delist_date"),
+                }
+            )
+            blank_root = part["root_symbol"].isin({"", "NAN", "NONE"})
+            if blank_root.any():
+                part.loc[blank_root, "root_symbol"] = raw.loc[
+                    blank_root, "symbol"
+                ].map(alpha_prefix)
+            parts.append(part)
+        if not parts:
+            return pd.DataFrame(
+                columns=(
+                    "contract_code",
+                    "root_symbol",
+                    "exchange",
+                    "list_date",
+                    "delist_date",
+                )
+            )
+        return (
+            pd.concat(parts, ignore_index=True)
+            .drop_duplicates(["contract_code", "exchange"], keep="first")
+            .sort_values(["root_symbol", "contract_code"], kind="stable")
+            .reset_index(drop=True)
+        )
 
     # =========================================================
     # 单日 1min 拉取
@@ -449,23 +569,6 @@ class FuturesDownloader:
         for itv in intervals_norm:
             out_path = out_root / "contract" / symbol_u / itv / f"{contract_name}.parquet"
             out_path.parent.mkdir(parents=True, exist_ok=True)
-            if out_path.exists() and not overwrite:
-                try:
-                    existing = pd.read_parquet(out_path)
-                    results[itv] = DownloadResult(
-                        symbol=symbol_u,
-                        exchange=exchange_u,
-                        interval=itv,
-                        status="skip",
-                        rows=int(len(existing)),
-                        date_start=str(existing["datetime"].min())[:10] if len(existing) else "",
-                        date_end=str(existing["datetime"].max())[:10] if len(existing) else "",
-                        detail="file exists",
-                    )
-                    continue
-                except Exception:
-                    pass
-
             if itv == "minute":
                 df_out = df_1min.copy()
             else:
@@ -485,6 +588,48 @@ class FuturesDownloader:
                     detail="resample empty",
                 )
                 continue
+            if out_path.exists() and not overwrite:
+                try:
+                    existing = pd.read_parquet(out_path)
+                except Exception:
+                    existing = pd.DataFrame()
+                if not existing.empty:
+                    existing_times = pd.to_datetime(
+                        existing["datetime"], errors="raise"
+                    )
+                    incoming_times = pd.to_datetime(
+                        df_out["datetime"], errors="raise"
+                    )
+                    existing_contracts = existing.get(
+                        "contract_code",
+                        existing.get("ts_code", pd.Series(contract_code, index=existing.index)),
+                    ).astype(str)
+                    incoming_contracts = df_out.get(
+                        "contract_code",
+                        df_out.get("ts_code", pd.Series(contract_code, index=df_out.index)),
+                    ).astype(str)
+                    existing_keys = set(zip(existing_times, existing_contracts, strict=True))
+                    new_rows = [
+                        key not in existing_keys
+                        for key in zip(incoming_times, incoming_contracts, strict=True)
+                    ]
+                    if not any(new_rows):
+                        results[itv] = DownloadResult(
+                            symbol=symbol_u,
+                            exchange=exchange_u,
+                            interval=itv,
+                            status="skip",
+                            rows=int(len(existing)),
+                            date_start=str(existing_times.min())[:10],
+                            date_end=str(existing_times.max())[:10],
+                            detail="requested rows already cached",
+                        )
+                        continue
+                    df_out = (
+                        pd.concat([existing, df_out.loc[new_rows]], ignore_index=True)
+                        .sort_values("datetime", kind="stable")
+                        .reset_index(drop=True)
+                    )
             df_out.to_parquet(out_path, index=False)
             dt_col = pd.to_datetime(df_out["datetime"], errors="coerce")
             results[itv] = DownloadResult(

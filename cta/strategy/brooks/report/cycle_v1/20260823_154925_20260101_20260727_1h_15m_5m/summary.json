@@ -1,0 +1,1313 @@
+{
+  "requested_interval_status": "COMPLETE",
+  "official_performance": {
+    "trade_count": 0,
+    "win_rate": null,
+    "average_win": 0.0,
+    "average_loss": 0.0,
+    "profit_factor": null,
+    "expectancy_R": null,
+    "annualized_return": 0.0,
+    "sharpe": null,
+    "sortino": null,
+    "max_drawdown": 0.0,
+    "calmar": null,
+    "average_mfe_R": null,
+    "average_mae_R": null,
+    "average_holding_bars": null,
+    "turnover": 0.0,
+    "fees": 0.0,
+    "slippage": 0.0,
+    "cost_to_gross_profit": null,
+    "max_margin_utilization": 0.0,
+    "max_open_risk": 0.0,
+    "tail_daily_return": 0.0,
+    "zero_return_days": 135
+  },
+  "primary_curve_for_requested_interval": [
+    {
+      "date": "2026-01-05",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-01-06",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-01-07",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-01-08",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-01-09",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-01-12",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-01-13",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-01-14",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-01-15",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-01-16",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-01-19",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-01-20",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-01-21",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-01-22",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-01-23",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-01-26",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-01-27",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-01-28",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-01-29",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-01-30",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-02-02",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-02-03",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-02-04",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-02-05",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-02-06",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-02-09",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-02-10",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-02-11",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-02-12",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-02-13",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-02-24",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-02-25",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-02-26",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-02-27",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-02",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-03",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-04",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-05",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-06",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-09",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-10",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-11",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-12",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-13",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-16",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-17",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-18",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-19",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-20",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-23",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-24",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-25",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-26",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-27",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-30",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-03-31",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-01",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-02",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-03",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-07",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-08",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-09",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-10",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-13",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-14",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-15",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-16",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-17",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-20",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-21",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-22",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-23",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-24",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-27",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-28",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-29",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-04-30",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-05-06",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-05-07",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-05-08",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-05-11",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-05-12",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-05-13",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-05-14",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-05-15",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-05-18",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-05-19",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-05-20",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-05-21",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-05-22",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-05-25",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-05-26",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-05-27",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-05-28",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-05-29",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-01",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-02",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-03",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-04",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-05",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-08",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-09",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-10",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-11",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-12",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-15",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-16",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-17",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-18",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-22",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-23",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-24",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-25",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-26",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-29",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-06-30",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-07-01",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-07-02",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-07-03",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-07-06",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-07-07",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-07-08",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-07-09",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-07-10",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-07-13",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-07-14",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-07-15",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-07-16",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-07-17",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-07-20",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-07-21",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-07-22",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-07-23",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-07-24",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    },
+    {
+      "date": "2026-07-27",
+      "equity": 200000.0,
+      "cash": 200000.0,
+      "unrealized_pnl": 0.0,
+      "margin_used": 0.0,
+      "margin_utilization": 0.0,
+      "open_risk": 0.0
+    }
+  ],
+  "signal_only_label": null,
+  "covered_subset_status": null,
+  "assumed_mechanics_appendix": null,
+  "metadata_gaps": [],
+  "promotion_blockers": [],
+  "funnel": {
+    "discovered_symbols": 2,
+    "requested_symbols": 2,
+    "loaded_symbols": 2,
+    "eligible_symbol_days": 72,
+    "cycle_snapshots": 5712,
+    "candidates": 9,
+    "eligible_plans": 0,
+    "orders": 0,
+    "fills": 0,
+    "round_trips": 0
+  },
+  "schema": "brooks_cycle_v1",
+  "strategy_version": "cycle_v1",
+  "config_hash": "bc1a88e2104276546566b354ebfef0725c612004b29a07dd71a62336f53e6083",
+  "requested_start": "2026-01-01",
+  "requested_end": "2026-07-27",
+  "warmup_start": "2025-05-28",
+  "timeframes": {
+    "long": "1hour",
+    "medium": "15min",
+    "short": "5min"
+  },
+  "requested_symbols": [
+    "RB0.SHFE",
+    "CU0.SHFE"
+  ],
+  "loaded_symbols": [
+    "RB0.SHFE",
+    "CU0.SHFE"
+  ],
+  "partition_overlap_rows_removed": {
+    "RB": 0,
+    "CU": 0
+  },
+  "ema_filter": "prior completed daily EMA(1) > EMA(3) > EMA(5)",
+  "initial_equity": 200000.0,
+  "execution_gateway": "CYCLE_V1_BAR_BACKTEST",
+  "cost_stress_multiplier": 2.0,
+  "signal_price_series": "PIT_PRE_SETTLEMENT_ADDITIVE_V1",
+  "signal_adjustment_count": 17,
+  "signal_adjustment_versions": {
+    "RB": [
+      "PIT_PRE_SETTLEMENT_ADDITIVE_V1:RB:2025-09-01:RB2510.SHF->RB2601.SHF",
+      "PIT_PRE_SETTLEMENT_ADDITIVE_V1:RB:2025-12-03:RB2601.SHF->RB2605.SHF",
+      "PIT_PRE_SETTLEMENT_ADDITIVE_V1:RB:2026-04-08:RB2605.SHF->RB2610.SHF"
+    ],
+    "CU": [
+      "PIT_PRE_SETTLEMENT_ADDITIVE_V1:CU:2025-06-26:CU2507.SHF->CU2508.SHF",
+      "PIT_PRE_SETTLEMENT_ADDITIVE_V1:CU:2025-07-22:CU2508.SHF->CU2509.SHF",
+      "PIT_PRE_SETTLEMENT_ADDITIVE_V1:CU:2025-08-26:CU2509.SHF->CU2510.SHF",
+      "PIT_PRE_SETTLEMENT_ADDITIVE_V1:CU:2025-09-22:CU2510.SHF->CU2511.SHF",
+      "PIT_PRE_SETTLEMENT_ADDITIVE_V1:CU:2025-10-17:CU2511.SHF->CU2512.SHF",
+      "PIT_PRE_SETTLEMENT_ADDITIVE_V1:CU:2025-11-20:CU2512.SHF->CU2601.SHF",
+      "PIT_PRE_SETTLEMENT_ADDITIVE_V1:CU:2025-12-16:CU2601.SHF->CU2602.SHF",
+      "PIT_PRE_SETTLEMENT_ADDITIVE_V1:CU:2026-01-14:CU2602.SHF->CU2603.SHF",
+      "PIT_PRE_SETTLEMENT_ADDITIVE_V1:CU:2026-02-26:CU2603.SHF->CU2604.SHF",
+      "PIT_PRE_SETTLEMENT_ADDITIVE_V1:CU:2026-03-19:CU2604.SHF->CU2605.SHF",
+      "PIT_PRE_SETTLEMENT_ADDITIVE_V1:CU:2026-04-20:CU2605.SHF->CU2606.SHF",
+      "PIT_PRE_SETTLEMENT_ADDITIVE_V1:CU:2026-05-22:CU2606.SHF->CU2607.SHF",
+      "PIT_PRE_SETTLEMENT_ADDITIVE_V1:CU:2026-06-24:CU2607.SHF->CU2608.SHF",
+      "PIT_PRE_SETTLEMENT_ADDITIVE_V1:CU:2026-07-20:CU2608.SHF->CU2609.SHF"
+    ]
+  }
+}

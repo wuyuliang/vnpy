@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Remove executable 2R exits from pullback breakouts, draw a virtual Target on every opportunity chart, and reduce only the minimum required lots ten minutes before the day close.
+**Goal:** Remove executable 2R exits from pullback breakouts, draw Target on every opportunity chart using final `exit_price` for traded opportunities and virtual 2R for untraded opportunities, and reduce only the minimum required lots ten minutes before the day close.
 
-**Architecture:** Keep one logical trade per candidate while introducing auditable exit legs inside the existing event-driven replay. Every exit leg realizes cash and portfolio scaling immediately; the final leg aggregates the candidate into one `trades.csv` row, while symbol streak state advances only once. Virtual targets are stored separately from executable exits and are used only by plans, trade audit fields, and charts.
+**Architecture:** Keep one logical trade per candidate while introducing auditable exit legs inside the existing event-driven replay. Every exit leg realizes cash and portfolio scaling immediately; the final leg aggregates the candidate into one `trades.csv` row, while symbol streak state advances only once. Virtual targets are stored separately from executable exits for plans, untraded charts, and trade audit fields; traded charts use the aggregate trade `exit_price`.
 
 **Tech Stack:** Python 3.13, dataclasses, pandas, NumPy, Pillow, pytest, Ruff.
 
@@ -72,7 +72,7 @@ Run the command from Step 3. Expected: all selected tests pass.
 
 - [ ] **Step 1: Write failing candidate and chart tests**
 
-Assert that both `always_in` and `pullback_breakout` candidates have finite `target_price_virtual` while `target_price` remains `NaN`. Add a chart test where an untraded candidate has only `target_price_virtual` and verify `_numeric_level`/chart index resolves it as the target.
+Assert that both `always_in` and `pullback_breakout` candidates have finite `target_price_virtual` while `target_price` remains `NaN`. Add chart tests proving an untraded candidate resolves `target_price_virtual`, while a traded candidate resolves the aggregate `exit_price` instead of `final_target`.
 
 ```python
 assert candidates["target_price"].isna().all()
@@ -93,19 +93,18 @@ Expected: Always-In virtual target is missing or chart fallback is non-finite.
 
 Calculate `target_price_virtual` with `two_r_target(candidate.trigger, candidate.stop_price, candidate.direction, config.pullback_target_r)` for every candidate. Keep `target_price=np.nan`.
 
-Make `_plan_row` use candidate `target_price_virtual` as a reference value. In charts, resolve target using this order:
+Make `_plan_row` use candidate `target_price_virtual` as a reference value. In charts, first resolve the untraded fallback:
 
 ```python
 target = _numeric_level(
     candidate,
     "target",
-    "final_target",
     "target_price_virtual",
     "target_price",
 )
 ```
 
-Apply a finite `final_target` override to every traded setup, not only pullback breakouts. Pass the same resolved target to all three chart panels.
+Apply a finite `trades.csv.exit_price` override to every traded setup. For partial exits this is the quantity-weighted aggregate exit price. Do not use `final_target` as the traded chart Target. Pass the same resolved target to all three chart panels.
 
 - [ ] **Step 4: Run focused tests and verify GREEN**
 
@@ -229,7 +228,7 @@ Run the command from Step 2. Expected: all selected tests pass.
 
 - [ ] **Step 1: Update the strategy rules**
 
-Replace fixed 2R exit language with trailing-only management. Define `target_price_virtual` as a chart reference for both setups. Replace whole-position overnight reduction with close-minus-ten-minutes minimum-lot reduction and document `exit_legs.csv`.
+Replace fixed 2R exit language with trailing-only management. Define traded chart Target as final weighted `exit_price` and untraded chart Target as `target_price_virtual`. Replace whole-position overnight reduction with close-minus-ten-minutes minimum-lot reduction and document `exit_legs.csv`.
 
 - [ ] **Step 2: Update report-bundle tests**
 

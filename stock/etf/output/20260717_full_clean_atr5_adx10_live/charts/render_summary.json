@@ -1,0 +1,15 @@
+{
+  "daily_csv": "stock/etf/data/20260717_2018_20260717_point_in_time_live/etfs_lifecycle_clean.csv",
+  "existing_images": 0,
+  "input_symbols": 90,
+  "input_trades": 1142,
+  "metadata_csv": "stock/etf/data/20260717_2018_20260717_point_in_time_live/metadata.csv",
+  "missing_daily_data": 0,
+  "missing_names": 0,
+  "output_dir": "stock/etf/output/20260717_full_clean_atr5_adx10_live/charts",
+  "positions_csv": "stock/etf/output/20260717_full_clean_atr5_adx10_live/positions.csv",
+  "rendered_images": 90,
+  "report_end": "2026-07-17",
+  "report_start": "2018-01-01",
+  "trades_csv": "stock/etf/output/20260717_full_clean_atr5_adx10_live/trades.csv"
+}

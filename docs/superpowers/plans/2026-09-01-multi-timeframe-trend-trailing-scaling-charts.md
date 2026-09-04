@@ -56,7 +56,7 @@ Run: `python3 -m pytest cta/strategy/tests/test_multi_timeframe_trend_strategy.p
 
 Expected: 全部通过，追加未来日线不改变历史候选。
 
-### Task 2：回调突破跟踪止损与实际目标审计
+### Task 2：回调突破跟踪止损与虚拟目标审计
 
 **Files:**
 - Modify: `cta/strategy/multi_timeframe_trend_backtest/engine.py`
@@ -64,7 +64,7 @@ Expected: 全部通过，追加未来日线不改变历史候选。
 
 - [ ] **Step 1：先写失败测试**
 
-增加回调突破在 5 分钟管理事件后推进止损的回放测试，并断言目标仍按实际跳空成交冻结：
+增加回调突破在 5 分钟管理事件后推进止损的回放测试，并断言虚拟 2R 审计值仍按实际跳空成交计算：
 
 ```python
 trade = artifacts.trades.iloc[0]
@@ -73,7 +73,7 @@ assert trade["exit_price"] == pytest.approx(advanced_stop)
 assert trade["final_target"] == pytest.approx(actual_fill + 2 * (actual_fill - structural_stop))
 ```
 
-同时保留同分钟止损与目标触及的止损优先断言。
+同时断言价格达到虚拟 2R 不触发退出。
 
 - [ ] **Step 2：运行聚焦测试确认 RED**
 
@@ -90,7 +90,7 @@ elif str(position.pending.candidate["setup_type"]) == "always_in":
     _advance_position_stop(...)
 ```
 
-改为所有持仓均调用 `_advance_position_stop`。`_Position.target` 继续在实际成交时冻结；`TRADE_COLUMNS` 和 `_close_position` 增加 `final_target`，Always-In 写 `NaN`。
+改为所有持仓均调用 `_advance_position_stop`。`_Position.target` 只作为实际成交时冻结的虚拟审计值；`TRADE_COLUMNS` 和 `_close_position` 增加 `final_target`，两种入场都不启用目标退出。
 
 - [ ] **Step 4：运行全部趋势回放测试确认 GREEN**
 
@@ -210,7 +210,7 @@ Expected: 现有不对称窗口和行情范围会失败。
 
 - [ ] **Step 4：更新机会图表数据流**
 
-从 `trades` 按 `candidate_id` 建立 `final_target` 映射；成交回调图覆盖候选计划目标，未成交图保留计划目标。日线、1 小时和 5 分钟分别使用固定半径，并向绘图函数传中央槽位和 Entry/Stop/Target。
+从 `trades` 按 `candidate_id` 建立最终加权 `exit_price` 映射；所有成交图用退出价覆盖候选虚拟目标，未成交图保留 `target_price_virtual`。日线、1 小时和 5 分钟分别使用固定半径，并向绘图函数传中央槽位和 Entry/Stop/Target。
 
 - [ ] **Step 5：运行图表和共享报告测试确认 GREEN**
 
@@ -263,4 +263,4 @@ Expected: 全部退出码为 0。
 
 - [ ] **Step 6：重新生成并核对真实报告**
 
-分别以新的 `run-id` 运行 AG 和 AG+CU。核对 `COMPLETE`、候选数等于图表索引行数、所有成交回调图有 `final_target`、信号居中、手续费与保证金峰值可解释、缩放事件和交易手数一致。
+分别以新的 `run-id` 运行 AG 和 AG+CU。核对 `COMPLETE`、候选数等于图表索引行数、所有成交图 Target 等于最终加权 `exit_price`、未成交图 Target 等于虚拟 2R、信号居中、手续费与保证金峰值可解释、缩放事件和交易手数一致。

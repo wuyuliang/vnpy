@@ -31,16 +31,16 @@ virtual_target = entry_reference + direction * 2 * abs(entry_reference - stop)
 其中：
 
 1. 未成交机会使用信号触发价作为 `entry_reference`。
-2. 已成交机会使用实际成交价重新计算，使图表反映跳空和滑点后的真实风险距离。
+2. 已成交机会仍按实际成交价计算 `final_target`，但只用于审计跳空和滑点后的初始风险距离，不用于图表。
 3. 沿用配置中的 `pullback_target_r` 数值作为图表 R 倍数，但该参数不再控制止盈。
 4. `target_price` 保持为空，`target_price_virtual` 保存信号时参考线。
-5. `final_target` 保存已成交机会按实际入场价计算的虚拟参考线，并增加字段明确其不可执行。
+5. `final_target` 保存已成交机会按实际入场价计算的虚拟参考值，并通过字段明确其不可执行。
 
-图表优先使用已成交机会的 `final_target`，否则使用 `target_price_virtual`。日线、1 小时和 5 分钟三个面板必须绘制同一条 Target 水平线，标题区域同时显示该数值。
+成交机会的图表 Target 使用 `trades.csv.exit_price`；若交易包含多个退出腿，则该值是所有退出腿按手数加权的最终退出价。未成交机会没有退出价，继续使用 `target_price_virtual`。日线、1 小时和 5 分钟三个面板必须绘制同一条 Target 水平线，标题区域同时显示该数值。
 
 ## 4. 数据与报告
 
-`plans.csv` 中的 `target` 改为虚拟参考目标，不代表实际退出委托。`trades.csv` 中的 `final_target` 同样为图表参考值，并通过 `target_exit_enabled = 0` 明确没有目标止盈。
+`plans.csv` 中的 `target` 是未成交机会可使用的虚拟参考目标，不代表实际退出委托。`trades.csv.final_target` 保留虚拟 2R 审计值，并通过 `target_exit_enabled = 0` 明确没有目标止盈；成交图不读取该字段，而读取 `trades.csv.exit_price`。
 
 `exit_reason` 不得再因价格达到虚拟 Target 而出现 `TARGET`。历史报告不回写，新报告按新语义生成。
 
@@ -50,6 +50,6 @@ virtual_target = entry_reference + direction * 2 * abs(entry_reference - stop)
 2. 回调突破出现新的已确认摆动点后，止损按方向单调移动。
 3. 独立持仓管理模块和回测引擎得到相同的跟踪止损结果。
 4. 所有候选均有有限的 `target_price_virtual`。
-5. 已成交机会按实际成交价得到 `final_target`，但 `target_exit_enabled` 为 0。
-6. 日线、1 小时和 5 分钟面板都收到有限 Target 价格并绘制 Target 线。
+5. 已成交机会按实际成交价得到审计字段 `final_target`，但 `target_exit_enabled` 为 0。
+6. 成交机会三个面板的 Target 都等于最终加权 `exit_price`；未成交机会三个面板都等于 `target_price_virtual`。
 7. 相关策略、回放、报告和图表测试全部通过。

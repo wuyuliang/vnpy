@@ -1,0 +1,67 @@
+{
+  "anti_lookahead_audit": {
+    "factor_lineage_valid": true,
+    "future_bar_mutation_test": "covered by test_mutating_future_bars_does_not_change_prefix_predictions",
+    "future_factor_mutation_test": "covered by test_mutating_future_factor_does_not_change_adjusted_prefix",
+    "labels_follow_feature_dates": true,
+    "prefix_recalculation_test": "covered by test_prefix_recalculation_matches_vectorized_predictions",
+    "source_dates_valid": true
+  },
+  "data": {
+    "bar_count": 2170,
+    "first_bar_date": "2017-08-14",
+    "labeled_prediction_count": 4288,
+    "last_bar_date": "2026-07-24",
+    "prediction_row_count": 4292
+  },
+  "evaluation": {
+    "eligibility_rule": "Both 1d and 3d OOS balanced accuracy must exceed persistence.",
+    "eligible_for_phase_two": false,
+    "labeled_sample_count": 4288,
+    "majority_state_by_horizon": {
+      "1d": "无趋势",
+      "3d": "无趋势"
+    },
+    "oos_balanced_accuracy_comparison": {
+      "1d": {
+        "difference": -0.21963248399883806,
+        "persistence_balanced_accuracy": 0.8420695710845181,
+        "rule_balanced_accuracy": 0.62243708708568
+      },
+      "3d": {
+        "difference": -0.005475820042527335,
+        "persistence_balanced_accuracy": 0.6357868884291478,
+        "rule_balanced_accuracy": 0.6303110683866204
+      }
+    }
+  },
+  "latest_predictions": [
+    {
+      "feature_asof_date": "2026-07-24",
+      "prediction_for_date": "2026-07-27",
+      "prediction_horizon": "1d",
+      "score": -1.4979200285758307,
+      "state": "震荡向下"
+    },
+    {
+      "feature_asof_date": "2026-07-24",
+      "prediction_for_date": "2026-07-29",
+      "prediction_horizon": "3d",
+      "score": -1.4579438568536078,
+      "state": "震荡向下"
+    }
+  ],
+  "output_files": [
+    "daily_predictions.csv",
+    "labeled_predictions.csv",
+    "accuracy_by_period.csv",
+    "confusion_matrix_1d.csv",
+    "confusion_matrix_3d.csv",
+    "transition_accuracy.csv",
+    "summary.json",
+    "source_audit.json"
+  ],
+  "price_adjustment_mode": "point_in_time_adjusted",
+  "schema_version": 1,
+  "symbol": "159915.SZ"
+}

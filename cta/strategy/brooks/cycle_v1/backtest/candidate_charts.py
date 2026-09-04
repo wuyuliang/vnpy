@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date
 import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 import pandas as pd
@@ -53,6 +54,15 @@ _REJECTION_COLUMNS = {
 }
 _LONG_COLUMNS = {"feature_asof", "cycle", "reason"}
 _OHLCV_COLUMNS = {"open", "high", "low", "close", "volume"}
+_CANDIDATE_IDENTITY_COLUMNS = (
+    "symbol",
+    "contract_code",
+    "setup",
+    "direction",
+    "cycle",
+    "signal_time",
+    "active_time",
+)
 _CARD_SIZE = (1680, 1240)
 _PANEL_RECTS = (
     (42, 124, 1638, 452),
@@ -68,6 +78,134 @@ class _ChartContext:
     hourly: pd.DataFrame
     minute: pd.DataFrame
     long: pd.DataFrame
+
+
+def _build_candidate_index(
+    candidates: pd.DataFrame,
+    *,
+    rejections: pd.DataFrame,
+    plans: pd.DataFrame,
+    orders: pd.DataFrame,
+    fills: pd.DataFrame,
+    trades: pd.DataFrame,
+) -> pd.DataFrame:
+    """Attach the most advanced persisted outcome to every candidate."""
+    _require_columns(candidates, _CANDIDATE_COLUMNS, "candidates")
+    ordered = candidates.copy()
+    ordered["candidate_id"] = ordered["candidate_id"].fillna("").astype(str).str.strip()
+    if ordered["candidate_id"].eq("").any():
+        raise ValueError("candidate chart candidate_id must not be blank")
+    if ordered["candidate_id"].duplicated().any():
+        duplicate = ordered.loc[
+            ordered["candidate_id"].duplicated(keep=False), "candidate_id"
+        ].iloc[0]
+        raise ValueError(f"candidate chart duplicate candidate_id: {duplicate}")
+    ordered["signal_time"] = ordered["signal_time"].map(_shanghai_timestamp)
+    ordered["active_time"] = ordered["active_time"].map(_shanghai_timestamp)
+    ordered = ordered.sort_values("signal_time", kind="stable").reset_index(drop=True)
+    ordered["sequence"] = range(1, len(ordered) + 1)
+    ordered["outcome_code"] = "CANDIDATE_RETAINED"
+    ordered["outcome_detail"] = ""
+
+    _require_columns(rejections, _REJECTION_COLUMNS, "rejections")
+    candidate_rejections = rejections.loc[
+        rejections["candidate_id"].fillna("").astype(str).str.strip().ne("")
+    ].copy()
+    candidate_rejections["candidate_id"] = (
+        candidate_rejections["candidate_id"].astype(str).str.strip()
+    )
+    duplicate_rejections = candidate_rejections["candidate_id"].duplicated(
+        keep=False
+    )
+    if duplicate_rejections.any():
+        duplicate = candidate_rejections.loc[
+            duplicate_rejections, "candidate_id"
+        ].iloc[0]
+        raise ValueError(
+            f"candidate {duplicate} has multiple candidate rejections"
+        )
+    known_ids = set(ordered["candidate_id"])
+    _reject_unknown_candidate_ids(candidate_rejections, known_ids, "rejections")
+    rejection_by_id = candidate_rejections.set_index("candidate_id")
+    for index, candidate_id in ordered["candidate_id"].items():
+        if candidate_id not in rejection_by_id.index:
+            continue
+        rejection = rejection_by_id.loc[candidate_id]
+        ordered.at[index, "outcome_code"] = str(rejection["reason_code"])
+        detail = rejection["detail"]
+        ordered.at[index, "outcome_detail"] = (
+            "" if pd.isna(detail) else str(detail)
+        )
+
+    for frame, label, outcome in (
+        (plans, "plans", "ELIGIBLE_PLAN"),
+        (orders, "orders", "ORDERED"),
+        (fills, "fills", "FILLED"),
+        (trades, "trades", "ROUND_TRIP"),
+    ):
+        observed_ids = _candidate_ids(frame, known_ids, label)
+        _validate_candidate_identity(frame, ordered, label)
+        mask = ordered["candidate_id"].isin(observed_ids)
+        ordered.loc[mask, "outcome_code"] = outcome
+        ordered.loc[mask, "outcome_detail"] = ""
+    return ordered
+
+
+def _candidate_ids(
+    frame: pd.DataFrame,
+    known_ids: set[str],
+    label: str,
+) -> set[str]:
+    _require_columns(frame, {"candidate_id"}, label)
+    values = frame["candidate_id"].fillna("").astype(str).str.strip()
+    observed = set(values.loc[values.ne("")])
+    unknown = sorted(observed.difference(known_ids))
+    if unknown:
+        raise ValueError(f"{label} reference unknown candidate_id: {unknown[0]}")
+    return observed
+
+
+def _reject_unknown_candidate_ids(
+    frame: pd.DataFrame,
+    known_ids: set[str],
+    label: str,
+) -> None:
+    unknown = sorted(set(frame["candidate_id"]).difference(known_ids))
+    if unknown:
+        raise ValueError(f"{label} reference unknown candidate_id: {unknown[0]}")
+
+
+def _validate_candidate_identity(
+    frame: pd.DataFrame,
+    candidates: pd.DataFrame,
+    label: str,
+) -> None:
+    identity_columns = [
+        column for column in _CANDIDATE_IDENTITY_COLUMNS if column in frame.columns
+    ]
+    if not identity_columns:
+        return
+    expected = candidates.set_index("candidate_id")
+    for row in frame.itertuples(index=False):
+        candidate_id = str(row.candidate_id).strip()
+        if not candidate_id:
+            continue
+        candidate = expected.loc[candidate_id]
+        for column in identity_columns:
+            actual_value = _normalized_identity_value(column, getattr(row, column))
+            expected_value = _normalized_identity_value(column, candidate[column])
+            if actual_value != expected_value:
+                raise ValueError(
+                    f"{label} candidate identity conflict for {candidate_id}: {column}"
+                )
+
+
+def _normalized_identity_value(column: str, value: object) -> object:
+    if column in {"signal_time", "active_time"}:
+        return _shanghai_timestamp(value)
+    if column == "direction":
+        return int(value)
+    return "" if pd.isna(value) else str(value).strip()
 
 
 def _diagnose_candidates(
@@ -194,11 +332,7 @@ def render_candidate_card(
     image = Image.new("RGBA", _CARD_SIZE, CHART_BACKGROUND)
     draw = ImageDraw.Draw(image)
     font = ImageFont.load_default()
-    direction = "LONG" if int(row["direction"]) == 1 else "SHORT"
-    title = (
-        f"AG candidate {int(row['sequence']):03d} | {row['contract_code']} | "
-        f"{row['setup']} {direction} | {signal:%Y-%m-%d %H:%M}"
-    )
+    title = _candidate_title(row)
     draw.text((42, 18), title, fill=CHART_INK, font=font)
     draw.text(
         (42, 39),
@@ -213,15 +347,14 @@ def render_candidate_card(
         (42, 60),
         (
             f"entry={float(row['entry']):,.2f} | stop={float(row['stop']):,.2f} | "
-            f"target={float(row['target']):,.2f} | {row['rejection_code']}: "
-            f"{row['large_reason']}"
+            f"target={float(row['target']):,.2f} | {_candidate_outcome(row)}"
         ),
         fill="#9f2d24",
         font=font,
     )
     draw.text(
         (42, 81),
-        "60min is review context; strategy large_tf=30min. Right of SIGNAL is POST-EVENT REVIEW ONLY.",
+        "60min is review context. Right of SIGNAL is POST-EVENT REVIEW ONLY.",
         fill="#8a5a12",
         font=font,
     )
@@ -247,11 +380,29 @@ def render_candidate_card(
         draw = ImageDraw.Draw(image)
     draw.text(
         (42, 1172),
-        f"Large snapshot={row['large_cycle']} | reason={row['large_reason']} | no order and no fill",
+        f"Candidate outcome={_candidate_outcome(row)}",
         fill=CHART_MUTED,
         font=font,
     )
     return image.convert("RGB")
+
+
+def _candidate_title(row: Mapping[str, Any] | pd.Series) -> str:
+    signal = _shanghai_timestamp(row["signal_time"])
+    direction = "LONG" if int(row["direction"]) == 1 else "SHORT"
+    code = str(row.get("outcome_code", row.get("rejection_code", "CANDIDATE")))
+    return (
+        f"{row['symbol']} candidate {int(row['sequence']):03d} | "
+        f"{row['contract_code']} | {row['setup']} {direction} | "
+        f"{signal:%Y-%m-%d %H:%M} | {code}"
+    )
+
+
+def _candidate_outcome(row: Mapping[str, Any] | pd.Series) -> str:
+    code = str(row.get("outcome_code", row.get("rejection_code", "CANDIDATE")))
+    detail = row.get("outcome_detail", row.get("large_reason", ""))
+    detail_text = "" if detail is None or pd.isna(detail) else str(detail).strip()
+    return f"{code}: {detail_text}" if detail_text else code
 
 
 def generate_candidate_charts(
@@ -259,53 +410,145 @@ def generate_candidate_charts(
     *,
     data_root: str | Path = DEFAULT_DATA_ROOT,
 ) -> pd.DataFrame:
-    """Write candidate cards, an index, and a large-cycle explanation."""
+    """Write one three-timeframe review card for every persisted candidate."""
     report = Path(report_dir)
-    summary_path = report / "summary.json"
-    candidates_path = report / "candidates.csv"
-    rejections_path = report / "rejections.csv"
+    required_paths = {
+        "summary": report / "summary.json",
+        "candidates": report / "candidates.csv",
+        "rejections": report / "rejections.csv",
+        "plans": report / "plans.csv",
+        "orders": report / "orders.csv",
+        "fills": report / "fills.csv",
+        "trades": report / "trades.csv",
+        "report": report / "report.md",
+    }
     missing = [
-        str(path.name)
-        for path in (summary_path, candidates_path, rejections_path)
+        str(path.name) for path in required_paths.values()
         if not path.is_file()
     ]
     if missing:
         raise FileNotFoundError("candidate chart report is missing: " + ",".join(missing))
-    summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    candidates = pd.read_csv(candidates_path)
-    rejections = pd.read_csv(rejections_path)
-    if candidates.empty:
-        raise ValueError("candidate chart report has no candidates")
-    context = _load_chart_context(summary, Path(data_root))
-    diagnosed = _diagnose_candidates(candidates, rejections, context.long)
+    summary = json.loads(required_paths["summary"].read_text(encoding="utf-8"))
+    index = _build_candidate_index(
+        pd.read_csv(required_paths["candidates"]),
+        rejections=pd.read_csv(required_paths["rejections"]),
+        plans=pd.read_csv(required_paths["plans"]),
+        orders=pd.read_csv(required_paths["orders"]),
+        fills=pd.read_csv(required_paths["fills"]),
+        trades=pd.read_csv(required_paths["trades"]),
+    )
 
     output_dir = report / "candidate_charts"
     output_dir.mkdir(parents=True, exist_ok=True)
+    contexts = (
+        _load_chart_contexts(
+            summary,
+            Path(data_root),
+            set(index["symbol"].astype(str)),
+        )
+        if not index.empty
+        else {}
+    )
     chart_paths: list[str] = []
-    for row in diagnosed.to_dict("records"):
-        signal = _shanghai_timestamp(row["signal_time"])
-        direction = "LONG" if int(row["direction"]) == 1 else "SHORT"
-        filename = (
-            f"{int(row['sequence']):03d}_{signal:%Y%m%d_%H%M%S}_"
-            f"{row['setup']}_{direction}.png"
-        )
-        path = output_dir / filename
-        image = render_candidate_card(
-            row,
-            daily=context.daily,
-            hourly=context.hourly,
-            minute=context.minute,
-        )
-        image.save(path, format="PNG")
-        chart_paths.append(str(path.relative_to(report)))
-    index = diagnosed.copy()
+    with TemporaryDirectory(prefix=".candidate-charts-", dir=output_dir) as temporary:
+        temporary_dir = Path(temporary)
+        for row in index.to_dict("records"):
+            signal = _shanghai_timestamp(row["signal_time"])
+            direction = "LONG" if int(row["direction"]) == 1 else "SHORT"
+            filename = (
+                f"{int(row['sequence']):03d}_{signal:%Y%m%d_%H%M%S}_"
+                f"{row['symbol']}_{row['setup']}_{direction}.png"
+            )
+            path = output_dir / filename
+            context = contexts[str(row["symbol"])]
+            image = render_candidate_card(
+                row,
+                daily=context.daily,
+                hourly=context.hourly,
+                minute=context.minute,
+            )
+            image.save(temporary_dir / filename, format="PNG")
+            chart_paths.append(str(path.relative_to(report)))
+        for stale in output_dir.glob("*.png"):
+            stale.unlink()
+        for generated in temporary_dir.glob("*.png"):
+            generated.replace(output_dir / generated.name)
     index["chart_path"] = chart_paths
     index.to_csv(output_dir / "index.csv", index=False)
-    (report / "LARGE_CYCLE_UNAVAILABLE.md").write_text(
-        _render_large_cycle_explanation(index, summary),
+    (report / "CANDIDATE_CHARTS.md").write_text(
+        _render_candidate_chart_explanation(index, summary),
         encoding="utf-8",
     )
+    _write_report_chart_links(required_paths["report"], len(index))
     return index
+
+
+def _render_candidate_chart_explanation(
+    index: pd.DataFrame,
+    summary: Mapping[str, Any],
+) -> str:
+    lines = [
+        "# Candidate Charts",
+        "",
+        f"This run produced {len(index)} candidate opportunities and {len(index)} charts.",
+        "",
+        "Each chart contains exchange-trade-date daily, completed 60min, and raw "
+        "1min context. Bars right of `SIGNAL` are `POST-EVENT REVIEW ONLY` and were "
+        "not available to the strategy decision.",
+        "",
+    ]
+    if index.empty:
+        lines.extend(["No candidates were generated for this run.", ""])
+        return "\n".join(lines)
+    lines.extend(
+        [
+            "| # | Signal (Asia/Shanghai) | Active | Symbol | Setup | Direction | Outcome | Chart |",
+            "|---:|---|---|---|---|---|---|---|",
+        ]
+    )
+    for row in index.to_dict("records"):
+        signal = _shanghai_timestamp(row["signal_time"])
+        active = _shanghai_timestamp(row["active_time"])
+        direction = "LONG" if int(row["direction"]) == 1 else "SHORT"
+        lines.append(
+            f"| {int(row['sequence'])} | {signal:%Y-%m-%d %H:%M} | "
+            f"{active:%Y-%m-%d %H:%M} | {row['symbol']} | {row['setup']} | "
+            f"{direction} | `{row['outcome_code']}` | "
+            f"[{Path(str(row['chart_path'])).name}]({row['chart_path']}) |"
+        )
+    lines.extend(
+        [
+            "",
+            f"Requested interval: `{summary['requested_start']}..{summary['requested_end']}`.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _write_report_chart_links(report_path: Path, candidate_count: int) -> None:
+    heading = "\n## Candidate Charts\n"
+    content = report_path.read_text(encoding="utf-8")
+    section_start = content.find(heading)
+    suffix = ""
+    if section_start >= 0:
+        next_heading = content.find("\n## ", section_start + len(heading))
+        if next_heading >= 0:
+            suffix = content[next_heading:]
+        base = content[:section_start].rstrip()
+    else:
+        base = content.rstrip()
+    section = "\n".join(
+        [
+            "",
+            "## Candidate Charts",
+            f"- candidate_count: {candidate_count}",
+            "- [Candidate chart guide](CANDIDATE_CHARTS.md)",
+            "- [Candidate chart index](candidate_charts/index.csv)",
+            "",
+        ]
+    )
+    report_path.write_text(base + section + suffix, encoding="utf-8")
 
 
 def _load_chart_context(
@@ -361,6 +604,69 @@ def _load_chart_context(
         minute=_as_chart_frame(loaded.minute_bars),
         long=replay.long,
     )
+
+
+def _load_chart_contexts(
+    summary: Mapping[str, Any],
+    data_root: Path,
+    symbols: set[str],
+) -> dict[str, _ChartContext]:
+    """Load one run-scoped daily/hourly/minute context per candidate root."""
+    metadata_update = summary.get("execution_metadata_update", {})
+    metadata_root = str(metadata_update.get("metadata_root", "")).strip()
+    if not metadata_root:
+        raise ValueError("candidate charts require the run metadata cache")
+    metadata = MetadataBundle.load(metadata_root)
+    loaded_by_root: dict[str, str] = {}
+    for value in summary.get("loaded_symbols", ()):
+        vt_symbol = str(value).strip()
+        token = vt_symbol.split(".", maxsplit=1)[0]
+        if not token.endswith("0") or len(token) == 1:
+            raise ValueError(f"candidate chart loaded symbol is invalid: {vt_symbol}")
+        root = token[:-1]
+        if root in loaded_by_root:
+            raise ValueError(f"candidate chart duplicate loaded root: {root}")
+        loaded_by_root[root] = vt_symbol
+    missing = sorted(symbols.difference(loaded_by_root))
+    if missing:
+        raise ValueError(f"candidate chart symbol was not loaded: {missing[0]}")
+
+    effective_starts = summary.get("effective_warmup_starts", {})
+    if not isinstance(effective_starts, Mapping):
+        raise ValueError("candidate charts require effective warmup starts")
+    end = date.fromisoformat(str(summary["requested_end"]))
+    scalp_config = load_scalp_config()
+    contexts: dict[str, _ChartContext] = {}
+    for root in sorted(symbols):
+        start_value = str(effective_starts.get(root, "")).strip()
+        if not start_value:
+            raise ValueError(
+                f"candidate chart requires effective warmup start for {root}"
+            )
+        loaded = load_normalized_symbol(
+            symbol=loaded_by_root[root],
+            start=date.fromisoformat(start_value),
+            end=end,
+            data_root=data_root,
+            metadata=metadata,
+            config=scalp_config,
+        )
+        daily = aggregate_completed_daily_bars(
+            loaded.minute_bars,
+            sessions=loaded.sessions,
+        )
+        hourly = aggregate_completed_bars(
+            loaded.minute_bars,
+            minutes=60,
+            sessions=loaded.sessions,
+        )
+        contexts[root] = _ChartContext(
+            daily=_as_chart_frame(daily),
+            hourly=_as_chart_frame(hourly),
+            minute=_as_chart_frame(loaded.minute_bars),
+            long=pd.DataFrame(),
+        )
+    return contexts
 
 
 def _as_chart_frame(frame: pd.DataFrame) -> pd.DataFrame:
@@ -557,9 +863,9 @@ def _event_x(
     timestamp: pd.Timestamp,
     chart: tuple[int, int, int, int],
 ) -> float:
-    position = int(index.searchsorted(timestamp, side="left"))
-    position = min(max(position, 0), len(index) - 1)
-    return chart[0] + (position + 0.5) / len(index) * (chart[2] - chart[0])
+    completed_bars = int(index.searchsorted(timestamp, side="right"))
+    completed_bars = min(max(completed_bars, 0), len(index))
+    return chart[0] + completed_bars / len(index) * (chart[2] - chart[0])
 
 
 def _draw_dashed_vertical(
@@ -630,7 +936,7 @@ def main(argv: list[str] | None = None) -> int:
                 "candidate_count": len(index),
                 "image_count": len(index),
                 "index": str(args.report_dir / "candidate_charts" / "index.csv"),
-                "explanation": str(args.report_dir / "LARGE_CYCLE_UNAVAILABLE.md"),
+                "explanation": str(args.report_dir / "CANDIDATE_CHARTS.md"),
             },
             ensure_ascii=False,
         )

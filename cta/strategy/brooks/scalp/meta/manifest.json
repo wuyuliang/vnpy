@@ -1,0 +1,48 @@
+{
+  "created_at": "2026-08-23T08:29:45.153058+08:00",
+  "files": {
+    "contract_daily.csv": {
+      "downloaded_at": "2026-08-23T08:29:45.153058+08:00",
+      "max_date": "2026-07-27",
+      "min_date": "2018-01-03",
+      "rows": 4274,
+      "sha256": "20b4dc9cea6c5d58c9b52ad5daab31c2f145299519bd342fbb17ae713c84dccc",
+      "source_sha256": "20b4dc9cea6c5d58c9b52ad5daab31c2f145299519bd342fbb17ae713c84dccc",
+      "source_url_or_file": "/Users/wuyuliang/code/vnpy/cta/strategy/brooks/scalp/meta|/private/tmp/vnpy_shfe_2026_extension"
+    },
+    "contract_specs.csv": {
+      "downloaded_at": "2026-08-23T08:29:45.153058+08:00",
+      "max_date": "2026-10-15",
+      "min_date": "2018-02-09",
+      "rows": 130,
+      "sha256": "13e15f0f46e1adafac3cdc279b804bfb479a01db9b5affce41f45eebf367abd5",
+      "source_sha256": "13e15f0f46e1adafac3cdc279b804bfb479a01db9b5affce41f45eebf367abd5",
+      "source_url_or_file": "/Users/wuyuliang/code/vnpy/cta/strategy/brooks/scalp/meta|/private/tmp/vnpy_shfe_2026_extension"
+    },
+    "exchange_calendar.csv": {
+      "downloaded_at": "2026-08-23T08:29:45.153058+08:00",
+      "max_date": "2026-07-27",
+      "min_date": "2017-11-27",
+      "rows": 2102,
+      "sha256": "63ddb79581cbb1b2d906ad930ccce57760bf9cdde0b74b83138b02a00de478c1",
+      "source_sha256": "63ddb79581cbb1b2d906ad930ccce57760bf9cdde0b74b83138b02a00de478c1",
+      "source_url_or_file": "/Users/wuyuliang/code/vnpy/cta/strategy/brooks/scalp/meta|/private/tmp/vnpy_shfe_2026_extension"
+    },
+    "fee_margin_schedule.csv": {
+      "downloaded_at": "2026-08-23T08:29:45.153058+08:00",
+      "max_date": "2026-07-27",
+      "min_date": "2018-01-03",
+      "rows": 4274,
+      "sha256": "5d5c1c5fa0300ed009c733bce24d9525b4ac8bdec54055d5e30baaf3ebed5809",
+      "source_sha256": "5d5c1c5fa0300ed009c733bce24d9525b4ac8bdec54055d5e30baaf3ebed5809",
+      "source_url_or_file": "/Users/wuyuliang/code/vnpy/cta/strategy/brooks/scalp/meta|/private/tmp/vnpy_shfe_2026_extension"
+    }
+  },
+  "schema_version": 1,
+  "source_audit": {
+    "limit_derivation": "spec_margin_minus_2pp_then_floor_both_prices_to_tick",
+    "path": "shfe_source_audit.jsonl.gz",
+    "sha256": "68bbb71cb9f4950c15050a4c7b4cd3b55e922c5fc999145272d6992d2b8d2104",
+    "source_files": 4178
+  }
+}

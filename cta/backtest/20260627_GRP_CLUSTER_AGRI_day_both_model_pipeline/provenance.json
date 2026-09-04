@@ -1,0 +1,17 @@
+{
+  "run_tag": "20260627",
+  "generated_at": "2026-06-27T10:51:45.406922",
+  "python_version": "3.13.3 (v3.13.3:6280bb54784, Apr  8 2025, 10:47:54) [Clang 15.0.0 (clang-1500.3.9.4)]",
+  "platform": "macOS-15.7.3-arm64-arm-64bit-Mach-O",
+  "git_commit": "60a04422",
+  "candidate_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_AGRI_day_both_model_pipeline/20260627_GRP_CLUSTER_AGRI_day_both_candidates.csv",
+  "feature_table_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_AGRI_day_both_model_pipeline/20260627_GRP_CLUSTER_AGRI_day_both_feature_table.csv",
+  "prediction_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_AGRI_day_both_model_pipeline/20260627_GRP_CLUSTER_AGRI_day_both_predictions.csv",
+  "metrics_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_AGRI_day_both_model_pipeline/20260627_GRP_CLUSTER_AGRI_day_both_metrics.csv",
+  "top_feature_importance_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_AGRI_day_both_model_pipeline/20260627_GRP_CLUSTER_AGRI_day_both_top10_feature_importance.csv",
+  "data_snapshot_hash": "sha256:e72a6c9d6391fd628892310df37e01607b0cf7ebf9a4e0f2b7775ad4e0b174d5",
+  "feature_manifest_hash": "sha256:596bc813db38177d39fc989db9b4da2df7bb46fa6f035ec32722df7006f702b3",
+  "prediction_hash": "sha256:1310d730843e7dcb73cec010f1fecc416754b49264236f23c4f04aca499ba3bc",
+  "metrics_hash": "sha256:cb339a2c560c300477d6798defc1b92939ea4117c94543e14ba7d8cecc86a5cd",
+  "features_doc_hash": "sha256:d79be5b8fe16a3018069b7359794f490767b298018c2daee165a7f44f7c4b63c"
+}

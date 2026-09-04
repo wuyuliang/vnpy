@@ -92,6 +92,7 @@ def aggregate_completed_bars(
     *,
     minutes: int,
     sessions: tuple[SessionSpec, ...],
+    assignments: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Aggregate compact cycle bars without carrying scalp audit metadata."""
     if minutes < 1:
@@ -111,11 +112,16 @@ def aggregate_completed_bars(
     ends = pd.to_datetime(bars["bar_end"])
     if ends.dt.tz is None:
         raise ValueError("bar_end must be timezone-aware")
-    bars["_segment"], bars["_bucket_end"] = _assign_segments(
-        ends,
-        sessions,
-        minutes,
-    )
+    if assignments is None:
+        bars["_segment"], bars["_bucket_end"] = _assign_segments(
+            ends,
+            sessions,
+            minutes,
+        )
+    else:
+        _validate_assignments(bars, assignments)
+        bars["_segment"] = assignments["_segment"].to_numpy()
+        bars["_bucket_end"] = assignments["_bucket_end"].array
     bars = bars.loc[bars["_segment"].notna()].copy()
     if bars.empty:
         return pd.DataFrame()
@@ -180,6 +186,7 @@ def aggregate_completed_daily_bars(
     frame: pd.DataFrame,
     *,
     sessions: tuple[SessionSpec, ...],
+    assignments: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Aggregate a trade-date bar only when every declared segment is complete."""
     required = {
@@ -197,7 +204,11 @@ def aggregate_completed_daily_bars(
     ends = pd.to_datetime(bars["bar_end"])
     if ends.dt.tz is None:
         raise ValueError("bar_end must be timezone-aware")
-    bars["_segment"], _ = _assign_segments(ends, sessions, 1)
+    if assignments is None:
+        bars["_segment"], _ = _assign_segments(ends, sessions, 1)
+    else:
+        _validate_assignments(bars, assignments)
+        bars["_segment"] = assignments["_segment"].to_numpy()
     bars = bars.loc[bars["_segment"].notna()].copy()
     segment_specs = {
         f"{session.session_id}:{segment.segment_id}": segment
@@ -306,6 +317,59 @@ def aggregate_completed_daily_bars(
     if "turnover" in grouped:
         result["turnover"] = grouped["turnover"].astype(float)
     return result
+
+
+def build_aggregation_assignments(
+    frame: pd.DataFrame,
+    *,
+    minutes: int,
+    sessions: tuple[SessionSpec, ...],
+) -> pd.DataFrame:
+    """Build a reusable segment/bucket layout for price-equivalent frames."""
+    if minutes < 1:
+        raise ValueError("minutes must be positive")
+    missing = sorted({"bar_end", "contract_code"}.difference(frame.columns))
+    if missing:
+        raise ValueError(f"missing assignment columns: {','.join(missing)}")
+    bars = frame.copy().sort_values(
+        ["contract_code", "bar_end"]
+    ).reset_index(drop=True)
+    if bars.duplicated(["contract_code", "bar_end"]).any():
+        raise ValueError("contract_code and bar_end must be unique")
+    ends = pd.to_datetime(bars["bar_end"])
+    if ends.dt.tz is None:
+        raise ValueError("bar_end must be timezone-aware")
+    segment_ids, bucket_ends = _assign_segments(ends, sessions, minutes)
+    return pd.DataFrame(
+        {
+            "contract_code": bars["contract_code"].astype(str),
+            "bar_end": ends,
+            "_segment": segment_ids,
+            "_bucket_end": bucket_ends,
+        }
+    )
+
+
+def _validate_assignments(
+    bars: pd.DataFrame,
+    assignments: pd.DataFrame,
+) -> None:
+    required = {"contract_code", "bar_end", "_segment", "_bucket_end"}
+    missing = sorted(required.difference(assignments.columns))
+    if missing:
+        raise ValueError(f"missing assignment columns: {','.join(missing)}")
+    if len(assignments) != len(bars):
+        raise ValueError("aggregation assignments do not match bars")
+    contracts_match = assignments["contract_code"].astype(str).reset_index(
+        drop=True
+    ).equals(bars["contract_code"].astype(str).reset_index(drop=True))
+    ends_match = pd.Series(
+        pd.to_datetime(assignments["bar_end"]),
+    ).reset_index(drop=True).equals(
+        pd.to_datetime(bars["bar_end"]).reset_index(drop=True)
+    )
+    if not contracts_match or not ends_match:
+        raise ValueError("aggregation assignments do not match bars")
 
 
 def _assign_segments(
@@ -417,4 +481,5 @@ def _time_in_segment(value: time, start: time, end: time) -> bool:
 __all__ = [
     "SessionSegment", "SessionSpec", "TradingCalendarEntry", "VersionedTradingCalendar",
     "aggregate_completed_bars", "aggregate_completed_daily_bars",
+    "build_aggregation_assignments",
 ]

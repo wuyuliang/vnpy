@@ -1,0 +1,17 @@
+{
+  "run_tag": "20260627",
+  "generated_at": "2026-06-27T11:03:49.504132",
+  "python_version": "3.13.3 (v3.13.3:6280bb54784, Apr  8 2025, 10:47:54) [Clang 15.0.0 (clang-1500.3.9.4)]",
+  "platform": "macOS-15.7.3-arm64-arm-64bit-Mach-O",
+  "git_commit": "60a04422",
+  "candidate_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_CHEMICAL_day_both_model_pipeline/20260627_GRP_CLUSTER_CHEMICAL_day_both_candidates.csv",
+  "feature_table_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_CHEMICAL_day_both_model_pipeline/20260627_GRP_CLUSTER_CHEMICAL_day_both_feature_table.csv",
+  "prediction_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_CHEMICAL_day_both_model_pipeline/20260627_GRP_CLUSTER_CHEMICAL_day_both_predictions.csv",
+  "metrics_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_CHEMICAL_day_both_model_pipeline/20260627_GRP_CLUSTER_CHEMICAL_day_both_metrics.csv",
+  "top_feature_importance_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_CHEMICAL_day_both_model_pipeline/20260627_GRP_CLUSTER_CHEMICAL_day_both_top10_feature_importance.csv",
+  "data_snapshot_hash": "sha256:28e3d5361130c66705dd27f5ca09130e171b343284237057f4e51b57cdce5090",
+  "feature_manifest_hash": "sha256:3c2dacdd79be14a339a7f451b9904df4237c9878f0225beec34804d13d320a94",
+  "prediction_hash": "sha256:cd5ae1fb15d62b11d3f7055e908a2ae8f443bf3ee379e675324f932204a2dbe9",
+  "metrics_hash": "sha256:cb88efcde86cc89d53eed818b3ed25fc76a44d3f3ca71583ae9ddf43e3827e1b",
+  "features_doc_hash": "sha256:d79be5b8fe16a3018069b7359794f490767b298018c2daee165a7f44f7c4b63c"
+}

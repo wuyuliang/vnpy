@@ -1,0 +1,8 @@
+{
+  "checked_runs": 1,
+  "missing_fingerprint_dirs": [
+    "cta/backtest/20260627_GRP_CLUSTER_AGRI_day_both_model_pipeline"
+  ],
+  "mismatch_count": 0,
+  "mismatches": []
+}

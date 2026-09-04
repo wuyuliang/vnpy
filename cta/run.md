@@ -166,8 +166,8 @@ nohup python3 -m cta.model.train \
   --cross-sectional-enabled-cells "*|day" \
   --generic-mode auto \
   --output-root cta/backtest \
-  --seed 2026060221 \
-  2>&1 > 2026060221.out &
+  --seed 2026062100 \
+  2>&1 > 2026062100.out &
 
 nohup python3 -m cta.model.eval \
   --from-root cta/backtest \

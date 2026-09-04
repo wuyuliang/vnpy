@@ -12,6 +12,125 @@
 
 ---
 
+## 2026-09-03 (四) · 趋势首笔日线实体突破缓冲
+
+### 任务
+- 对多头 EMA 趋势段尚无真实开仓成交的候选增加可配置的前五日实体高点突破缓冲。
+- 保持参数为 `0` 时兼容不含趋势段字段的旧候选 schema，并保留交易级审计字段。
+
+### 改动
+- `cta/strategy/multi_timeframe_trend_backtest/runner.py`：将信号连续价的 `prior_5d_high` 与 trigger 使用同一 scale/offset 映射到实际合约价格，并在报告 `daily_filters` 中记录默认缓冲比例 `0.0005`。
+- `cta/strategy/multi_timeframe_trend_backtest/engine.py`：使用单一 `filled_bull_trend_ids` 记录每个品种趋势段的真实开仓 fill；严格执行 `trigger > prior_5d_high * (1 + ratio)`，并让 ratio 为 `0` 的旧候选绕过新增字段要求。
+- 保留并整合并发增加的 `is_first_trade_in_trend_segment` 和 `trigger_to_prior_5d_high_ratio` 交易审计字段；审计标记在开仓前计算，趋势段 fill 在 `_open_position` 成功后记录。
+- 更新回归测试和 `cta/strategy/docs/2026-08-31-multi_timeframe_trend_strategy.md`；新增拒绝码为 `FIRST_TREND_ENTRY_DAILY_BREAKOUT_BUFFER_NOT_MET`，参数仅通过配置对象调整，不增加 CLI 参数。
+
+### 验证
+Task3 runner context 测试先因缺少 `first_trend_entry_daily_breakout_buffer_ratio` 得到预期 `1 failed`，实现后单节点 `1 passed`。
+
+```bash
+python3 -m pytest -q \
+  cta/strategy/tests/test_multi_timeframe_trend_strategy.py \
+  cta/strategy/tests/test_multi_timeframe_trend_backtest.py
+```
+
+结果：`187 passed in 2.00s`。本次未运行收益比较，不产生新的正式绩效结论。
+
+---
+
+## 2026-09-02 (三) · 多周期趋势候选黑名单
+
+### 任务
+- 默认从候选数据中彻底删除 `pullback_breakout` 和全部空头机会。
+- 保留原有 1 分钟下载流程，不增加 5 分钟下载参数。
+
+### 改动
+- `cta/config/multi_timeframe_trend_config.py`：增加候选类型和方向黑名单默认值，并校验未知值与重复项。
+- `cta/strategy/multi_timeframe_trend_strategy.py`：在候选行及候选 ID 创建前应用黑名单；被删除的同刻回调突破不再压制多头 Always-In。
+- `cta/strategy/multi_timeframe_trend_backtest/runner.py`：在报告上下文记录实际生效的候选黑名单。
+- 更新策略、回测回归测试和中文策略文档。
+
+### 运行与输出
+```bash
+python3 -m cta.strategy.multi_timeframe_trend_backtest.runner \
+  --download-minute-data \
+  --top-n 20 \
+  --start 2025-01-01 \
+  --end 2026-06-30 \
+  --initial-equity 1000000
+```
+
+结果输出到 `cta/strategy/report/multi_timeframe_trend/<run_id>/`。默认只会出现多头 `always_in` 候选；被黑名单删除的机会不进入候选、拒绝、订单、成交、交易或图表文件。
+
+### 验证与限制
+- 相关回归测试：`149 passed`；Ruff 检查通过。
+- 相比旧配置，候选数和交易数会明显下降。需要恢复回调突破或空头研究时，编辑 `MultiTimeframeTrendConfig.candidate_setup_blacklist` 或 `candidate_direction_blacklist`。
+
+---
+
+## 2026-09-02 (三) · 多周期趋势回测分钟下载窗口扩展
+
+### 任务
+- 允许 `cycle_v1` 和多周期趋势回测下载任意 `end >= start` 的分钟数据。
+- 分钟下载严格限制在 CLI `--start..--end`，不再自动下载策略 warmup 前缀。
+- 提供 `2025-01-01..2026-06-30` Top-20 多品种回测命令，且不隐式加入 AG。
+
+### 改动
+- `cta/strategy/brooks/cycle_v1/backtest/market_data_update.py`：删除冻结日期边界，保留倒置区间校验，并在主力映射层截取请求闭区间。
+- `cta/strategy/brooks/cycle_v1/backtest/runner.py`、`cta/strategy/multi_timeframe_trend_backtest/runner.py`：下载阶段仅传入回测起止日期；warmup 继续只用于本地行情和元数据读取。
+- 更新对应回归测试与 `cta/strategy/docs/2026-08-31-multi_timeframe_trend_strategy.md` 的运行说明。
+
+### 运行与输出
+```bash
+python3 -m cta.strategy.multi_timeframe_trend_backtest.runner \
+  --download-minute-data \
+  --top-n 20 \
+  --start 2025-01-01 \
+  --end 2026-06-30 \
+  --initial-equity 1000000
+```
+
+结果输出到 `cta/strategy/report/multi_timeframe_trend/<run_id>/`；下载审计随回测摘要保存。
+
+### 验证与限制
+- 定向回归测试：`141 passed`；Ruff 与 Python 编译检查通过。
+- 下载仍依赖供应商在请求区间内提供主力合约映射和分钟数据；warmup 缺失时沿用现有本地数据可用性与元数据阻断规则。
+
+---
+
+## 2026-08-30 (日) · cycle_v1 短区间执行元数据边界修复
+
+### 任务
+保持 `cta/strategy/brooks/config/cycle_v1.yaml` 不变，将回测结束日期缩短为
+`2026-02-05`，继续修复 `BLOCKED_METADATA` 直到端到端回测完成。
+
+### 改动
+- 修复费用可见时间校验：费用和保证金允许在其会话 `effective_from` 时刻可见，
+  不再错误要求早于价格限制的独立 `known_at`；每日状态与执行成本的有效窗口改为
+  会话生效时间至交易日结束。
+- 修复换月日根品种规格重复：同日新旧合约的乘数、tick、手数步长、会话和来源
+  完全一致时合并为一条根品种规格，并采用较晚的 `known_at`；机械参数有实质冲突时
+  仍 fail-closed。
+- 新增费用会话边界和双合约换月日回归测试。
+
+### 回测结果
+- 报告：
+  `cta/strategy/brooks/report/cycle_v1/20260830_010102_20260101_20260205_30m_5m_1m`
+- 状态：`COMPLETE`；`metadata_gaps.csv` 仅表头；`daily_equity.csv` 含 24 个交易日。
+- 漏斗：38 个候选，0 个合格计划，0 笔交易；正式区间收益为 0。
+- `report.md` 和 `summary.json` 均包含完整复现命令。
+
+### 验证
+```bash
+python3 -m pytest -q cta/strategy/brooks/cycle_v1/tests
+python3 -m pytest -q cta/strategy/brooks/scalp/tests/test_shfe_metadata_builder.py
+shasum -a 256 cta/strategy/brooks/config/cycle_v1.yaml
+```
+
+结果：`349 passed`、`15 passed`；YAML SHA-256 保持
+`0a99f70dd1d8d13b32798b8a0d01d86b9c8ef3578844da8735d989ca1416fd51`。
+
+---
+
 ## 2026-07-05 (日) · symbol 汇总图 executed 标记上抬 + half-year return 修正
 
 ### 任务
@@ -2988,6 +3107,24 @@ python3 -m pytest -q cta/feature/tests/test_feature_modules_smoke.py cta/feature
 ```
 
 结果：通过。
+
+---
+
+## 2026-09-04 · feature · P-04 聚合结果落盘缓存
+
+- 新增基于输入内容、聚合周期、完整会话模板和实现版本的聚合缓存，使用临时文件与 `os.replace` 原子落盘。
+- 缓存读取、写入或 parquet 损坏时回退直接计算，并在 `summary.json` 记录 hits、misses、errors。
+- 新增 `--aggregation-cache-root`，默认写入 `cta/data/origin/aggregated_cache`，空字符串关闭。
+- 单品种单月 warm cache 从 29.17 秒降至 17.19 秒，加速 1.70x；10 个验收 CSV 与金标准逐字节一致。
+- 验证：`python3 -m pytest cta/strategy/tests -q`，531 passed。
+
+## 2026-09-04 · feature · P-02 聚合向量化
+
+- cycle 聚合用向量化 session 分配和 `groupby.agg` 替代逐 bar、逐组 Series 访问。
+- scalp 归一化改用数组遍历，5/30 分钟聚合改用向量化完整性与不变量检查。
+- `AGGREGATION_CACHE_VERSION` 从 1 升到 2，避免命中 P-04 的旧算法缓存。
+- 单品种单月从初始 29.17 秒降至 14.24 秒，累计加速 2.05x，较 P-04 再快 1.21x；10 个验收 CSV 与金标准逐字节一致。
+- 验证：`python3 -m pytest cta/strategy/tests -q`，534 passed；scalp 数据/session 测试 34 passed。
 
 ---
 

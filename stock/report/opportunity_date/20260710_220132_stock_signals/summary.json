@@ -1,0 +1,96 @@
+{
+  "run_id": "20260710_220132_stock_signals",
+  "date_count": 10,
+  "dates": [
+    {
+      "rank": 1,
+      "opportunity_date": "2026-07-10",
+      "opportunity_count": 85,
+      "symbol_count": 85,
+      "rendered_images": 85,
+      "missing_bars": 0,
+      "path": "0001_2026-07-10"
+    },
+    {
+      "rank": 2,
+      "opportunity_date": "2026-07-09",
+      "opportunity_count": 79,
+      "symbol_count": 79,
+      "rendered_images": 79,
+      "missing_bars": 0,
+      "path": "0002_2026-07-09"
+    },
+    {
+      "rank": 3,
+      "opportunity_date": "2026-07-08",
+      "opportunity_count": 60,
+      "symbol_count": 60,
+      "rendered_images": 60,
+      "missing_bars": 0,
+      "path": "0003_2026-07-08"
+    },
+    {
+      "rank": 4,
+      "opportunity_date": "2026-07-07",
+      "opportunity_count": 113,
+      "symbol_count": 113,
+      "rendered_images": 113,
+      "missing_bars": 0,
+      "path": "0004_2026-07-07"
+    },
+    {
+      "rank": 5,
+      "opportunity_date": "2026-07-06",
+      "opportunity_count": 173,
+      "symbol_count": 173,
+      "rendered_images": 173,
+      "missing_bars": 0,
+      "path": "0005_2026-07-06"
+    },
+    {
+      "rank": 6,
+      "opportunity_date": "2026-07-03",
+      "opportunity_count": 145,
+      "symbol_count": 145,
+      "rendered_images": 145,
+      "missing_bars": 0,
+      "path": "0006_2026-07-03"
+    },
+    {
+      "rank": 7,
+      "opportunity_date": "2026-07-02",
+      "opportunity_count": 148,
+      "symbol_count": 148,
+      "rendered_images": 148,
+      "missing_bars": 0,
+      "path": "0007_2026-07-02"
+    },
+    {
+      "rank": 8,
+      "opportunity_date": "2026-07-01",
+      "opportunity_count": 82,
+      "symbol_count": 82,
+      "rendered_images": 82,
+      "missing_bars": 0,
+      "path": "0008_2026-07-01"
+    },
+    {
+      "rank": 9,
+      "opportunity_date": "2026-06-30",
+      "opportunity_count": 107,
+      "symbol_count": 107,
+      "rendered_images": 107,
+      "missing_bars": 0,
+      "path": "0009_2026-06-30"
+    },
+    {
+      "rank": 10,
+      "opportunity_date": "2026-06-29",
+      "opportunity_count": 101,
+      "symbol_count": 101,
+      "rendered_images": 101,
+      "missing_bars": 0,
+      "path": "0010_2026-06-29"
+    }
+  ]
+}

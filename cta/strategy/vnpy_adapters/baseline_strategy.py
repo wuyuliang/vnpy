@@ -70,21 +70,35 @@ class _StubCtaTemplate:
     def write_log(self, msg: str) -> None:
         logger.info("[%s] %s", self.strategy_name, msg)
 
-    def buy(self, price: float, volume: float, stop: bool = False) -> list:
-        self._sent_orders.append({"side": "long_open", "price": price, "volume": volume, "stop": stop})
+    def _dispatch(self, side: str, price: float, volume: float, stop: bool) -> list:
+        """Route the order to the engine the way vnpy would.
+
+        The real ``CtaTemplate`` sends through ``cta_engine``, so a gateway
+        failure surfaces as an exception to the caller. The stub must do the
+        same, otherwise the send-failure path is unreachable without vnpy
+        installed and local ``pos`` silently drifts from the account.
+
+        ``_sent_orders`` is the strategy's own audit trail, appended by
+        ``_record_and_send`` before it ever reaches here, so this must not
+        append again.
+        """
+        engine = getattr(self, "cta_engine", None)
+        send_order = getattr(engine, "send_order", None)
+        if callable(send_order):
+            send_order(self, side, price, volume, stop)
         return ["mock_order_id"]
+
+    def buy(self, price: float, volume: float, stop: bool = False) -> list:
+        return self._dispatch("long_open", price, volume, stop)
 
     def sell(self, price: float, volume: float, stop: bool = False) -> list:
-        self._sent_orders.append({"side": "long_close", "price": price, "volume": volume, "stop": stop})
-        return ["mock_order_id"]
+        return self._dispatch("long_close", price, volume, stop)
 
     def short(self, price: float, volume: float, stop: bool = False) -> list:
-        self._sent_orders.append({"side": "short_open", "price": price, "volume": volume, "stop": stop})
-        return ["mock_order_id"]
+        return self._dispatch("short_open", price, volume, stop)
 
     def cover(self, price: float, volume: float, stop: bool = False) -> list:
-        self._sent_orders.append({"side": "short_close", "price": price, "volume": volume, "stop": stop})
-        return ["mock_order_id"]
+        return self._dispatch("short_close", price, volume, stop)
 
     def cancel_all(self) -> None:
         pass

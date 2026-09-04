@@ -1,0 +1,14 @@
+{
+  "trade_csv": "cta/backtest/20260627_ab_bigger_01_allowlist/oot_20260628_164308_bigger_01_allowlist/raw/all_trade_details.csv",
+  "output_dir": "cta/analysis/20260628_bigger_01_allowlist_trade_charts_smoke",
+  "data_root": "cta/data/feature",
+  "total_input_rows": 16238,
+  "processed_rows": 5,
+  "rendered_images": 5,
+  "skipped_images": 0,
+  "existing_images": 0,
+  "missing_weekly_panels": 0,
+  "missing_daily_panels": 0,
+  "missing_hourly_panels": 0,
+  "missing_all_chart_data": 0
+}

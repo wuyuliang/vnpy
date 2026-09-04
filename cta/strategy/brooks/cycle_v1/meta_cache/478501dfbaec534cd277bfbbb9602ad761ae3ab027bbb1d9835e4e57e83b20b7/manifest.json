@@ -1,0 +1,47 @@
+{
+  "created_at": "2026-08-26T03:27:05.943695+08:00",
+  "files": {
+    "contract_daily.csv": {
+      "downloaded_at": "2026-08-26T03:27:05.943695+08:00",
+      "max_date": "2026-07-27",
+      "min_date": "2018-01-03",
+      "rows": 13356,
+      "sha256": "f37b16901324884feb9ff4b340bb833aeceda7a6c18cf2d47ecd6e650f2aff41",
+      "source_sha256": "f37b16901324884feb9ff4b340bb833aeceda7a6c18cf2d47ecd6e650f2aff41",
+      "source_url_or_file": "/Users/wuyuliang/code/vnpy/cta/strategy/brooks/scalp/meta|audited_tushare_jin10_extension"
+    },
+    "contract_specs.csv": {
+      "downloaded_at": "2026-08-26T03:27:05.943695+08:00",
+      "max_date": "2026-11-13",
+      "min_date": "2018-02-09",
+      "rows": 410,
+      "sha256": "09fc131c543b14a7463a2a6171b06cc8bb32128f7e20ef928084e8bc5d0344b1",
+      "source_sha256": "09fc131c543b14a7463a2a6171b06cc8bb32128f7e20ef928084e8bc5d0344b1",
+      "source_url_or_file": "/Users/wuyuliang/code/vnpy/cta/strategy/brooks/scalp/meta|audited_tushare_jin10_extension"
+    },
+    "exchange_calendar.csv": {
+      "downloaded_at": "2026-08-26T03:27:05.943695+08:00",
+      "max_date": "2026-07-27",
+      "min_date": "2017-11-27",
+      "rows": 2642,
+      "sha256": "40fba05794082f7436e0522a14909c22006fcad0bdc9454c2146a67df7c9acc9",
+      "source_sha256": "40fba05794082f7436e0522a14909c22006fcad0bdc9454c2146a67df7c9acc9",
+      "source_url_or_file": "/Users/wuyuliang/code/vnpy/cta/strategy/brooks/scalp/meta|audited_tushare_jin10_extension"
+    },
+    "fee_margin_schedule.csv": {
+      "downloaded_at": "2026-08-26T03:27:05.943695+08:00",
+      "max_date": "2026-07-27",
+      "min_date": "2018-01-03",
+      "rows": 13356,
+      "sha256": "1a304cf1f62f7957451ad24433862f3f564dd5923c51b94c31d335cc723d4858",
+      "source_sha256": "1a304cf1f62f7957451ad24433862f3f564dd5923c51b94c31d335cc723d4858",
+      "source_url_or_file": "/Users/wuyuliang/code/vnpy/cta/strategy/brooks/scalp/meta|audited_tushare_jin10_extension"
+    }
+  },
+  "schema_version": 1,
+  "source_audit": {
+    "path": "vendor_source_audit.jsonl.gz",
+    "sha256": "1c711e237fbe258016ecc08a21bdf6cb71132e03110cb47f07959cdb52e17dd7",
+    "source_queries": 907
+  }
+}

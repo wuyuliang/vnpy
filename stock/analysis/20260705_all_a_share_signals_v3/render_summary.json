@@ -1,0 +1,9 @@
+{
+  "opportunity_csv": "stock/report/opportunities/20260705_all_a_share_signals_v3_stock_signal_opportunities.csv",
+  "output_dir": "stock/analysis/20260705_all_a_share_signals_v3",
+  "data_root": "stock/data/origin",
+  "input_rows": 60653,
+  "symbols": 5094,
+  "rendered_images": 5094,
+  "missing_bars": 0
+}

@@ -1,0 +1,995 @@
+{
+  "converted_schema": {
+    "AG": 0
+  },
+  "day_root": "cta/data/origin/day",
+  "download_errors": [],
+  "downloaded": {
+    "AG": 0
+  },
+  "empty": {
+    "AG": 0
+  },
+  "end": "2026-02-05",
+  "files": [
+    {
+      "contract_code": "AG2510.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-01.parquet",
+      "root_symbol": "AG",
+      "sha256": "c2c1079959959c8621b549f36c0af5ae2c86f4f45db98b684559840d3ccbe63e",
+      "status": "skipped",
+      "trade_date": "2025-09-01"
+    },
+    {
+      "contract_code": "AG2510.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-02.parquet",
+      "root_symbol": "AG",
+      "sha256": "74bee866f87e2789d299f6cfc61439329b6e9769fd655c5faff706e20eae5ef9",
+      "status": "skipped",
+      "trade_date": "2025-09-02"
+    },
+    {
+      "contract_code": "AG2510.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-03.parquet",
+      "root_symbol": "AG",
+      "sha256": "aa371f90d201f8b32b311bb53ef4530974bce71d185a76c92975cff62c014190",
+      "status": "skipped",
+      "trade_date": "2025-09-03"
+    },
+    {
+      "contract_code": "AG2510.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-04.parquet",
+      "root_symbol": "AG",
+      "sha256": "bbabe76d245bc75f6af3093dc8df6d248bf5d2c239064a163c3529bd85c4c850",
+      "status": "skipped",
+      "trade_date": "2025-09-04"
+    },
+    {
+      "contract_code": "AG2510.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-05.parquet",
+      "root_symbol": "AG",
+      "sha256": "63b72dc980c0037a9a7ccc195bac1757131989079f85e8fc8354bcac59b1ece1",
+      "status": "skipped",
+      "trade_date": "2025-09-05"
+    },
+    {
+      "contract_code": "AG2510.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-08.parquet",
+      "root_symbol": "AG",
+      "sha256": "7ffc0b2a74a91d91b6cfe78b71800a58319ffbd17dec5a62bac16ef54a15e9a6",
+      "status": "skipped",
+      "trade_date": "2025-09-08"
+    },
+    {
+      "contract_code": "AG2510.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-09.parquet",
+      "root_symbol": "AG",
+      "sha256": "2525c76a4235d1d83cf2c167b9d9b84e9f925cf35b98e8d5f9a6fab0ccb2d364",
+      "status": "skipped",
+      "trade_date": "2025-09-09"
+    },
+    {
+      "contract_code": "AG2510.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-10.parquet",
+      "root_symbol": "AG",
+      "sha256": "132f6bb7d222a3d6cf591abb58a5226ce988d45e6820c0aab4715ab6a5453700",
+      "status": "skipped",
+      "trade_date": "2025-09-10"
+    },
+    {
+      "contract_code": "AG2510.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-11.parquet",
+      "root_symbol": "AG",
+      "sha256": "193f0e227d25b2f09f0b3805f5470bca8fd03d7fa6087678b8a066855fff38f0",
+      "status": "skipped",
+      "trade_date": "2025-09-11"
+    },
+    {
+      "contract_code": "AG2510.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-12.parquet",
+      "root_symbol": "AG",
+      "sha256": "be57fe4063963b65b14530dcbc5165a4f51a49f92d8794764e899430df6ebe04",
+      "status": "skipped",
+      "trade_date": "2025-09-12"
+    },
+    {
+      "contract_code": "AG2510.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-15.parquet",
+      "root_symbol": "AG",
+      "sha256": "c398e516286d68ed80aa800faed076a99ad8da6f332087c5a4b8460400934c33",
+      "status": "skipped",
+      "trade_date": "2025-09-15"
+    },
+    {
+      "contract_code": "AG2510.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-16.parquet",
+      "root_symbol": "AG",
+      "sha256": "c04fc803518c9a4b014aa1e9f8f0680d2cb294666485cd67c33466f31f548ffa",
+      "status": "skipped",
+      "trade_date": "2025-09-16"
+    },
+    {
+      "contract_code": "AG2510.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-17.parquet",
+      "root_symbol": "AG",
+      "sha256": "25fec8c0edaa84f9bb06418aeddb44702de9078979bbe7fcb6669c557082ebcf",
+      "status": "skipped",
+      "trade_date": "2025-09-17"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-18.parquet",
+      "root_symbol": "AG",
+      "sha256": "e57c57ce09437804d336764fcab97844a49f426af1bc607104106c8482a93fe1",
+      "status": "skipped",
+      "trade_date": "2025-09-18"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-19.parquet",
+      "root_symbol": "AG",
+      "sha256": "09390f00753ca495a91064860c45e111dcb40ef927d30db3079a495fbcea4085",
+      "status": "skipped",
+      "trade_date": "2025-09-19"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-22.parquet",
+      "root_symbol": "AG",
+      "sha256": "4687cc01753bb5f8e3c54d2a7bfe2973e534a089b6fbb77c1f1ed1f201a8ccf0",
+      "status": "skipped",
+      "trade_date": "2025-09-22"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-23.parquet",
+      "root_symbol": "AG",
+      "sha256": "ef1acbedb195177e391e12d83c5aeede326069123bbfbab6fcce969e94932393",
+      "status": "skipped",
+      "trade_date": "2025-09-23"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-24.parquet",
+      "root_symbol": "AG",
+      "sha256": "e0be957691c21071877505007b1d79aa683435058031e2f3af649d8204d8f137",
+      "status": "skipped",
+      "trade_date": "2025-09-24"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-25.parquet",
+      "root_symbol": "AG",
+      "sha256": "62e4b71d6c3cd75a994296feaae55b104d90454cacca3816ed43833fd0b8e418",
+      "status": "skipped",
+      "trade_date": "2025-09-25"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-26.parquet",
+      "root_symbol": "AG",
+      "sha256": "3181410c51260303dab4f75677ceb6adc82e0a5a60b6acf68d52ffcae493a6d7",
+      "status": "skipped",
+      "trade_date": "2025-09-26"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-29.parquet",
+      "root_symbol": "AG",
+      "sha256": "f554f54613e86ade1babd3054d9157c9ac4e3ca2a070601cba6f7a48c46ce934",
+      "status": "skipped",
+      "trade_date": "2025-09-29"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-09-30.parquet",
+      "root_symbol": "AG",
+      "sha256": "a4ec2a2da154e04147e1a1d21d7c4b70b418c2674f2b47af6349d7c70821cc88",
+      "status": "skipped",
+      "trade_date": "2025-09-30"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-10-09.parquet",
+      "root_symbol": "AG",
+      "sha256": "963e9d0ec245cb986ebd72d62677092e6630ba50bfdd4b56efc67fae5789924f",
+      "status": "skipped",
+      "trade_date": "2025-10-09"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-10-10.parquet",
+      "root_symbol": "AG",
+      "sha256": "83e30aa4b8a5eaca61d5e458dc8d555d73c27a988e0153b0c14c2a5c5cd211e7",
+      "status": "skipped",
+      "trade_date": "2025-10-10"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-10-13.parquet",
+      "root_symbol": "AG",
+      "sha256": "ebab17b8cad857b98550682b9bfbbb96baddc332b01e2415874f3ce2fcea4750",
+      "status": "skipped",
+      "trade_date": "2025-10-13"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-10-14.parquet",
+      "root_symbol": "AG",
+      "sha256": "34dbf2b531747d8764496fa21db6127a675b53564076098693b775202f24e939",
+      "status": "skipped",
+      "trade_date": "2025-10-14"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-10-15.parquet",
+      "root_symbol": "AG",
+      "sha256": "ffda583763ba9e81d9929562932839bd6f1e2a0e4a88407d3fb738fee15725d1",
+      "status": "skipped",
+      "trade_date": "2025-10-15"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-10-16.parquet",
+      "root_symbol": "AG",
+      "sha256": "0813b75186c3b7733f3f1616bd8c892e608c60a178b17120004f7d7496cca661",
+      "status": "skipped",
+      "trade_date": "2025-10-16"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-10-17.parquet",
+      "root_symbol": "AG",
+      "sha256": "9b1af7b040cf9bfc98672a2a409f97c590f47ecc492423dbc9eed916c17a3074",
+      "status": "skipped",
+      "trade_date": "2025-10-17"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-10-20.parquet",
+      "root_symbol": "AG",
+      "sha256": "2b3bc0e2ea1278e4ae595ea0e42c42e7d17f68dbd9b628d58f956d9fb0107a06",
+      "status": "skipped",
+      "trade_date": "2025-10-20"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-10-21.parquet",
+      "root_symbol": "AG",
+      "sha256": "7dcd6ca7eef0bf4fd697e399238c8f79fa3981019fb3c21d4cb90e1901daf1f3",
+      "status": "skipped",
+      "trade_date": "2025-10-21"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-10-22.parquet",
+      "root_symbol": "AG",
+      "sha256": "72e35c91089579d76d6f7b22e281cdcea80b633fd442408de4478b313adf19c8",
+      "status": "skipped",
+      "trade_date": "2025-10-22"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-10-23.parquet",
+      "root_symbol": "AG",
+      "sha256": "a222276b085d49670eeff70d3e6fbf3578133da08e1fe3dda50a2318fc93c279",
+      "status": "skipped",
+      "trade_date": "2025-10-23"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-10-24.parquet",
+      "root_symbol": "AG",
+      "sha256": "bce7a75796d4fe9e07094cab7712c06b72831413dc2bfbe5486d1bb4d38aea50",
+      "status": "skipped",
+      "trade_date": "2025-10-24"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-10-27.parquet",
+      "root_symbol": "AG",
+      "sha256": "75236fb55462284f4b8a2aec36561107bd32dd497b54c3993410ba77a4ef8905",
+      "status": "skipped",
+      "trade_date": "2025-10-27"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-10-28.parquet",
+      "root_symbol": "AG",
+      "sha256": "a313ad3c249a1d7d0fdbb95de8fbf0f6e0dccee03fd1425e5f3757012d37a803",
+      "status": "skipped",
+      "trade_date": "2025-10-28"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-10-29.parquet",
+      "root_symbol": "AG",
+      "sha256": "d56a22495f8bb6f522a09fbe96e1f96fe572d354616a65c10f2dcf35040ec37d",
+      "status": "skipped",
+      "trade_date": "2025-10-29"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-10-30.parquet",
+      "root_symbol": "AG",
+      "sha256": "0ca3dd15a01a1847d000e1887e3debd9089d5fa051512568b132c1e356a29abc",
+      "status": "skipped",
+      "trade_date": "2025-10-30"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-10-31.parquet",
+      "root_symbol": "AG",
+      "sha256": "2d7064c99f62165233f0583ddeb89dda9ae0155e88530ed1fe375be4da792153",
+      "status": "skipped",
+      "trade_date": "2025-10-31"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-03.parquet",
+      "root_symbol": "AG",
+      "sha256": "c56b55578da6222b6b69467dab9b5413d119733f8a1e155f5ba27e93c6baac46",
+      "status": "skipped",
+      "trade_date": "2025-11-03"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-04.parquet",
+      "root_symbol": "AG",
+      "sha256": "28750f713a0ec2bc4f393382d5313712fd47a99a00e8d2d2ad55ae00f40d9339",
+      "status": "skipped",
+      "trade_date": "2025-11-04"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-05.parquet",
+      "root_symbol": "AG",
+      "sha256": "d9858515745fb7908180ecfb83a8fd1a7cf8b736d1d85e74f5469d11c50566b3",
+      "status": "skipped",
+      "trade_date": "2025-11-05"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-06.parquet",
+      "root_symbol": "AG",
+      "sha256": "1df7e106c3852d1178eb8f9188a787aa2c5a7c66990707a288839fe96486d456",
+      "status": "skipped",
+      "trade_date": "2025-11-06"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-07.parquet",
+      "root_symbol": "AG",
+      "sha256": "58b05bda0ff91ca2c477afe1096426531ed435b321ef39426a3b914360819063",
+      "status": "skipped",
+      "trade_date": "2025-11-07"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-10.parquet",
+      "root_symbol": "AG",
+      "sha256": "e5698aa20fae1d6508713a30ea4c34b59204dee9a36a62a5e74174b883b6b053",
+      "status": "skipped",
+      "trade_date": "2025-11-10"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-11.parquet",
+      "root_symbol": "AG",
+      "sha256": "efe8dc801e715c4f7b2e4eb0b3ce8dd70c2a84a4d9d3fb7f043e2cd245160b88",
+      "status": "skipped",
+      "trade_date": "2025-11-11"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-12.parquet",
+      "root_symbol": "AG",
+      "sha256": "95c8acc7c5dd9149e972b78d8f7e6620913f67c9dce3e90f678d0d16ddd97910",
+      "status": "skipped",
+      "trade_date": "2025-11-12"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-13.parquet",
+      "root_symbol": "AG",
+      "sha256": "2502e5bf628175e0899325677b33a9fa8e38ab3990ee077d38ea2d98d02b5d08",
+      "status": "skipped",
+      "trade_date": "2025-11-13"
+    },
+    {
+      "contract_code": "AG2512.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-14.parquet",
+      "root_symbol": "AG",
+      "sha256": "26e42739bdffe47cc4fdfcc48266680caac023c0cf7d5feab71d46640ef4ee1b",
+      "status": "skipped",
+      "trade_date": "2025-11-14"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-17.parquet",
+      "root_symbol": "AG",
+      "sha256": "97155829ef4b7e35eca36722f8c786dda357b1bff24077ef45f341e2a1f3d27b",
+      "status": "skipped",
+      "trade_date": "2025-11-17"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-18.parquet",
+      "root_symbol": "AG",
+      "sha256": "0073aa5139e45ddaef80f25962539b915b1cb24e1d6738793505306a4089ae56",
+      "status": "skipped",
+      "trade_date": "2025-11-18"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-19.parquet",
+      "root_symbol": "AG",
+      "sha256": "9c0cd56064088b2b1c49c01d55668598312a0ba5b985dd1da0c1e0ac1d3251d6",
+      "status": "skipped",
+      "trade_date": "2025-11-19"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-20.parquet",
+      "root_symbol": "AG",
+      "sha256": "356718649e2389b374e80aa82c3a26c2e4750725db6f0fd60d05df09791147c4",
+      "status": "skipped",
+      "trade_date": "2025-11-20"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-21.parquet",
+      "root_symbol": "AG",
+      "sha256": "a3b79b8576f096483edb8be40c2b7ffba798fe157b14c7836057f819802eaf01",
+      "status": "skipped",
+      "trade_date": "2025-11-21"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-24.parquet",
+      "root_symbol": "AG",
+      "sha256": "bfbad71ffb2f2ca1357d0c84fefffaf67e4e90c8b692dde9bd6104349e2dfe86",
+      "status": "skipped",
+      "trade_date": "2025-11-24"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-25.parquet",
+      "root_symbol": "AG",
+      "sha256": "c07abd4370d2fac86d96ea61ccca8a6b0de1047f63d6b8ea714e458b3f2379df",
+      "status": "skipped",
+      "trade_date": "2025-11-25"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-26.parquet",
+      "root_symbol": "AG",
+      "sha256": "d1b83f65bda516bfad7eea67ef7305aa67e90b638e74e3777c753f9aad2aead0",
+      "status": "skipped",
+      "trade_date": "2025-11-26"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-27.parquet",
+      "root_symbol": "AG",
+      "sha256": "f9bbd272c292b03f25eb94bbe297847bc983c40744261b0e3389a5b25b064fe9",
+      "status": "skipped",
+      "trade_date": "2025-11-27"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-11-28.parquet",
+      "root_symbol": "AG",
+      "sha256": "ee15e5a1a892655ea5fb34a8caa66ef5a5cdf051f12117aba761250b20896450",
+      "status": "skipped",
+      "trade_date": "2025-11-28"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-01.parquet",
+      "root_symbol": "AG",
+      "sha256": "c4e094102a8cf6c2addc1f2ce0f096672f62f027fbcbbf2de6a091b97cb82921",
+      "status": "skipped",
+      "trade_date": "2025-12-01"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-02.parquet",
+      "root_symbol": "AG",
+      "sha256": "23b77d2708cf718aba4098b8c041ce307ca00b45fa7fc422ca81c05f47669311",
+      "status": "skipped",
+      "trade_date": "2025-12-02"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-03.parquet",
+      "root_symbol": "AG",
+      "sha256": "6cf5a372fc71023742b604c17d1ef1002ecd64266d613282b39024d5f28be15e",
+      "status": "skipped",
+      "trade_date": "2025-12-03"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-04.parquet",
+      "root_symbol": "AG",
+      "sha256": "f268597fa804ae4423345b26c7d32e5b55bd3fe9eeaecd257f7f921d2482269a",
+      "status": "skipped",
+      "trade_date": "2025-12-04"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-05.parquet",
+      "root_symbol": "AG",
+      "sha256": "875199b6a87d792830635f8779501bc0df9f05f5c5883d31b189ecbf2bce928d",
+      "status": "skipped",
+      "trade_date": "2025-12-05"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-08.parquet",
+      "root_symbol": "AG",
+      "sha256": "f4542870f5bc96af0cc3f85a57c61192e7e5bec87e6ea19d8404d20a9fce4f04",
+      "status": "skipped",
+      "trade_date": "2025-12-08"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-09.parquet",
+      "root_symbol": "AG",
+      "sha256": "145a27f059bde5260cfd1acb2961523dc62e6d41750e7f29bf0c04454dcbdb89",
+      "status": "skipped",
+      "trade_date": "2025-12-09"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-10.parquet",
+      "root_symbol": "AG",
+      "sha256": "c4f23219217fd9afe3114bebfa8ef79c98479a79b14316a075b1a8b752fd14d2",
+      "status": "skipped",
+      "trade_date": "2025-12-10"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-11.parquet",
+      "root_symbol": "AG",
+      "sha256": "b1d63072ef5e63d453a0d740b6b7017851a207bbe11d46fd7e9fa8c2da13d55e",
+      "status": "skipped",
+      "trade_date": "2025-12-11"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-12.parquet",
+      "root_symbol": "AG",
+      "sha256": "2fdb06cc7c097f2863d6ea32a71c2cf1e34e2a3060a148beac904209d589913d",
+      "status": "skipped",
+      "trade_date": "2025-12-12"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-15.parquet",
+      "root_symbol": "AG",
+      "sha256": "c357f137560421f66a29a6daf7ad9eb7ccd2fa82149d65a868dd1cb55ff00d70",
+      "status": "skipped",
+      "trade_date": "2025-12-15"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-16.parquet",
+      "root_symbol": "AG",
+      "sha256": "45b83d2d494d9143805bab34c82a303a4b96e3a3dcc1b1c1e5f0013bce25fba3",
+      "status": "skipped",
+      "trade_date": "2025-12-16"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-17.parquet",
+      "root_symbol": "AG",
+      "sha256": "dca8178bfabab2d717c73d28dec2f216aa6611dc5f5a717e2b7e13e51b321a11",
+      "status": "skipped",
+      "trade_date": "2025-12-17"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-18.parquet",
+      "root_symbol": "AG",
+      "sha256": "7a95ac86aa9cdb2487824a0b9fd41408deaa6062dd9766b9daa2d2cdd2453a86",
+      "status": "skipped",
+      "trade_date": "2025-12-18"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-19.parquet",
+      "root_symbol": "AG",
+      "sha256": "76e919827ee6dff2a9ba79c487adcbb3da84c3f357a424df9f0c3a8349323e80",
+      "status": "skipped",
+      "trade_date": "2025-12-19"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-22.parquet",
+      "root_symbol": "AG",
+      "sha256": "d534f1f8aefa2fc8ef8fe62e335263c03718135c0b8088cbca1b5c7e736c6752",
+      "status": "skipped",
+      "trade_date": "2025-12-22"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-23.parquet",
+      "root_symbol": "AG",
+      "sha256": "6123a9d2579a395e8830fe69fc181ac282f698aba2f1dd5797b0d2c622d66abc",
+      "status": "skipped",
+      "trade_date": "2025-12-23"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-24.parquet",
+      "root_symbol": "AG",
+      "sha256": "c9d6cd69d82cfbdcaf865a26ae0dda5138b0a5a564a6b519528cb7bf0ca85746",
+      "status": "skipped",
+      "trade_date": "2025-12-24"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-25.parquet",
+      "root_symbol": "AG",
+      "sha256": "ae44834260c91e8e9da431e7e4fc8ed97f55f59f7b542af2decec1e48549d1e1",
+      "status": "skipped",
+      "trade_date": "2025-12-25"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-26.parquet",
+      "root_symbol": "AG",
+      "sha256": "75869734a47a72efa3b29b677012321bb5120806fbf64685f62a85855e4b219c",
+      "status": "skipped",
+      "trade_date": "2025-12-26"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-29.parquet",
+      "root_symbol": "AG",
+      "sha256": "7b49b401e042c61d28b21608b9ba9039327b017238afebeba534e56e338d7cbe",
+      "status": "skipped",
+      "trade_date": "2025-12-29"
+    },
+    {
+      "contract_code": "AG2602.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-30.parquet",
+      "root_symbol": "AG",
+      "sha256": "243cf16432f34f6551df8dd67ee462ed3b0d6a3da2adb62c41dd4e304c4090fb",
+      "status": "skipped",
+      "trade_date": "2025-12-30"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2025-12-31.parquet",
+      "root_symbol": "AG",
+      "sha256": "634111fc6634c903afd82388c3288de9a4c180870e6e12d3f07527fd76b250aa",
+      "status": "skipped",
+      "trade_date": "2025-12-31"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-05.parquet",
+      "root_symbol": "AG",
+      "sha256": "af64fc11301569bb5446840a2e396d2649d2fe2725e520dea7134414481253a2",
+      "status": "skipped",
+      "trade_date": "2026-01-05"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-06.parquet",
+      "root_symbol": "AG",
+      "sha256": "b0561e54b42e7f62c9249a276a46ceec3593091c18f25a786b638661136b70e6",
+      "status": "skipped",
+      "trade_date": "2026-01-06"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-07.parquet",
+      "root_symbol": "AG",
+      "sha256": "a782ada3e34ac2057f9aa0e34e8fc160d46d350de65b8d8038ef9fdd397805b5",
+      "status": "skipped",
+      "trade_date": "2026-01-07"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-08.parquet",
+      "root_symbol": "AG",
+      "sha256": "f4abb7c7db7deb84397e96a7b29d710cc1eb1ae156cea12d0c0a77dc9c9894d4",
+      "status": "skipped",
+      "trade_date": "2026-01-08"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-09.parquet",
+      "root_symbol": "AG",
+      "sha256": "393d7d1fc974ef74876da77f0d7978b2fd7799779e3578974da96c8da0bcf4a4",
+      "status": "skipped",
+      "trade_date": "2026-01-09"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-12.parquet",
+      "root_symbol": "AG",
+      "sha256": "73c99436e5751335e3cbd81c48c80bdb47bf603806920e7ffe1beb4c16c4d698",
+      "status": "skipped",
+      "trade_date": "2026-01-12"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-13.parquet",
+      "root_symbol": "AG",
+      "sha256": "e66d8128d5f47318c8781a0f13c32de168a46010bf220f03a3d0dc98c749e785",
+      "status": "skipped",
+      "trade_date": "2026-01-13"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-14.parquet",
+      "root_symbol": "AG",
+      "sha256": "3658ec8ea0c621c3b429a35de39226a91d0767edf8dbbe17dd4e4262ed45ab9d",
+      "status": "skipped",
+      "trade_date": "2026-01-14"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-15.parquet",
+      "root_symbol": "AG",
+      "sha256": "d46d7f729b39e42a6ca8cdf7e0921eba074f10d352f39b5b6b336c83e05dd56f",
+      "status": "skipped",
+      "trade_date": "2026-01-15"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-16.parquet",
+      "root_symbol": "AG",
+      "sha256": "df0b0c75cd23a21d8da08bb19b59c883bcb34f79e5993912b257b928ba33517f",
+      "status": "skipped",
+      "trade_date": "2026-01-16"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-19.parquet",
+      "root_symbol": "AG",
+      "sha256": "2c1c00396b9d2d62fede09a10096c35a9b0915fce76cc960c9c66e1359c2b122",
+      "status": "skipped",
+      "trade_date": "2026-01-19"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-20.parquet",
+      "root_symbol": "AG",
+      "sha256": "ff47a68b954e46d540b5de9093853ddc8f3c884ecbed74c1431a6eecbf9ef66e",
+      "status": "skipped",
+      "trade_date": "2026-01-20"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-21.parquet",
+      "root_symbol": "AG",
+      "sha256": "4739c2231cdc36cd46aebccc48d60a93211e7743815455ccc50c14854cf78b2e",
+      "status": "skipped",
+      "trade_date": "2026-01-21"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-22.parquet",
+      "root_symbol": "AG",
+      "sha256": "cf01bce977a7d3104abef47e50896d3ad76f7c8ab8646c50efb6df76081707fd",
+      "status": "skipped",
+      "trade_date": "2026-01-22"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-23.parquet",
+      "root_symbol": "AG",
+      "sha256": "2ae5ef3106a1ac43928e721dfbe38234ea27b8efe942ebdcbc76f4e10f175102",
+      "status": "skipped",
+      "trade_date": "2026-01-23"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-26.parquet",
+      "root_symbol": "AG",
+      "sha256": "1f46ee607c823fbbef7dd2eb72ab64599b4d70c21d0c79f00d8d335b231c3345",
+      "status": "skipped",
+      "trade_date": "2026-01-26"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-27.parquet",
+      "root_symbol": "AG",
+      "sha256": "eb146d86b8caa52d8819c7e1f346088c68bef7a73264005129ac425ca77ffc8b",
+      "status": "skipped",
+      "trade_date": "2026-01-27"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-28.parquet",
+      "root_symbol": "AG",
+      "sha256": "b68e78aab9037124eb641ca8abb229c859623c15c9178572588938a7eaa6e006",
+      "status": "skipped",
+      "trade_date": "2026-01-28"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-29.parquet",
+      "root_symbol": "AG",
+      "sha256": "8a93f298b152e8ea996222cafc3c0b1f821a645619d1d3b0c9d1faab3d7a94ec",
+      "status": "skipped",
+      "trade_date": "2026-01-29"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-01-30.parquet",
+      "root_symbol": "AG",
+      "sha256": "5f3903c15355367a2942a115b3a49080383a8e666439863111163b420a07ab04",
+      "status": "skipped",
+      "trade_date": "2026-01-30"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-02-02.parquet",
+      "root_symbol": "AG",
+      "sha256": "e420c1c4f7e0d25bc1afaea19bf4d063ca730e2cf68cfbc6fad7428c0aafb0ea",
+      "status": "skipped",
+      "trade_date": "2026-02-02"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-02-03.parquet",
+      "root_symbol": "AG",
+      "sha256": "58ee1028f78f492d4edfea785086ef4ea691e058d163d6908913ab719040cfb4",
+      "status": "skipped",
+      "trade_date": "2026-02-03"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-02-04.parquet",
+      "root_symbol": "AG",
+      "sha256": "cba1163c8754b7ff35b819c9ed4350638eccc5a21c1e3e4b9df3aac9b08fbaf7",
+      "status": "skipped",
+      "trade_date": "2026-02-04"
+    },
+    {
+      "contract_code": "AG2604.SHF",
+      "mapping_exchange": "SHF",
+      "path": "cta/data/origin/minute/AG/2026-02-05.parquet",
+      "root_symbol": "AG",
+      "sha256": "c4b105d520a915d60a367f445009ad8a08cfd86604d6c5a8b287d777893844bb",
+      "status": "skipped",
+      "trade_date": "2026-02-05"
+    }
+  ],
+  "ranking_csv": "cta/feature/symbols_research_ranking.csv",
+  "requested_dates": {
+    "AG": 106
+  },
+  "selection": {
+    "ema_eligible": [],
+    "explicit": [
+      "AG"
+    ],
+    "selected": [
+      {
+        "exchange": "SHFE",
+        "root_symbol": "AG",
+        "sources": [
+          "explicit"
+        ]
+      }
+    ],
+    "top_n": []
+  },
+  "selection_rejections": [],
+  "skipped": {
+    "AG": 106
+  },
+  "start": "2025-08-30"
+}

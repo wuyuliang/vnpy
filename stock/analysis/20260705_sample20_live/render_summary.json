@@ -1,0 +1,8 @@
+{
+  "opportunity_csv": "/Users/wuyuliang/code/vnpy/stock/report/opportunities/20260705_sample20_live_bull_pullback_continuation.csv",
+  "output_dir": "/Users/wuyuliang/code/vnpy/stock/analysis/20260705_sample20_live",
+  "data_root": "/Users/wuyuliang/code/vnpy/stock/data/origin",
+  "input_rows": 1918,
+  "rendered_images": 1918,
+  "missing_bars": 0
+}

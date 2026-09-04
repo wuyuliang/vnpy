@@ -1,0 +1,9 @@
+{
+  "opportunity_csv": "/Users/wuyuliang/code/vnpy/stock/report/opportunities/20260705_sample20_signals_v4_stock_signal_opportunities.csv",
+  "output_dir": "/Users/wuyuliang/code/vnpy/stock/analysis/20260705_sample20_signals_v4",
+  "data_root": "/Users/wuyuliang/code/vnpy/stock/data/origin",
+  "input_rows": 1071,
+  "symbols": 20,
+  "rendered_images": 20,
+  "missing_bars": 0
+}

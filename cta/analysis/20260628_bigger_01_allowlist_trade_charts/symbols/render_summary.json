@@ -1,0 +1,11 @@
+{
+  "trade_csv": "cta/backtest/20260627_ab_bigger_01_allowlist/oot_20260628_164308_bigger_01_allowlist/raw/all_trade_details.csv",
+  "output_dir": "cta/analysis/20260628_bigger_01_allowlist_trade_charts/symbols",
+  "data_root": "cta/data/feature",
+  "signal_type": "bull_pullback_continuation",
+  "input_rows": 4695,
+  "groups": 226,
+  "rendered_images": 226,
+  "skipped_images": 0,
+  "symbols": 64
+}

@@ -1,0 +1,27 @@
+{
+  "block_overfit": {
+    "block_overfit_risk": 0.37142857142857144,
+    "full_sample_sharpe_winner": "clean_baseline",
+    "quarter_count": 35,
+    "run_count": 6,
+    "status": "diagnostic_only",
+    "winner_positive_quarter_ratio": 0.4,
+    "winner_top_half_quarter_ratio": 0.6285714285714286
+  },
+  "selection": {
+    "all_numeric_gates_pass": false,
+    "annual_one_way_turnover_at_most_8": true,
+    "annual_return_at_least_4_percent": false,
+    "concentration_review": "manual_review_required",
+    "dominant_positive_excess_year_share": 1.0,
+    "double_cost_annual_return_positive": false,
+    "largest_positive_industry": "automobile",
+    "largest_positive_industry_contribution_share": 0.3252161807649746,
+    "largest_winning_trade_share": 0.03230297014933071,
+    "max_drawdown_at_least_minus_20": true,
+    "median_bull_capture_at_least_50_percent": false,
+    "positive_excess_years": 1,
+    "sharpe_at_least_point_50": false
+  },
+  "trial_count": 6
+}

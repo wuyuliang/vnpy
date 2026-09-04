@@ -1,0 +1,37 @@
+{
+  "bar_count": 2170,
+  "calendar": {
+    "endpoint": "trade_cal",
+    "exchange": "SZSE",
+    "maximum_date": "2026-08-24",
+    "minimum_date": "2017-08-14",
+    "requested_end_date": "2026-08-24",
+    "row_count": 3298,
+    "sha256": "f97a626b4d24a3cd5648eae88924f4e019ef8347655cca3b705a193993ef8041"
+  },
+  "calendar_maximum_date": "2026-08-24",
+  "daily": {
+    "endpoint": "fund_daily",
+    "maximum_date": "2026-07-24",
+    "minimum_date": "2017-08-14",
+    "row_count": 2170,
+    "sha256": "bb0ebcad4ab15fce749b33b015f2f2ea1d314e5fdee4224076540c6fe5d05ed3",
+    "turnover_unit": "Tushare fund_daily amount unit"
+  },
+  "factor_lineage_valid": true,
+  "factors": {
+    "endpoint": "fund_adj",
+    "maximum_date": "2026-07-24",
+    "minimum_date": "2017-08-14",
+    "row_count": 2171,
+    "sha256": "437d48e3b0d6991d320b433831bdd8e9c4bb28ec48f3a068becfdb9ee008f983"
+  },
+  "first_bar_date": "2017-08-14",
+  "last_bar_date": "2026-07-24",
+  "maximum_factor_source_date": "2026-07-24",
+  "price_adjustment_mode": "point_in_time_adjusted",
+  "provider": "Tushare",
+  "requested_end_date": "2026-07-25",
+  "requested_start_date": "2017-08-14",
+  "symbol": "159915.SZ"
+}

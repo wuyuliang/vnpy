@@ -66,12 +66,15 @@ class RateLimiter:
 def _safe_retry(func, *args, retries: int = 5, wait: float = 2.0, **kwargs):
     """Retry wrapper for transient tushare/akshare calls."""
     last_err: Optional[Exception] = None
+    name = getattr(func, "__name__", None)
+    if not name:
+        name = getattr(getattr(func, "func", None), "__name__", func.__class__.__name__)
     for i in range(retries):
         try:
             return func(*args, **kwargs)
         except Exception as e:  # noqa: BLE001
             last_err = e
-            logger.warning("call %s failed (%s/%s): %s", func.__name__, i + 1, retries, e)
+            logger.warning("call %s failed (%s/%s): %s", name, i + 1, retries, e)
             time.sleep(wait)
     assert last_err is not None
     raise last_err

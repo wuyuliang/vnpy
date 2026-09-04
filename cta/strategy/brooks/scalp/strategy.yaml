@@ -1,0 +1,114 @@
+account:
+  initial_equity: 200000
+  base_risk_pct: 0.0025
+  max_symbol_open_risk_pct: 0.0025
+  max_portfolio_open_risk_pct: 0.0050
+  max_entry_margin_usage_pct: 0.30
+  hard_margin_usage_pct: 0.35
+
+metadata:
+  root: cta/strategy/brooks/scalp/meta
+  require_authoritative_exchange_source: true
+  missing_policy: block_run
+
+coordination:
+  active_bar_stale_tolerance_seconds: 90
+  inactive_symbol_is_stale: false
+
+intervals:
+  regime: minute30
+  setup: minute5
+  execution: minute1
+  warmup_30m: 252
+  warmup_5m: 120
+  entry_valid_1m_bars: 3
+  max_holding_1m_bars: 25
+  no_follow_through_bars: 3
+
+rules:
+  allow_runtime_disable: false
+  required_rule_directions:
+    - [second_entry_continuation, LONG]
+    - [second_entry_continuation, SHORT]
+    - [strong_breakout_follow_through, LONG]
+    - [strong_breakout_follow_through, SHORT]
+    - [failed_breakout_range_fade, LONG]
+    - [failed_breakout_range_fade, SHORT]
+
+trade_plan:
+  planned_net_payoff: 1.10
+  allowed_net_payoff_min: 1.02
+  allowed_net_payoff_max: 1.20
+  trigger_buffer_ticks: 1
+  stop_buffer_ticks: 1
+  minimum_space_r: 1.20
+  pressure_fee_multiplier: 2.0
+  pressure_slippage_multiplier: 3.0
+  same_bar_policy: stop_first
+  allow_scale_in: false
+  allow_partial_exit: false
+  allow_cross_session: false
+
+risk:
+  session_soft_loss_pct: 0.006
+  daily_hard_loss_pct: 0.010
+  max_observed_daily_loss_pct: 0.020
+  profit_lock_activation_pct: 0.010
+  profit_giveback_pct: 0.004
+  symbol_loss_cooldown_after: 2
+  symbol_stop_after: 3
+  portfolio_stop_after: 4
+  cooldown_minutes: 30
+  drawdown_half_pct: 0.03
+  drawdown_stop_pct: 0.05
+  drawdown_kill_pct: 0.08
+  drawdown_stop_sessions: 5
+  no_new_entry_minutes: 15
+  force_flat_minutes: 5
+
+risk_components:
+  missing_input_policy: reject_new_entry
+  liquidity:
+    volume_lookback_5m_bars: 20
+    volume_floor_ratio: 0.30
+    max_spread_ticks: 3
+    min_turnover_ratio: 0.30
+    allow_close_orders: true
+    require_all_indicators: false
+    required_backtest_fields: [volume_ratio, turnover_activity_ratio]
+    required_live_fields: [volume_ratio, turnover_activity_ratio, bid_ask_spread_ticks]
+    bypass_for_symbols: []
+  rollover:
+    freeze_window_days: 7
+    force_close_days: 3
+    post_switch_freeze_days: 1
+  volatility:
+    vol_pctl_columns: [realized_vol_pctl_252_30m]
+    lookback_completed_30m_bars: 252
+    vol_pctl_edges: [30.0, 70.0, 85.0, 95.0]
+    mults: [1.0, 1.0, 0.8, 0.6, 0.4]
+    cap_mult: 1.0
+    floor_mult: 0.4
+  daily_var:
+    budget_bp_by_cluster: {}
+    default_budget_bp: 60.0
+    account_budget_bp: 100.0
+    warning_ratio: 0.60
+    warning_mult: 0.50
+    reset_at_session_open: false
+    require_explicit_marked_equity_pnl: true
+  execution_quality:
+    slippage_ratio_threshold: 3.0
+    reject_rate_threshold: 0.05
+    avg_price_deviation_threshold: 0.005
+    rolling_window_days: 20
+    mults: [0.5, 0.7, 0.3]
+    min_trades_for_assessment: 20
+    warmup_multiplier: 1.0
+
+validation:
+  minimum_group_trades: 100
+  minimum_net_win_rate: 0.80
+  average_daily_return_target: 0.01
+  average_monthly_return_target: 0.20
+  risk_score_minimum: 90

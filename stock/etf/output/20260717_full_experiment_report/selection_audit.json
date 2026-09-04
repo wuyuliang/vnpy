@@ -1,0 +1,26 @@
+{
+  "block_overfit": {
+    "block_overfit_risk": 0.4,
+    "full_sample_sharpe_winner": "clean_atr5_adx10",
+    "quarter_count": 35,
+    "run_count": 5,
+    "status": "diagnostic_only",
+    "winner_positive_quarter_ratio": 0.4,
+    "winner_top_half_quarter_ratio": 0.6
+  },
+  "selection": {
+    "all_numeric_gates_pass": false,
+    "annual_one_way_turnover_at_most_10": true,
+    "concentration_review": "manual_review_required",
+    "cost_at_most_40_percent_of_positive_gross_profit": true,
+    "dominant_positive_excess_year_share": 0.550330272216088,
+    "drawdown_not_worse_than_risk_matched_benchmark": false,
+    "improvement_spans_multiple_years": true,
+    "largest_positive_industry": "semiconductor",
+    "largest_positive_industry_contribution_share": 0.2929445475290967,
+    "largest_winning_trade_share": 0.08546710513144035,
+    "net_return_and_sharpe_above_baseline": false,
+    "positive_excess_years": 3
+  },
+  "trial_count": 5
+}

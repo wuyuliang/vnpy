@@ -1,0 +1,172 @@
+{
+  "run_date_tag": "20260627",
+  "group_by": "cluster",
+  "trade_side_mode": "both",
+  "group_name": "cluster_other",
+  "pool_name": "GRP_CLUSTER_OTHER",
+  "interval": "day",
+  "members": [
+    {
+      "symbol": "FU0",
+      "exchange": "SHFE"
+    },
+    {
+      "symbol": "BU0",
+      "exchange": "SHFE"
+    },
+    {
+      "symbol": "SC0",
+      "exchange": "INE"
+    },
+    {
+      "symbol": "RU0",
+      "exchange": "SHFE"
+    },
+    {
+      "symbol": "BR0",
+      "exchange": "SHFE"
+    },
+    {
+      "symbol": "NR0",
+      "exchange": "INE"
+    },
+    {
+      "symbol": "C0",
+      "exchange": "DCE"
+    },
+    {
+      "symbol": "CS0",
+      "exchange": "DCE"
+    },
+    {
+      "symbol": "A0",
+      "exchange": "DCE"
+    },
+    {
+      "symbol": "B0",
+      "exchange": "DCE"
+    },
+    {
+      "symbol": "RM0",
+      "exchange": "CZCE"
+    },
+    {
+      "symbol": "EB0",
+      "exchange": "DCE"
+    },
+    {
+      "symbol": "FG0",
+      "exchange": "CZCE"
+    },
+    {
+      "symbol": "SA0",
+      "exchange": "CZCE"
+    },
+    {
+      "symbol": "SH0",
+      "exchange": "CZCE"
+    },
+    {
+      "symbol": "UR0",
+      "exchange": "CZCE"
+    },
+    {
+      "symbol": "AO0",
+      "exchange": "SHFE"
+    },
+    {
+      "symbol": "SS0",
+      "exchange": "SHFE"
+    },
+    {
+      "symbol": "SP0",
+      "exchange": "SHFE"
+    },
+    {
+      "symbol": "BC0",
+      "exchange": "INE"
+    },
+    {
+      "symbol": "CJ0",
+      "exchange": "CZCE"
+    },
+    {
+      "symbol": "AP0",
+      "exchange": "CZCE"
+    },
+    {
+      "symbol": "SF0",
+      "exchange": "CZCE"
+    },
+    {
+      "symbol": "SM0",
+      "exchange": "CZCE"
+    },
+    {
+      "symbol": "BZ0",
+      "exchange": "DCE"
+    },
+    {
+      "symbol": "CY0",
+      "exchange": "CZCE"
+    },
+    {
+      "symbol": "RS0",
+      "exchange": "CZCE"
+    },
+    {
+      "symbol": "RR0",
+      "exchange": "DCE"
+    },
+    {
+      "symbol": "OP0",
+      "exchange": "SHFE"
+    },
+    {
+      "symbol": "AD0",
+      "exchange": "SHFE"
+    },
+    {
+      "symbol": "FB0",
+      "exchange": "DCE"
+    },
+    {
+      "symbol": "RI0",
+      "exchange": "CZCE"
+    },
+    {
+      "symbol": "WH0",
+      "exchange": "CZCE"
+    },
+    {
+      "symbol": "EC0",
+      "exchange": "INE"
+    }
+  ],
+  "source_output_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_OTHER_day_both_model_pipeline",
+  "source_paths": {
+    "candidate_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_OTHER_day_both_model_pipeline/20260627_GRP_CLUSTER_OTHER_day_both_candidates.csv",
+    "feature_table_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_OTHER_day_both_model_pipeline/20260627_GRP_CLUSTER_OTHER_day_both_feature_table.csv",
+    "prediction_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_OTHER_day_both_model_pipeline/20260627_GRP_CLUSTER_OTHER_day_both_predictions.csv",
+    "metrics_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_OTHER_day_both_model_pipeline/20260627_GRP_CLUSTER_OTHER_day_both_metrics.csv",
+    "oot_monthly_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_OTHER_day_both_model_pipeline/20260627_GRP_CLUSTER_OTHER_day_both_oot_monthly_returns.csv",
+    "oot_summary_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_OTHER_day_both_model_pipeline/20260627_GRP_CLUSTER_OTHER_day_both_oot_summary.csv",
+    "oot_trades_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_OTHER_day_both_model_pipeline/20260627_GRP_CLUSTER_OTHER_day_both_oot_trade_details.csv",
+    "html_report_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_OTHER_day_both_model_pipeline/report_20260627_113405.html",
+    "top_feature_importance_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_OTHER_day_both_model_pipeline/20260627_GRP_CLUSTER_OTHER_day_both_top10_feature_importance.csv",
+    "report_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_OTHER_day_both_model_pipeline/20260627_GRP_CLUSTER_OTHER_day_both_model_report.md"
+  },
+  "copied_paths": {
+    "candidate_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_other_day/20260627_GRP_CLUSTER_OTHER_day_both_candidates.csv",
+    "feature_table_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_other_day/20260627_GRP_CLUSTER_OTHER_day_both_feature_table.csv",
+    "prediction_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_other_day/20260627_GRP_CLUSTER_OTHER_day_both_predictions.csv",
+    "metrics_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_other_day/20260627_GRP_CLUSTER_OTHER_day_both_metrics.csv",
+    "oot_monthly_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_other_day/20260627_GRP_CLUSTER_OTHER_day_both_oot_monthly_returns.csv",
+    "oot_summary_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_other_day/20260627_GRP_CLUSTER_OTHER_day_both_oot_summary.csv",
+    "oot_trades_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_other_day/20260627_GRP_CLUSTER_OTHER_day_both_oot_trade_details.csv",
+    "html_report_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_other_day/report_20260627_113405.html",
+    "top_feature_importance_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_other_day/20260627_GRP_CLUSTER_OTHER_day_both_top10_feature_importance.csv",
+    "report_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_other_day/20260627_GRP_CLUSTER_OTHER_day_both_model_report.md"
+  },
+  "model_dir_path_file": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_other_day/model_dir_path.txt"
+}

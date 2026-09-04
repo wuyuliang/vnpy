@@ -1,0 +1,12 @@
+{
+  "run_id": "20260801_ma5_ma10_big_bull_exit",
+  "rows": 4917,
+  "symbols": 2863,
+  "trades_csv": "/Users/wuyuliang/code/vnpy/stock/report/exit_research/20260801_ma5_ma10_big_bull_exit_big_bull_exit_trades.csv",
+  "summary_path": "/Users/wuyuliang/code/vnpy/stock/report/exit_research/20260801_ma5_ma10_big_bull_exit_big_bull_exit_summary.json",
+  "analysis_dir": "/Users/wuyuliang/code/vnpy/stock/analysis/20260801_ma5_ma10_big_bull_exit",
+  "rendered_images": 2863,
+  "missing_bars": 0,
+  "avg_return_pct": 0.006383144939006131,
+  "avg_capture_ratio": -1.087314055698236
+}

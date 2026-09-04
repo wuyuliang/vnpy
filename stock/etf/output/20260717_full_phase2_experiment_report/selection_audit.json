@@ -1,0 +1,26 @@
+{
+  "block_overfit": {
+    "block_overfit_risk": 0.5714285714285714,
+    "full_sample_sharpe_winner": "clean_atr5_adx10",
+    "quarter_count": 35,
+    "run_count": 4,
+    "status": "diagnostic_only",
+    "winner_positive_quarter_ratio": 0.4,
+    "winner_top_half_quarter_ratio": 0.42857142857142855
+  },
+  "selection": {
+    "all_numeric_gates_pass": false,
+    "annual_one_way_turnover_at_most_10": false,
+    "concentration_review": "manual_review_required",
+    "cost_at_most_40_percent_of_positive_gross_profit": true,
+    "dominant_positive_excess_year_share": 0.4267609981044946,
+    "drawdown_not_worse_than_risk_matched_benchmark": true,
+    "improvement_spans_multiple_years": true,
+    "largest_positive_industry": "broad_or_other",
+    "largest_positive_industry_contribution_share": 0.40068161774054545,
+    "largest_winning_trade_share": 0.03669167744901155,
+    "net_return_and_sharpe_above_baseline": true,
+    "positive_excess_years": 4
+  },
+  "trial_count": 4
+}

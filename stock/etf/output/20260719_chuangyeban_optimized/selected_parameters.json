@@ -1,0 +1,35 @@
+{
+  "config": {
+    "commission_rate": 0.0003,
+    "confirmation_days": 1,
+    "initial_capital": 1000000.0,
+    "lot_size": 100,
+    "min_commission": 5.0,
+    "risk_increase_cooldown_days": 10,
+    "slippage_rate": 0.0005,
+    "slope_lookback": 3,
+    "slow_period": 20,
+    "symbol": "159915.SZ"
+  },
+  "release": {
+    "checks": {
+      "full_drawdown_within_limit": true,
+      "full_return_improved": true,
+      "full_turnover_within_limit": true,
+      "oos_drawdown_within_limit": true,
+      "oos_return_improved": true,
+      "oos_turnover_within_limit": true
+    },
+    "failed_checks": [],
+    "status": "accepted"
+  },
+  "selection_cutoff": "2024-12-31",
+  "selection_data_end_date": "2024-12-31",
+  "selection_order": [
+    "validation_total_return_desc",
+    "validation_max_drawdown_desc",
+    "validation_annual_one_way_turnover_asc",
+    "slow_confirmation_slope_asc"
+  ],
+  "status": "accepted"
+}

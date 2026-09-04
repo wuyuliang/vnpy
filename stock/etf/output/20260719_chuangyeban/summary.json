@@ -1,0 +1,33 @@
+{
+  "actual_end_date": "2026-07-17",
+  "actual_start_date": "2017-08-14",
+  "annual_return": 0.02123291130455085,
+  "annual_volatility": 0.2069683444300001,
+  "completed_round_trips": 144,
+  "daily_csv": "/Users/wuyuliang/code/vnpy/stock/etf/data/20260717_2018_20260717_point_in_time_live/etfs_lifecycle_clean.csv",
+  "final_equity": 1197825.7348017108,
+  "initial_capital": 1000000.0,
+  "is_open": false,
+  "max_drawdown": -0.3184847770208171,
+  "metadata_csv": "/Users/wuyuliang/code/vnpy/stock/etf/data/20260717_2018_20260717_point_in_time_live/metadata.csv",
+  "output_dir": "/Users/wuyuliang/code/vnpy/stock/etf/output/20260719_chuangyeban",
+  "parameters": {
+    "commission_rate": 0.0003,
+    "ema_fast_period": 5,
+    "ema_slow_period": 10,
+    "entry_rule": "open>previous_ema5 and previous_ema5>previous_ema10",
+    "exit_rule": "open<previous_ema10 or previous_ema5<=previous_ema10",
+    "initial_capital": 1000000.0,
+    "lot_size": 100,
+    "min_commission": 5.0,
+    "slippage_rate": 0.0005
+  },
+  "requested_period": "recent_10_years",
+  "sharpe": 0.20321404500599724,
+  "symbol": "159915.SZ",
+  "total_commission": 87819.54644830499,
+  "total_return": 0.19782573480171073,
+  "total_slippage_cost": 146366.01874998325,
+  "trade_count": 288,
+  "win_rate": 0.2847222222222222
+}

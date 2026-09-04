@@ -1,0 +1,84 @@
+{
+  "requested_interval_status": "BLOCKED_METADATA",
+  "official_performance": null,
+  "primary_curve_for_requested_interval": null,
+  "signal_only_label": "SIGNAL_ONLY_DIAGNOSTIC",
+  "covered_subset_status": "COVERED_SUBPERIOD_DIAGNOSTIC",
+  "assumed_mechanics_appendix": "NON_CAUSAL_SCENARIO",
+  "metadata_gaps": [
+    {
+      "root_symbol": "AG",
+      "field": "normalized_input",
+      "reason_code": "BLOCKED_METADATA",
+      "reason": "BLOCKED_METADATA: contract specs missing root AG"
+    }
+  ],
+  "funnel": {
+    "discovered_symbols": 68,
+    "requested_symbols": 1,
+    "loaded_symbols": 0,
+    "eligible_symbol_days": 0,
+    "cycle_snapshots": 0,
+    "candidates": 0,
+    "eligible_plans": 0,
+    "orders": 0,
+    "fills": 0,
+    "round_trips": 0
+  },
+  "minute_data_update": {
+    "enabled": false
+  },
+  "execution_metadata_update": {
+    "enabled": false,
+    "metadata_root": "/Users/wuyuliang/code/vnpy/cta/strategy/brooks/scalp/meta"
+  },
+  "schema": "brooks_cycle_v1",
+  "strategy_version": "cycle_v1",
+  "config_hash": "0a99f70dd1d8d13b32798b8a0d01d86b9c8ef3578844da8735d989ca1416fd51",
+  "requested_start": "2026-01-01",
+  "requested_end": "2026-02-05",
+  "warmup_start": "2025-08-30",
+  "effective_warmup_starts": {
+    "AG": "2026-01-01"
+  },
+  "timeframes": {
+    "long": "30min",
+    "medium": "5min",
+    "short": "1min"
+  },
+  "requested_symbols": [
+    "AG0.SHFE"
+  ],
+  "loaded_symbols": [],
+  "partition_overlap_rows_removed": {},
+  "ema_filter": "prior completed daily EMA(1) > EMA(3) > EMA(5)",
+  "initial_equity": 200000.0,
+  "execution_gateway": "CYCLE_V1_BAR_BACKTEST",
+  "cost_stress_multiplier": 2.0,
+  "reproduction_command": {
+    "working_directory": "/Users/wuyuliang/code/vnpy",
+    "argv": [
+      "python3",
+      "-m",
+      "cta.strategy.brooks.cycle_v1.backtest.runner",
+      "--symbols",
+      "AG",
+      "--start",
+      "2026-01-01",
+      "--end",
+      "2026-02-05",
+      "--long-tf",
+      "30min",
+      "--medium-tf",
+      "5min",
+      "--short-tf",
+      "1min",
+      "--initial-equity",
+      "200000"
+    ],
+    "shell_command": "cd /Users/wuyuliang/code/vnpy && python3 -m cta.strategy.brooks.cycle_v1.backtest.runner --symbols AG --start 2026-01-01 --end 2026-02-05 --long-tf 30min --medium-tf 5min --short-tf 1min --initial-equity 200000"
+  },
+  "signal_price_series": "PIT_PRE_SETTLEMENT_ADDITIVE_V1",
+  "signal_adjustment_count": 0,
+  "signal_adjustment_versions": {}
+}

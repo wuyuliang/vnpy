@@ -1,0 +1,76 @@
+{
+  "run_date_tag": "20260627",
+  "group_by": "cluster",
+  "trade_side_mode": "both",
+  "group_name": "cluster_chemical",
+  "pool_name": "GRP_CLUSTER_CHEMICAL",
+  "interval": "day",
+  "members": [
+    {
+      "symbol": "MA0",
+      "exchange": "CZCE"
+    },
+    {
+      "symbol": "TA0",
+      "exchange": "CZCE"
+    },
+    {
+      "symbol": "EG0",
+      "exchange": "DCE"
+    },
+    {
+      "symbol": "PP0",
+      "exchange": "DCE"
+    },
+    {
+      "symbol": "L0",
+      "exchange": "DCE"
+    },
+    {
+      "symbol": "V0",
+      "exchange": "DCE"
+    },
+    {
+      "symbol": "LU0",
+      "exchange": "INE"
+    },
+    {
+      "symbol": "LH0",
+      "exchange": "DCE"
+    },
+    {
+      "symbol": "LG0",
+      "exchange": "DCE"
+    },
+    {
+      "symbol": "LR0",
+      "exchange": "CZCE"
+    }
+  ],
+  "source_output_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_CHEMICAL_day_both_model_pipeline",
+  "source_paths": {
+    "candidate_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_CHEMICAL_day_both_model_pipeline/20260627_GRP_CLUSTER_CHEMICAL_day_both_candidates.csv",
+    "feature_table_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_CHEMICAL_day_both_model_pipeline/20260627_GRP_CLUSTER_CHEMICAL_day_both_feature_table.csv",
+    "prediction_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_CHEMICAL_day_both_model_pipeline/20260627_GRP_CLUSTER_CHEMICAL_day_both_predictions.csv",
+    "metrics_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_CHEMICAL_day_both_model_pipeline/20260627_GRP_CLUSTER_CHEMICAL_day_both_metrics.csv",
+    "oot_monthly_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_CHEMICAL_day_both_model_pipeline/20260627_GRP_CLUSTER_CHEMICAL_day_both_oot_monthly_returns.csv",
+    "oot_summary_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_CHEMICAL_day_both_model_pipeline/20260627_GRP_CLUSTER_CHEMICAL_day_both_oot_summary.csv",
+    "oot_trades_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_CHEMICAL_day_both_model_pipeline/20260627_GRP_CLUSTER_CHEMICAL_day_both_oot_trade_details.csv",
+    "html_report_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_CHEMICAL_day_both_model_pipeline/report_20260627_110358.html",
+    "top_feature_importance_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_CHEMICAL_day_both_model_pipeline/20260627_GRP_CLUSTER_CHEMICAL_day_both_top10_feature_importance.csv",
+    "report_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_CHEMICAL_day_both_model_pipeline/20260627_GRP_CLUSTER_CHEMICAL_day_both_model_report.md"
+  },
+  "copied_paths": {
+    "candidate_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_chemical_day/20260627_GRP_CLUSTER_CHEMICAL_day_both_candidates.csv",
+    "feature_table_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_chemical_day/20260627_GRP_CLUSTER_CHEMICAL_day_both_feature_table.csv",
+    "prediction_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_chemical_day/20260627_GRP_CLUSTER_CHEMICAL_day_both_predictions.csv",
+    "metrics_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_chemical_day/20260627_GRP_CLUSTER_CHEMICAL_day_both_metrics.csv",
+    "oot_monthly_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_chemical_day/20260627_GRP_CLUSTER_CHEMICAL_day_both_oot_monthly_returns.csv",
+    "oot_summary_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_chemical_day/20260627_GRP_CLUSTER_CHEMICAL_day_both_oot_summary.csv",
+    "oot_trades_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_chemical_day/20260627_GRP_CLUSTER_CHEMICAL_day_both_oot_trade_details.csv",
+    "html_report_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_chemical_day/report_20260627_110358.html",
+    "top_feature_importance_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_chemical_day/20260627_GRP_CLUSTER_CHEMICAL_day_both_top10_feature_importance.csv",
+    "report_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_chemical_day/20260627_GRP_CLUSTER_CHEMICAL_day_both_model_report.md"
+  },
+  "model_dir_path_file": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_chemical_day/model_dir_path.txt"
+}

@@ -1,0 +1,83 @@
+# Brooks Cycle V1 Report
+
+Official status: BLOCKED_METADATA
+
+## Funnel
+- discovered_symbols: 68
+- requested_symbols: 68
+- loaded_symbols: 2
+- eligible_symbol_days: 72
+- cycle_snapshots: 28560
+- candidates: 0
+- eligible_plans: 0
+- orders: 0
+- fills: 0
+- round_trips: 0
+
+## Metadata Gaps
+- LC normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root LC
+- HC normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root HC
+- I normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root I
+- JM normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root JM
+- J normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root J
+- M normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root M
+- P normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root P
+- Y normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root Y
+- OI normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root OI
+- MA normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root MA
+- TA normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root TA
+- EG normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root EG
+- PP normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root PP
+- L normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root L
+- V normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root V
+- AL normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root AL
+- ZN normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root ZN
+- AU normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root AU
+- AG normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root AG
+- FU normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root FU
+- BU normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root BU
+- SC normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root SC
+- LU normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root LU
+- RU normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root RU
+- BR normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root BR
+- NR normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root NR
+- CF normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root CF
+- SR normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root SR
+- C normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root C
+- CS normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root CS
+- A normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root A
+- B normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root B
+- RM normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root RM
+- PG normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root PG
+- EB normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root EB
+- FG normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root FG
+- SA normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root SA
+- SH normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root SH
+- UR normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root UR
+- PX normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root PX
+- PF normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root PF
+- PK normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root PK
+- AO normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root AO
+- SS normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root SS
+- SP normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root SP
+- BC normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root BC
+- CJ normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root CJ
+- AP normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root AP
+- JD normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root JD
+- LH normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root LH
+- SN normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root SN
+- NI normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root NI
+- PB normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root PB
+- SF normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root SF
+- SM normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root SM
+- BZ normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root BZ
+- PL normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root PL
+- PR normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root PR
+- CY normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root CY
+- RS normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root RS
+- RR normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root RR
+- LG normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root LG
+- OP normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root OP
+- AD normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root AD
+- FB normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root FB
+- EC normalized_input: BLOCKED_METADATA BLOCKED_METADATA: contract specs missing root EC

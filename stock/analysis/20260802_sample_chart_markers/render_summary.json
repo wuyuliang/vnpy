@@ -1,0 +1,10 @@
+{
+  "opportunity_csv": "/Users/wuyuliang/code/vnpy/stock/report/opportunities/20260802_sample_chart_markers_stock_signal_opportunities.csv",
+  "output_dir": "/Users/wuyuliang/code/vnpy/stock/analysis/20260802_sample_chart_markers",
+  "data_root": "/Users/wuyuliang/code/vnpy/stock/data/origin",
+  "input_rows": 13,
+  "symbols": 6,
+  "rendered_images": 6,
+  "missing_bars": 0,
+  "bars_end_date": "2026-08-01"
+}

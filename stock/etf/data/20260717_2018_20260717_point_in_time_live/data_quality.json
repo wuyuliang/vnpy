@@ -1,0 +1,43 @@
+{
+  "benchmark": {
+    "duplicate_symbol_dates": 0,
+    "end": "2026-07-17",
+    "invalid_ohlc_rows": 0,
+    "rows": 2166,
+    "start": "2017-08-14",
+    "symbol": "000300.SH"
+  },
+  "downloaded_through": "2026-07-17",
+  "etfs_lifecycle_clean": {
+    "duplicate_symbol_dates": 0,
+    "file": "etfs_lifecycle_clean.csv",
+    "invalid_ohlc_rows": 0,
+    "post_delist_rows": 0,
+    "removed_pre_list_rows": 552,
+    "rows": 1047360,
+    "symbols": 1302
+  },
+  "etfs_raw": {
+    "duplicate_symbol_dates": 0,
+    "end": "2026-07-17",
+    "file": "etfs.csv",
+    "invalid_ohlc_rows": 0,
+    "pre_list_rows": 552,
+    "rows": 1047912,
+    "start": "2017-08-14",
+    "symbols": 1302
+  },
+  "metadata": {
+    "delisted_status": 93,
+    "listed": 1221,
+    "rows": 1314,
+    "symbols": 1314,
+    "with_delist_date": 92
+  },
+  "notes": [
+    "The two symbols with pre-list history are conservatively clipped before indicator calculation.",
+    "No prices are fabricated for missing dates.",
+    "Historical delisted metadata is retained and filtered point-in-time."
+  ],
+  "source": "Tushare"
+}

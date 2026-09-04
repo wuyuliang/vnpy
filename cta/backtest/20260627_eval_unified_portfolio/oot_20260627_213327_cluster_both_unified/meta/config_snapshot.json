@@ -1,0 +1,7 @@
+{
+  "generated_at": "2026-06-27T21:33:28.939980+08:00",
+  "run_tag": "cluster_both_unified",
+  "initial_capital": 10000000.0,
+  "risk_free_annual_return": 0.02,
+  "benchmark_annual_return": 0.02
+}

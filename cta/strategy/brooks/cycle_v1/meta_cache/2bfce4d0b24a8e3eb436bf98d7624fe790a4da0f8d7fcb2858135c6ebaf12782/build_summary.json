@@ -1,0 +1,10 @@
+{
+  "cache_key": "2bfce4d0b24a8e3eb436bf98d7624fe790a4da0f8d7fcb2858135c6ebaf12782",
+  "contract_date_pairs": 24,
+  "generated_contract_rows": 1,
+  "generated_daily_rows": 24,
+  "generated_fee_rows": 24,
+  "manifest_sha256": "e1e698ef5573efedc4db133053062f1afa6931e9e33d8a3648b822e76ba0b50f",
+  "source_audit_sha256": "f99cdb6d9f31631f555d8d60a932f5563ed885a3f90fd9b65d0709331117b65e",
+  "source_queries": 99
+}

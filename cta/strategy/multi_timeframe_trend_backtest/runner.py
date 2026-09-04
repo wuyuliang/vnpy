@@ -46,6 +46,7 @@ from cta.strategy.brooks.cycle_v1.instruments.sessions import (
     SessionSpec,
     aggregate_completed_bars,
     aggregate_completed_daily_bars,
+    build_aggregation_assignments,
 )
 from cta.strategy.brooks.cycle_v1.legacy_adapters.scalp import (
     load_normalized_symbol,
@@ -144,6 +145,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
     parser.add_argument("--run-id", default="")
+    parser.add_argument(
+        "--chart-outcomes",
+        choices=("traded", "all", "none"),
+        default="traded",
+        help=(
+            "Which opportunities get a PNG card. 'traded' (default) renders only "
+            "filled opportunities; 'all' restores the old behaviour and is slow "
+            "(~15k cards on a 40-symbol run); 'none' skips rendering. index.csv "
+            "always lists every candidate regardless."
+        ),
+    )
     parser.add_argument(
         "--metadata-warmup-days",
         type=int,
@@ -292,6 +304,8 @@ def build_reproduction_command(args: argparse.Namespace) -> dict[str, object]:
         )
     if not bool(getattr(args, "auto_metadata", True)):
         argv.append("--no-auto-metadata")
+    if str(getattr(args, "chart_outcomes", "traded")) != "traded":
+        argv.extend(["--chart-outcomes", str(args.chart_outcomes)])
     if float(getattr(args, "include_top_turnover", 0.0) or 0.0) > 0:
         argv.extend(
             ["--include-top-turnover", _format_cli_value(args.include_top_turnover)]
@@ -448,14 +462,14 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
 
     candidates = _empty_candidates()
     daily_actual = _empty_bars()
-    hourly_actual = _empty_bars()
     five_actual = _empty_bars()
+    chart_minute_bars: dict[str, pd.DataFrame] = {}
+    chart_sessions: dict[str, tuple[SessionSpec, ...]] = {}
     portfolio_inputs: list[PortfolioReplayInput] = []
     artifacts = _empty_replay(candidates)
     if loaded_items and execution_store is not None:
         candidate_frames: list[pd.DataFrame] = []
         daily_frames: list[pd.DataFrame] = []
-        hourly_frames: list[pd.DataFrame] = []
         five_frames: list[pd.DataFrame] = []
         for loaded in loaded_items:
             (
@@ -476,18 +490,9 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
             )
             candidate_frames.append(symbol_candidates)
             daily_frames.append(symbol_daily.assign(symbol=loaded.root_symbol))
-            hourly_frames.append(
-                _sort_aggregated_bars(
-                    cached_aggregate_completed_bars(
-                        aggregation_cache,
-                        symbol_minute,
-                        minutes=60,
-                        sessions=loaded.sessions,
-                        compute=aggregate_completed_bars,
-                    )
-                ).assign(symbol=loaded.root_symbol)
-            )
             five_frames.append(symbol_five.assign(symbol=loaded.root_symbol))
+            chart_minute_bars[loaded.root_symbol] = symbol_minute
+            chart_sessions[loaded.root_symbol] = loaded.sessions
             portfolio_inputs.append(
                 PortfolioReplayInput(
                     root_symbol=loaded.root_symbol,
@@ -502,7 +507,6 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
             )
         candidates = pd.concat(candidate_frames, ignore_index=True)
         daily_actual = pd.concat(daily_frames, ignore_index=True)
-        hourly_actual = pd.concat(hourly_frames, ignore_index=True)
         five_actual = pd.concat(five_frames, ignore_index=True)
         artifacts = _empty_replay(candidates)
         if not gap_rows:
@@ -644,12 +648,25 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
         output,
         candidates=candidates,
         daily_bars=daily_actual,
-        hourly_bars=hourly_actual,
         five_minute_bars=five_actual,
         trades=artifacts.trades,
         orders=artifacts.orders,
         rejections=artifacts.rejections,
+        render_outcomes=str(args.chart_outcomes),
+        minute_bars_by_symbol=chart_minute_bars,
+        sessions_by_symbol=chart_sessions,
+        aggregation_cache=aggregation_cache,
     )
+    summary["aggregation_cache"] = aggregation_cache.stats
+    summary_path = output / "summary.json"
+    if summary_path.is_file():
+        summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
+        summary_payload["aggregation_cache"] = aggregation_cache.stats
+        summary_path.write_text(
+            json.dumps(summary_payload, ensure_ascii=False, indent=2, default=str)
+            + "\n",
+            encoding="utf-8",
+        )
     return summary, output
 
 
@@ -658,6 +675,7 @@ def _aggregate_trading_day_daily_bars(
     *,
     sessions: tuple[SessionSpec, ...],
     aggregation_cache: AggregationCache | None = None,
+    assignments: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Build one completed daily bar per exchange trading day."""
     if aggregation_cache is not None:
@@ -665,9 +683,17 @@ def _aggregate_trading_day_daily_bars(
             aggregation_cache,
             minute_bars,
             sessions=sessions,
-            compute=aggregate_completed_daily_bars,
+            compute=lambda frame, *, sessions: aggregate_completed_daily_bars(
+                frame,
+                sessions=sessions,
+                assignments=assignments,
+            ),
         )
-    return aggregate_completed_daily_bars(minute_bars, sessions=sessions)
+    return aggregate_completed_daily_bars(
+        minute_bars,
+        sessions=sessions,
+        assignments=assignments,
+    )
 
 
 def _prepare_strategy_data(
@@ -694,49 +720,86 @@ def _prepare_strategy_data(
         if signal_column not in signal_minute:
             raise ValueError(f"normalized signal data is missing {signal_column}")
         signal_minute[column] = signal_minute[signal_column]
+    assignments: dict[int, pd.DataFrame] = {}
+
+    def assignments_for(minutes: int) -> pd.DataFrame:
+        if minutes not in assignments:
+            assignments[minutes] = build_aggregation_assignments(
+                minute,
+                minutes=minutes,
+                sessions=loaded.sessions,
+            )
+        return assignments[minutes]
+
+    def aggregate_five(
+        frame: pd.DataFrame,
+        *,
+        minutes: int,
+        sessions: tuple[SessionSpec, ...],
+    ) -> pd.DataFrame:
+        return aggregate_completed_bars(
+            frame,
+            minutes=minutes,
+            sessions=sessions,
+            assignments=assignments_for(minutes),
+        )
+
+    def aggregate_daily(
+        frame: pd.DataFrame,
+        *,
+        sessions: tuple[SessionSpec, ...],
+    ) -> pd.DataFrame:
+        return _aggregate_trading_day_daily_bars(
+            frame,
+            sessions=sessions,
+            assignments=assignments_for(1),
+        )
+
     if aggregation_cache is None:
-        daily_signal_raw = _aggregate_trading_day_daily_bars(
+        daily_signal_raw = aggregate_daily(
             signal_minute,
             sessions=loaded.sessions,
         )
-        five_signal_raw = aggregate_completed_bars(
+        five_signal_raw = aggregate_five(
             signal_minute,
             minutes=5,
             sessions=loaded.sessions,
         )
-        daily_actual_raw = _aggregate_trading_day_daily_bars(
+        daily_actual_raw = aggregate_daily(
             minute,
             sessions=loaded.sessions,
         )
-        five_actual_raw = aggregate_completed_bars(
+        five_actual_raw = aggregate_five(
             minute,
             minutes=5,
             sessions=loaded.sessions,
         )
     else:
-        daily_signal_raw = _aggregate_trading_day_daily_bars(
+        daily_signal_raw = cached_aggregate_completed_daily_bars(
+            aggregation_cache,
             signal_minute,
             sessions=loaded.sessions,
-            aggregation_cache=aggregation_cache,
+            compute=aggregate_daily,
         )
         five_signal_raw = cached_aggregate_completed_bars(
             aggregation_cache,
             signal_minute,
             minutes=5,
             sessions=loaded.sessions,
-            compute=aggregate_completed_bars,
+            compute=aggregate_five,
         )
-        daily_actual_raw = _aggregate_trading_day_daily_bars(
+        daily_actual_raw = cached_aggregate_completed_daily_bars(
+            aggregation_cache,
             minute,
             sessions=loaded.sessions,
-            aggregation_cache=aggregation_cache,
+            compute=aggregate_daily,
         )
         five_actual_raw = cached_aggregate_completed_bars(
             aggregation_cache,
             minute,
             minutes=5,
             sessions=loaded.sessions,
-            compute=aggregate_completed_bars,
+            compute=aggregate_five,
         )
     daily_signal = _sort_aggregated_bars(daily_signal_raw)
     five_signal = _sort_aggregated_bars(five_signal_raw)

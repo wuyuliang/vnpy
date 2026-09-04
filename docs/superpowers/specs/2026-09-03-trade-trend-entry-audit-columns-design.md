@@ -37,9 +37,9 @@ trigger_to_prior_5d_high_ratio = 100 * (trigger / prior_5d_high - 1)
 
 采用成交时冻结方案：
 
-1. 候选通过过滤并真实匹配开仓时，事件回放先检查该品种的 `filled_bull_trend_ids`。
+1. 候选通过过滤并真实匹配开仓时，事件回放检查仅供成交审计使用的 `traded_bull_trend_ids`；该集合与原突破缓冲过滤使用的 `filled_bull_trend_ids` 相互独立。
 2. 候选方向为多头且其 `daily_bull_trend_id` 尚未出现真实开仓 fill 时，首笔标记为 `1`；否则为 `0`。
-3. 只有 `_open_position` 成功后，才把当前趋势段加入 `filled_bull_trend_ids`。
+3. 只有 `_open_position` 成功后，才把当前趋势段加入 `traded_bull_trend_ids`；原 `filled_bull_trend_ids` 的更新条件保持不变。
 4. `_open_position` 根据候选的实际合约 `trigger` 和 `prior_5d_high` 计算突破百分比，并把两个审计值冻结到 `_Position`。
 5. `_close_position` 在最终逻辑交易汇总时把冻结值写入 trade 行。
 

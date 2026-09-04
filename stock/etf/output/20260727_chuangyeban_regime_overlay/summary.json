@@ -1,0 +1,139 @@
+{
+  "anti_lookahead_audit": {
+    "causal_dates_valid": true,
+    "position_ceilings_valid": true,
+    "prediction_alignment": "previous actual symbol bar to next open"
+  },
+  "backtest": {
+    "end_date": "2026-07-20",
+    "forced_final_liquidation": false,
+    "initial_state": "flat",
+    "start_date": "2017-08-14"
+  },
+  "config": {
+    "commission_rate": 0.0003,
+    "confirmation_days": 1,
+    "initial_capital": 1000000.0,
+    "lot_size": 100,
+    "min_commission": 5.0,
+    "risk_increase_cooldown_days": 10,
+    "slippage_rate": 0.0005,
+    "slope_lookback": 3,
+    "slow_period": 20,
+    "symbol": "159915.SZ"
+  },
+  "data": {
+    "bar_count": 2559,
+    "execution_bar_count": 2166,
+    "first_bar_date": "2016-01-04",
+    "last_bar_date": "2026-07-20",
+    "prewarm_bar_count": 393,
+    "price_adjustment_mode": "point_in_time_adjusted"
+  },
+  "output_files": [
+    "signals.csv",
+    "trades.csv",
+    "positions.csv",
+    "equity_curve.csv",
+    "comparison.csv",
+    "annual_metrics.csv",
+    "semiannual_metrics.csv",
+    "summary.json",
+    "source_audit.json",
+    "charts/0001_159915_SZ_易方达创业板ETF_状态覆盖.png",
+    "charts/0002_159915_SZ_易方达创业板ETF_EMA基线.png",
+    "charts/index.csv",
+    "charts/render_summary.json"
+  ],
+  "overlay_diagnostics": {
+    "cooldown_blocked_days": 24,
+    "ema_reduction_days": 55,
+    "regime_reduction_days": 14,
+    "score_1d_reduction_days": 0,
+    "target_distribution": {
+      "0": {
+        "days": 1499,
+        "fraction": 0.6920590951061866
+      },
+      "0.5": {
+        "days": 571,
+        "fraction": 0.26361957525392427
+      },
+      "1": {
+        "days": 96,
+        "fraction": 0.0443213296398892
+      }
+    }
+  },
+  "performance": {
+    "buy_hold": {
+      "annual_one_way_turnover": 0.0,
+      "annual_return": 0.08666330504366271,
+      "annual_volatility": 0.30000838617062636,
+      "end_date": "2026-07-20",
+      "final_equity": 2042890.7168037603,
+      "initial_equity": 1000000.0,
+      "max_drawdown": -0.5658465991316932,
+      "max_drawdown_end": "2024-08-27",
+      "max_drawdown_start": "2021-07-21",
+      "sharpe": 0.426020355706705,
+      "start_date": "2017-08-14",
+      "total_commission": 0.0,
+      "total_return": 1.0428907168037602,
+      "total_slippage_cost": 0.0,
+      "trade_count": 0,
+      "trading_days": 2166
+    },
+    "ema_only": {
+      "annual_one_way_turnover": 4.389887215755742,
+      "annual_return": 0.04821190594099578,
+      "annual_volatility": 0.13230860422344062,
+      "end_date": "2026-07-20",
+      "final_equity": 1498872.813288229,
+      "initial_equity": 1000000.0,
+      "max_drawdown": -0.19192959612338456,
+      "max_drawdown_end": "2025-07-07",
+      "max_drawdown_start": "2024-10-08",
+      "sharpe": 0.42188453148227134,
+      "start_date": "2017-08-14",
+      "total_commission": 26343.204161774996,
+      "total_return": 0.49887281328822897,
+      "total_slippage_cost": 43905.48254999524,
+      "trade_count": 146,
+      "trading_days": 2166
+    },
+    "regime_overlay": {
+      "annual_one_way_turnover": 3.7086889406549894,
+      "annual_return": 0.051388798703021266,
+      "annual_volatility": 0.12427144714036799,
+      "end_date": "2026-07-20",
+      "final_equity": 1538371.1936267351,
+      "initial_capital": 1000000.0,
+      "initial_equity": 1000000.0,
+      "is_open": false,
+      "max_drawdown": -0.1707969077955308,
+      "max_drawdown_end": "2024-02-28",
+      "max_drawdown_start": "2020-07-13",
+      "sharpe": 0.4651919313261573,
+      "start_date": "2017-08-14",
+      "symbol": "159915.SZ",
+      "target_weight": 0.0,
+      "total_commission": 22577.571273269998,
+      "total_return": 0.538371193626735,
+      "total_slippage_cost": 37629.43509999593,
+      "trade_count": 125,
+      "trading_days": 2166
+    }
+  },
+  "risk_checks": {
+    "annual_one_way_turnover_within_8x": true,
+    "max_drawdown_within_35_percent": true
+  },
+  "schema_version": 1,
+  "semiannual": {
+    "first_period": "2017-H2",
+    "last_period": "2026-H2",
+    "period_count": 19
+  },
+  "symbol": "159915.SZ"
+}

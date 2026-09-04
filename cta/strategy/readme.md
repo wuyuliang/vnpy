@@ -26,6 +26,7 @@
 | [skill_tight_range_backtest.py](skill_tight_range_backtest.py) | 上面策略的回测 entrypoint | — |
 | [price_action_breakout_engine.py](price_action_breakout_engine.py) + `_rules.py` / `_indicators.py` / `_report.py` | Brooks 价格行为突破四件套 | [breakout.md](breakout.md) |
 | [backtest_price_action_breakout.py](backtest_price_action_breakout.py) | 上面策略的回测 entrypoint | — |
+| [multi_timeframe_trend_strategy.py](multi_timeframe_trend_strategy.py) + [multi_timeframe_trend_rules.py](multi_timeframe_trend_rules.py) + [multi_timeframe_trend_management.py](multi_timeframe_trend_management.py) | 日线 EMA 定方向、5 分钟趋势延续/回调突破的双向候选与持仓管理 | [multi_timeframe_trend_strategy.md](docs/multi_timeframe_trend_strategy.md) |
 | [cta_baseline.py](cta_baseline.py) / [cta_tight_range.py](cta_tight_range.py) / [cta_adapter.py](cta_adapter.py) | 接入 vnpy CtaTemplate | — |
 | [demos.py](demos.py) | 教学 demo | — |
 

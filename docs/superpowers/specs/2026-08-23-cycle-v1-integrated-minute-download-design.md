@@ -57,15 +57,15 @@ python3 -m cta.strategy.brooks.cycle_v1.backtest.runner \
 
 runner 在解析日期、周期和基础参数后执行：
 
-1. 校验下载参数组合及冻结日期区间；
+1. 校验下载参数组合及 `end >= start`；
 2. 调用 `market_data_update` 的结构化 Python 入口，不启动子进程、不解析另一个 CLI 的文本输出；
 3. 获得 `selection`、`selection_rejections`、逐品种下载统计、文件 SHA256 和 `download_errors`；
 4. 重新扫描 `data-root`，按下载选择结果逐根解析本地分钟目录；
-5. 若任一 selected 根品种仍不可发现，回测前明确失败，不将品种池缩成可用子集；
+5. 若任一显式根品种被选择阶段拒绝，或任一 selected 根品种仍不可发现，回测前明确失败，不将品种池缩成可用子集；
 6. 全部 selected 根品种可发现后，按并集稳定顺序加载、扫描和回放；
 7. 将下载审计嵌入最终回测 `summary.json`，可选地另写 `--download-audit-output`。
 
-下载允许单品种或单日错误继续批次，以便收集完整审计；是否进入回测最终由“所有 selected 根品种均可发现”决定。分钟分区缺口、空响应和后续数据质量问题继续由现有 loader、metadata coverage 和 fail-closed 回测规则处理，不伪造行情。
+下载严格使用 CLI 请求的 `start..end`，不包含策略预热区间。预热只读取本地已有历史。下载允许单品种或单日错误继续批次，以便收集完整审计；是否进入回测最终由“所有 selected 根品种均可发现”决定。分钟分区缺口、空响应和后续数据质量问题继续由现有 loader、metadata coverage 和 fail-closed 回测规则处理，不伪造行情。
 
 ## 代码边界
 
@@ -103,10 +103,10 @@ minute_data_update.download_errors
 3. 下载模式将 `--symbols all` 视为空显式池，且没有 Top-N/EMA 来源时明确拒绝；
 4. 显式、Top-N、EMA 并集被原样传入下载并成为回测请求池；
 5. 下载后重新发现目录，缺任一 selected 根品种时回测不启动；
-6. 已有文件跳过且不覆盖，下载审计进入最终 summary；
+6. 普通已有文件跳过且不覆盖，历史 CU generic schema 受控迁移记为 `converted_schema`，下载审计进入最终 summary；
 7. 独立 `market_data_update` CLI 继续工作并与结构化入口结果一致；
 8. API 或单品种失败仍有审计，未静默缩小回测池；
 9. 未开启下载的 runner 回归测试和既有 Brooks fail-closed 状态保持不变；
 10. 聚焦 pytest、Ruff、compileall 和 CLI `--help` 通过。
 
-不在本次范围内：扩大 `2026-01-01..2026-07-27` 下载窗口、自动补全交易机制元数据、覆盖已有 parquet、修改信号/风控/撮合规则或自动重试整个回测。
+不在本次范围内：自动下载 `start` 之前的预热行情、自动补全交易机制元数据、覆盖已有 parquet、修改信号/风控/撮合规则或自动重试整个回测。

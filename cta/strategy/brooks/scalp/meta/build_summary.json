@@ -1,0 +1,11 @@
+{
+  "contracts": 130,
+  "daily_rows": 4274,
+  "end": "2026-07-27",
+  "fee_rows": 4274,
+  "manifest_sha256": "a43ba29be0f8d7b781311e94c2b227cb1f65462ead252ede81f9a45c95746dfc",
+  "source_files": 4178,
+  "start": "2018-01-03",
+  "status": "READY",
+  "trade_dates": 2076
+}

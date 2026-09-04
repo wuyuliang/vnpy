@@ -1,0 +1,44 @@
+{
+  "run_date_tag": "20260627",
+  "group_by": "cluster",
+  "trade_side_mode": "both",
+  "group_name": "cluster_precious",
+  "pool_name": "GRP_CLUSTER_PRECIOUS",
+  "interval": "60min",
+  "members": [
+    {
+      "symbol": "AU0",
+      "exchange": "SHFE"
+    },
+    {
+      "symbol": "AG0",
+      "exchange": "SHFE"
+    }
+  ],
+  "source_output_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_model_pipeline",
+  "source_paths": {
+    "candidate_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_model_pipeline/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_candidates.csv",
+    "feature_table_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_model_pipeline/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_feature_table.csv",
+    "prediction_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_model_pipeline/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_predictions.csv",
+    "metrics_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_model_pipeline/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_metrics.csv",
+    "oot_monthly_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_model_pipeline/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_oot_monthly_returns.csv",
+    "oot_summary_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_model_pipeline/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_oot_summary.csv",
+    "oot_trades_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_model_pipeline/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_oot_trade_details.csv",
+    "html_report_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_model_pipeline/report_20260627_133537.html",
+    "top_feature_importance_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_model_pipeline/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_top10_feature_importance.csv",
+    "report_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_model_pipeline/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_model_report.md"
+  },
+  "copied_paths": {
+    "candidate_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_precious_60min/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_candidates.csv",
+    "feature_table_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_precious_60min/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_feature_table.csv",
+    "prediction_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_precious_60min/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_predictions.csv",
+    "metrics_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_precious_60min/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_metrics.csv",
+    "oot_monthly_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_precious_60min/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_oot_monthly_returns.csv",
+    "oot_summary_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_precious_60min/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_oot_summary.csv",
+    "oot_trades_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_precious_60min/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_oot_trade_details.csv",
+    "html_report_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_precious_60min/report_20260627_133537.html",
+    "top_feature_importance_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_precious_60min/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_top10_feature_importance.csv",
+    "report_path": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_precious_60min/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_model_report.md"
+  },
+  "model_dir_path_file": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GROUP_POOL_CLUSTER_both_portfolio_logic_runtime/symbol_group_details/grp_cluster_precious_60min/model_dir_path.txt"
+}

@@ -1,0 +1,3514 @@
+{
+  "index_csv": "cta/analysis/20260628_bigger_01_allowlist_trade_charts/index.csv",
+  "trade_csv": "cta/backtest/20260627_ab_bigger_01_allowlist/oot_20260628_164308_bigger_01_allowlist/raw/all_trade_details.csv",
+  "charts_root": "cta/analysis/20260628_bigger_01_allowlist_trade_charts",
+  "output_dir": "cta/analysis/20260713",
+  "input_index_rows": 16238,
+  "orderable_rows": 16238,
+  "linked_images": 16238,
+  "existing_images": 0,
+  "trade_day_counts": {
+    "20240102": 18,
+    "20240103": 9,
+    "20240104": 8,
+    "20240105": 11,
+    "20240108": 38,
+    "20240109": 42,
+    "20240110": 23,
+    "20240111": 20,
+    "20240112": 17,
+    "20240115": 10,
+    "20240116": 38,
+    "20240117": 25,
+    "20240118": 30,
+    "20240119": 35,
+    "20240122": 43,
+    "20240123": 46,
+    "20240124": 31,
+    "20240125": 27,
+    "20240126": 23,
+    "20240129": 19,
+    "20240130": 47,
+    "20240131": 13,
+    "20240201": 21,
+    "20240202": 22,
+    "20240205": 16,
+    "20240206": 39,
+    "20240207": 17,
+    "20240208": 30,
+    "20240219": 18,
+    "20240220": 58,
+    "20240221": 25,
+    "20240222": 33,
+    "20240223": 21,
+    "20240226": 15,
+    "20240227": 41,
+    "20240228": 22,
+    "20240229": 29,
+    "20240301": 38,
+    "20240304": 23,
+    "20240305": 55,
+    "20240306": 34,
+    "20240307": 29,
+    "20240308": 41,
+    "20240311": 21,
+    "20240312": 71,
+    "20240313": 26,
+    "20240314": 49,
+    "20240315": 26,
+    "20240318": 35,
+    "20240319": 50,
+    "20240320": 20,
+    "20240321": 23,
+    "20240322": 11,
+    "20240325": 10,
+    "20240326": 47,
+    "20240327": 12,
+    "20240328": 43,
+    "20240329": 36,
+    "20240401": 30,
+    "20240402": 45,
+    "20240403": 29,
+    "20240408": 29,
+    "20240409": 49,
+    "20240410": 18,
+    "20240411": 25,
+    "20240412": 48,
+    "20240415": 7,
+    "20240416": 40,
+    "20240417": 13,
+    "20240418": 20,
+    "20240419": 23,
+    "20240422": 12,
+    "20240423": 48,
+    "20240424": 8,
+    "20240425": 16,
+    "20240426": 16,
+    "20240429": 32,
+    "20240430": 66,
+    "20240506": 28,
+    "20240507": 71,
+    "20240508": 17,
+    "20240509": 10,
+    "20240510": 20,
+    "20240513": 15,
+    "20240514": 47,
+    "20240515": 18,
+    "20240516": 35,
+    "20240517": 37,
+    "20240520": 47,
+    "20240521": 45,
+    "20240522": 13,
+    "20240523": 16,
+    "20240524": 15,
+    "20240527": 13,
+    "20240528": 58,
+    "20240529": 23,
+    "20240530": 20,
+    "20240531": 19,
+    "20240603": 23,
+    "20240604": 38,
+    "20240605": 20,
+    "20240606": 23,
+    "20240607": 15,
+    "20240611": 13,
+    "20240612": 13,
+    "20240613": 8,
+    "20240614": 12,
+    "20240617": 12,
+    "20240618": 44,
+    "20240619": 25,
+    "20240620": 32,
+    "20240621": 33,
+    "20240624": 16,
+    "20240625": 45,
+    "20240626": 22,
+    "20240627": 8,
+    "20240628": 14,
+    "20240701": 20,
+    "20240702": 43,
+    "20240703": 25,
+    "20240704": 16,
+    "20240705": 10,
+    "20240708": 18,
+    "20240709": 49,
+    "20240710": 19,
+    "20240711": 10,
+    "20240712": 25,
+    "20240715": 10,
+    "20240716": 59,
+    "20240717": 38,
+    "20240718": 22,
+    "20240719": 14,
+    "20240722": 14,
+    "20240723": 50,
+    "20240724": 22,
+    "20240725": 22,
+    "20240726": 9,
+    "20240729": 3,
+    "20240730": 41,
+    "20240731": 12,
+    "20240801": 28,
+    "20240802": 12,
+    "20240805": 10,
+    "20240806": 55,
+    "20240807": 17,
+    "20240808": 24,
+    "20240809": 20,
+    "20240812": 36,
+    "20240813": 52,
+    "20240814": 19,
+    "20240815": 14,
+    "20240816": 33,
+    "20240819": 16,
+    "20240820": 63,
+    "20240821": 9,
+    "20240822": 21,
+    "20240823": 31,
+    "20240826": 32,
+    "20240827": 71,
+    "20240828": 15,
+    "20240829": 17,
+    "20240830": 22,
+    "20240902": 24,
+    "20240903": 54,
+    "20240904": 14,
+    "20240905": 17,
+    "20240906": 19,
+    "20240909": 29,
+    "20240910": 48,
+    "20240911": 12,
+    "20240912": 17,
+    "20240913": 38,
+    "20240918": 37,
+    "20240919": 22,
+    "20240920": 39,
+    "20240923": 33,
+    "20240924": 50,
+    "20240925": 39,
+    "20240926": 41,
+    "20240927": 45,
+    "20240930": 38,
+    "20241008": 62,
+    "20241009": 20,
+    "20241010": 9,
+    "20241011": 16,
+    "20241014": 18,
+    "20241015": 36,
+    "20241016": 27,
+    "20241017": 28,
+    "20241018": 13,
+    "20241021": 20,
+    "20241022": 33,
+    "20241023": 29,
+    "20241024": 13,
+    "20241025": 12,
+    "20241028": 5,
+    "20241029": 54,
+    "20241030": 19,
+    "20241031": 18,
+    "20241101": 15,
+    "20241104": 13,
+    "20241105": 61,
+    "20241106": 25,
+    "20241107": 32,
+    "20241108": 40,
+    "20241111": 22,
+    "20241112": 44,
+    "20241113": 26,
+    "20241114": 15,
+    "20241115": 23,
+    "20241118": 18,
+    "20241119": 57,
+    "20241120": 19,
+    "20241121": 31,
+    "20241122": 30,
+    "20241125": 15,
+    "20241126": 40,
+    "20241127": 24,
+    "20241128": 31,
+    "20241129": 30,
+    "20241202": 21,
+    "20241203": 55,
+    "20241204": 19,
+    "20241205": 27,
+    "20241206": 22,
+    "20241209": 9,
+    "20241210": 39,
+    "20241211": 30,
+    "20241212": 25,
+    "20241213": 14,
+    "20241216": 16,
+    "20241217": 53,
+    "20241218": 20,
+    "20241219": 22,
+    "20241220": 12,
+    "20241223": 9,
+    "20241224": 35,
+    "20241225": 22,
+    "20241226": 17,
+    "20241227": 26,
+    "20241230": 6,
+    "20241231": 55,
+    "20250102": 34,
+    "20250103": 21,
+    "20250106": 27,
+    "20250107": 41,
+    "20250108": 29,
+    "20250109": 18,
+    "20250110": 36,
+    "20250113": 38,
+    "20250114": 64,
+    "20250115": 26,
+    "20250116": 28,
+    "20250117": 25,
+    "20250120": 14,
+    "20250121": 49,
+    "20250122": 16,
+    "20250123": 26,
+    "20250124": 10,
+    "20250127": 13,
+    "20250205": 63,
+    "20250206": 36,
+    "20250207": 67,
+    "20250210": 43,
+    "20250211": 48,
+    "20250212": 21,
+    "20250213": 22,
+    "20250214": 29,
+    "20250217": 9,
+    "20250218": 44,
+    "20250219": 8,
+    "20250220": 25,
+    "20250221": 40,
+    "20250224": 11,
+    "20250225": 44,
+    "20250226": 9,
+    "20250227": 16,
+    "20250228": 16,
+    "20250303": 10,
+    "20250304": 52,
+    "20250305": 19,
+    "20250306": 18,
+    "20250307": 25,
+    "20250310": 8,
+    "20250311": 44,
+    "20250312": 23,
+    "20250313": 22,
+    "20250314": 49,
+    "20250317": 10,
+    "20250318": 55,
+    "20250319": 20,
+    "20250320": 10,
+    "20250321": 17,
+    "20250324": 19,
+    "20250325": 48,
+    "20250326": 23,
+    "20250327": 21,
+    "20250328": 28,
+    "20250331": 21,
+    "20250401": 49,
+    "20250402": 24,
+    "20250403": 15,
+    "20250407": 4,
+    "20250408": 55,
+    "20250409": 31,
+    "20250410": 10,
+    "20250411": 11,
+    "20250414": 11,
+    "20250415": 47,
+    "20250416": 33,
+    "20250417": 10,
+    "20250418": 15,
+    "20250421": 12,
+    "20250422": 50,
+    "20250423": 20,
+    "20250424": 11,
+    "20250425": 14,
+    "20250428": 16,
+    "20250429": 39,
+    "20250430": 19,
+    "20250506": 21,
+    "20250507": 24,
+    "20250508": 14,
+    "20250509": 7,
+    "20250512": 34,
+    "20250513": 64,
+    "20250514": 48,
+    "20250515": 14,
+    "20250516": 1,
+    "20250519": 11,
+    "20250520": 52,
+    "20250521": 17,
+    "20250522": 21,
+    "20250523": 11,
+    "20250526": 1,
+    "20250527": 45,
+    "20250528": 10,
+    "20250529": 19,
+    "20250530": 9,
+    "20250603": 8,
+    "20250604": 17,
+    "20250605": 27,
+    "20250606": 21,
+    "20250609": 26,
+    "20250610": 48,
+    "20250611": 8,
+    "20250612": 16,
+    "20250613": 29,
+    "20250616": 10,
+    "20250617": 51,
+    "20250618": 44,
+    "20250619": 38,
+    "20250620": 24,
+    "20250623": 15,
+    "20250624": 42,
+    "20250625": 30,
+    "20250626": 31,
+    "20250627": 34,
+    "20250630": 14,
+    "20250701": 44,
+    "20250702": 15,
+    "20250703": 19,
+    "20250704": 14,
+    "20250707": 10,
+    "20250708": 48,
+    "20250709": 19,
+    "20250710": 24,
+    "20250711": 18,
+    "20250714": 24,
+    "20250715": 41,
+    "20250716": 27,
+    "20250717": 30,
+    "20250718": 43,
+    "20250721": 38,
+    "20250722": 72,
+    "20250723": 35,
+    "20250724": 42,
+    "20250725": 35,
+    "20250728": 10,
+    "20250729": 49,
+    "20250730": 21,
+    "20250731": 24,
+    "20250801": 19,
+    "20250804": 17,
+    "20250805": 53,
+    "20250806": 26,
+    "20250807": 26,
+    "20250808": 14,
+    "20250811": 26,
+    "20250812": 61,
+    "20250813": 31,
+    "20250814": 27,
+    "20250815": 12,
+    "20250818": 31,
+    "20250819": 51,
+    "20250820": 25,
+    "20250821": 26,
+    "20250822": 33,
+    "20250825": 40,
+    "20250826": 61,
+    "20250827": 17,
+    "20250828": 24,
+    "20250829": 23,
+    "20250901": 19,
+    "20250902": 43,
+    "20250903": 17,
+    "20250904": 21,
+    "20250905": 11,
+    "20250908": 4,
+    "20250909": 52,
+    "20250910": 9,
+    "20250911": 13,
+    "20250912": 46,
+    "20250915": 14,
+    "20250916": 56,
+    "20250917": 30,
+    "20250918": 24,
+    "20250919": 23,
+    "20250922": 34,
+    "20250923": 65,
+    "20250924": 22,
+    "20250925": 19,
+    "20250926": 21,
+    "20250929": 15,
+    "20250930": 50,
+    "20251009": 45,
+    "20251010": 32,
+    "20251013": 21,
+    "20251014": 65,
+    "20251015": 8,
+    "20251016": 28,
+    "20251017": 32,
+    "20251020": 14,
+    "20251021": 47,
+    "20251022": 22,
+    "20251023": 45,
+    "20251024": 30,
+    "20251027": 15,
+    "20251028": 58,
+    "20251029": 17,
+    "20251030": 19,
+    "20251031": 21,
+    "20251103": 18,
+    "20251104": 37,
+    "20251105": 16,
+    "20251106": 17,
+    "20251107": 3,
+    "20251110": 35,
+    "20251111": 62,
+    "20251112": 25,
+    "20251113": 49,
+    "20251114": 15,
+    "20251117": 12,
+    "20251118": 61,
+    "20251119": 19,
+    "20251120": 9,
+    "20251121": 25,
+    "20251124": 13,
+    "20251125": 54,
+    "20251126": 11,
+    "20251127": 22,
+    "20251128": 32,
+    "20251201": 59,
+    "20251202": 40,
+    "20251203": 18,
+    "20251204": 36,
+    "20251205": 21,
+    "20251208": 21,
+    "20251209": 52,
+    "20251210": 20,
+    "20251211": 26,
+    "20251212": 45,
+    "20251215": 20,
+    "20251216": 61,
+    "20251217": 16,
+    "20251218": 12,
+    "20251219": 41,
+    "20251222": 43,
+    "20251223": 66,
+    "20251224": 39,
+    "20251225": 22,
+    "20251226": 75,
+    "20251229": 15,
+    "20251230": 55,
+    "20251231": 13,
+    "20260105": 28,
+    "20260106": 85,
+    "20260107": 75,
+    "20260108": 13,
+    "20260109": 21,
+    "20260112": 44,
+    "20260113": 51,
+    "20260114": 17,
+    "20260115": 25,
+    "20260116": 14,
+    "20260119": 14,
+    "20260120": 52,
+    "20260121": 30,
+    "20260122": 35,
+    "20260123": 53,
+    "20260126": 40,
+    "20260127": 58,
+    "20260128": 24,
+    "20260129": 75,
+    "20260130": 11,
+    "20260202": 21,
+    "20260203": 44,
+    "20260204": 15,
+    "20260205": 6,
+    "20260206": 5,
+    "20260209": 4,
+    "20260210": 42,
+    "20260211": 29,
+    "20260212": 36,
+    "20260213": 22,
+    "20260224": 30,
+    "20260225": 33,
+    "20260226": 19,
+    "20260227": 27,
+    "20260302": 28,
+    "20260303": 66,
+    "20260304": 24,
+    "20260305": 29,
+    "20260306": 51,
+    "20260309": 31,
+    "20260310": 34,
+    "20260311": 30,
+    "20260312": 17,
+    "20260313": 17,
+    "20260316": 20,
+    "20260317": 33,
+    "20260318": 18,
+    "20260319": 10,
+    "20260320": 27,
+    "20260323": 35,
+    "20260324": 38,
+    "20260325": 6,
+    "20260326": 18,
+    "20260327": 10,
+    "20260330": 9,
+    "20260331": 44,
+    "20260401": 37,
+    "20260402": 10,
+    "20260403": 7,
+    "20260407": 25,
+    "20260408": 16,
+    "20260409": 14,
+    "20260410": 23,
+    "20260413": 13,
+    "20260414": 68,
+    "20260415": 38,
+    "20260416": 28,
+    "20260417": 25,
+    "20260420": 14,
+    "20260421": 47,
+    "20260422": 51,
+    "20260423": 28,
+    "20260424": 19,
+    "20260427": 23,
+    "20260428": 81,
+    "20260429": 30,
+    "20260430": 17,
+    "20260506": 51,
+    "20260507": 33,
+    "20260508": 20,
+    "20260511": 31,
+    "20260512": 64,
+    "20260513": 25,
+    "20260514": 20,
+    "20260515": 15,
+    "20260518": 17,
+    "20260519": 41,
+    "20260520": 11,
+    "20260521": 8,
+    "20260522": 6,
+    "20260525": 12,
+    "20260526": 43,
+    "20260527": 9,
+    "20260528": 19,
+    "20260529": 5
+  },
+  "signal_type_counts": {
+    "breakout_pullback_continuation": 5743,
+    "bull_pullback_continuation": 4695,
+    "tight_range_breakout": 2459,
+    "cross_sectional_momentum": 3341
+  },
+  "daily_signal_type_counts": {
+    "20240102": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 1
+    },
+    "20240103": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 1
+    },
+    "20240104": {
+      "breakout_pullback_continuation": 7,
+      "tight_range_breakout": 1
+    },
+    "20240105": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 4
+    },
+    "20240108": {
+      "breakout_pullback_continuation": 31,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 4
+    },
+    "20240109": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 2,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 3
+    },
+    "20240110": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 9,
+      "tight_range_breakout": 4
+    },
+    "20240111": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 11
+    },
+    "20240112": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 5
+    },
+    "20240115": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 2
+    },
+    "20240116": {
+      "breakout_pullback_continuation": 3,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 7
+    },
+    "20240117": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 8
+    },
+    "20240118": {
+      "breakout_pullback_continuation": 22,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 4
+    },
+    "20240119": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 16,
+      "tight_range_breakout": 4
+    },
+    "20240122": {
+      "breakout_pullback_continuation": 19,
+      "bull_pullback_continuation": 16,
+      "tight_range_breakout": 8
+    },
+    "20240123": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 4,
+      "cross_sectional_momentum": 29,
+      "tight_range_breakout": 2
+    },
+    "20240124": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 13,
+      "tight_range_breakout": 4
+    },
+    "20240125": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 12,
+      "tight_range_breakout": 2
+    },
+    "20240126": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 9,
+      "tight_range_breakout": 5
+    },
+    "20240129": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 3
+    },
+    "20240130": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 5,
+      "cross_sectional_momentum": 28
+    },
+    "20240131": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 2,
+      "cross_sectional_momentum": 1,
+      "tight_range_breakout": 4
+    },
+    "20240201": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 1
+    },
+    "20240202": {
+      "breakout_pullback_continuation": 18,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 3
+    },
+    "20240205": {
+      "breakout_pullback_continuation": 14,
+      "tight_range_breakout": 2
+    },
+    "20240206": {
+      "breakout_pullback_continuation": 8,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 3
+    },
+    "20240207": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 8
+    },
+    "20240208": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 14,
+      "tight_range_breakout": 1
+    },
+    "20240219": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 8
+    },
+    "20240220": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 2,
+      "cross_sectional_momentum": 29,
+      "tight_range_breakout": 13
+    },
+    "20240221": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 9,
+      "tight_range_breakout": 6
+    },
+    "20240222": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 11,
+      "tight_range_breakout": 12
+    },
+    "20240223": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 1
+    },
+    "20240226": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 1
+    },
+    "20240227": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 5,
+      "cross_sectional_momentum": 29,
+      "tight_range_breakout": 1
+    },
+    "20240228": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 2
+    },
+    "20240229": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 12,
+      "tight_range_breakout": 6
+    },
+    "20240301": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 19,
+      "tight_range_breakout": 8
+    },
+    "20240304": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 9,
+      "tight_range_breakout": 5
+    },
+    "20240305": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 10,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 5
+    },
+    "20240306": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 15,
+      "tight_range_breakout": 7
+    },
+    "20240307": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 14,
+      "tight_range_breakout": 3
+    },
+    "20240308": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 23,
+      "tight_range_breakout": 6
+    },
+    "20240311": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 5
+    },
+    "20240312": {
+      "breakout_pullback_continuation": 16,
+      "bull_pullback_continuation": 23,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 4
+    },
+    "20240313": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 12,
+      "tight_range_breakout": 3
+    },
+    "20240314": {
+      "breakout_pullback_continuation": 18,
+      "bull_pullback_continuation": 29,
+      "tight_range_breakout": 2
+    },
+    "20240315": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 14,
+      "tight_range_breakout": 2
+    },
+    "20240318": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 20,
+      "tight_range_breakout": 1
+    },
+    "20240319": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 11,
+      "cross_sectional_momentum": 27,
+      "tight_range_breakout": 4
+    },
+    "20240320": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 7,
+      "cross_sectional_momentum": 1,
+      "tight_range_breakout": 5
+    },
+    "20240321": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 2
+    },
+    "20240322": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 1
+    },
+    "20240325": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 2
+    },
+    "20240326": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 4,
+      "cross_sectional_momentum": 28
+    },
+    "20240327": {
+      "breakout_pullback_continuation": 8,
+      "tight_range_breakout": 4
+    },
+    "20240328": {
+      "breakout_pullback_continuation": 21,
+      "bull_pullback_continuation": 14,
+      "tight_range_breakout": 8
+    },
+    "20240329": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 18,
+      "tight_range_breakout": 9
+    },
+    "20240401": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 13,
+      "tight_range_breakout": 5
+    },
+    "20240402": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 10,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 3
+    },
+    "20240403": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 21
+    },
+    "20240408": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 18,
+      "tight_range_breakout": 1
+    },
+    "20240409": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 10,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 1
+    },
+    "20240410": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 8
+    },
+    "20240411": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 6
+    },
+    "20240412": {
+      "breakout_pullback_continuation": 20,
+      "bull_pullback_continuation": 24,
+      "tight_range_breakout": 4
+    },
+    "20240415": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 3
+    },
+    "20240416": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 2,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 1
+    },
+    "20240417": {
+      "breakout_pullback_continuation": 11,
+      "tight_range_breakout": 2
+    },
+    "20240418": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 9
+    },
+    "20240419": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 12,
+      "tight_range_breakout": 3
+    },
+    "20240422": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 1
+    },
+    "20240423": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 4,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 12
+    },
+    "20240424": {
+      "breakout_pullback_continuation": 2,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 5
+    },
+    "20240425": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 6
+    },
+    "20240426": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 6
+    },
+    "20240429": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 13,
+      "tight_range_breakout": 8
+    },
+    "20240430": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 21,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 6
+    },
+    "20240506": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 18,
+      "tight_range_breakout": 1
+    },
+    "20240507": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 25,
+      "cross_sectional_momentum": 29,
+      "tight_range_breakout": 6
+    },
+    "20240508": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 5
+    },
+    "20240509": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 2
+    },
+    "20240510": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 2
+    },
+    "20240513": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 2
+    },
+    "20240514": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 10,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 3
+    },
+    "20240515": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 4
+    },
+    "20240516": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 17,
+      "tight_range_breakout": 3
+    },
+    "20240517": {
+      "breakout_pullback_continuation": 16,
+      "bull_pullback_continuation": 20,
+      "tight_range_breakout": 1
+    },
+    "20240520": {
+      "breakout_pullback_continuation": 17,
+      "bull_pullback_continuation": 30
+    },
+    "20240521": {
+      "breakout_pullback_continuation": 3,
+      "bull_pullback_continuation": 12,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 2
+    },
+    "20240522": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 3,
+      "cross_sectional_momentum": 1,
+      "tight_range_breakout": 4
+    },
+    "20240523": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 3
+    },
+    "20240524": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 5
+    },
+    "20240527": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 1
+    },
+    "20240528": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 15,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 4
+    },
+    "20240529": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 5
+    },
+    "20240530": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 12,
+      "tight_range_breakout": 4
+    },
+    "20240531": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 5
+    },
+    "20240603": {
+      "breakout_pullback_continuation": 18,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 4
+    },
+    "20240604": {
+      "breakout_pullback_continuation": 7,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 3
+    },
+    "20240605": {
+      "breakout_pullback_continuation": 13,
+      "tight_range_breakout": 7
+    },
+    "20240606": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 8
+    },
+    "20240607": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 6
+    },
+    "20240611": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 1
+    },
+    "20240612": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 3
+    },
+    "20240613": {
+      "breakout_pullback_continuation": 3,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 3
+    },
+    "20240614": {
+      "breakout_pullback_continuation": 5,
+      "tight_range_breakout": 7
+    },
+    "20240617": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 2
+    },
+    "20240618": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 4,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 3
+    },
+    "20240619": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 9,
+      "tight_range_breakout": 7
+    },
+    "20240620": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 9,
+      "tight_range_breakout": 9
+    },
+    "20240621": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 12
+    },
+    "20240624": {
+      "breakout_pullback_continuation": 13,
+      "tight_range_breakout": 3
+    },
+    "20240625": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 3,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 5
+    },
+    "20240626": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 7
+    },
+    "20240627": {
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 6
+    },
+    "20240628": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 3
+    },
+    "20240701": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 2
+    },
+    "20240702": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 6,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 3
+    },
+    "20240703": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 12
+    },
+    "20240704": {
+      "breakout_pullback_continuation": 3,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 3
+    },
+    "20240705": {
+      "breakout_pullback_continuation": 9,
+      "tight_range_breakout": 1
+    },
+    "20240708": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 3
+    },
+    "20240709": {
+      "breakout_pullback_continuation": 17,
+      "bull_pullback_continuation": 1,
+      "cross_sectional_momentum": 29,
+      "tight_range_breakout": 2
+    },
+    "20240710": {
+      "breakout_pullback_continuation": 15,
+      "tight_range_breakout": 4
+    },
+    "20240711": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 3
+    },
+    "20240712": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 12
+    },
+    "20240715": {
+      "breakout_pullback_continuation": 6,
+      "tight_range_breakout": 4
+    },
+    "20240716": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 10,
+      "cross_sectional_momentum": 29,
+      "tight_range_breakout": 6
+    },
+    "20240717": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 20,
+      "tight_range_breakout": 3
+    },
+    "20240718": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 3
+    },
+    "20240719": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 2
+    },
+    "20240722": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 5
+    },
+    "20240723": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 8,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 1
+    },
+    "20240724": {
+      "breakout_pullback_continuation": 19,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 2
+    },
+    "20240725": {
+      "breakout_pullback_continuation": 22
+    },
+    "20240726": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 4
+    },
+    "20240729": {
+      "breakout_pullback_continuation": 3
+    },
+    "20240730": {
+      "breakout_pullback_continuation": 8,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 5
+    },
+    "20240731": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 1
+    },
+    "20240801": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 15,
+      "tight_range_breakout": 3
+    },
+    "20240802": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 2
+    },
+    "20240805": {
+      "breakout_pullback_continuation": 6,
+      "tight_range_breakout": 4
+    },
+    "20240806": {
+      "breakout_pullback_continuation": 21,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 6
+    },
+    "20240807": {
+      "breakout_pullback_continuation": 13,
+      "tight_range_breakout": 4
+    },
+    "20240808": {
+      "breakout_pullback_continuation": 14,
+      "tight_range_breakout": 10
+    },
+    "20240809": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 10
+    },
+    "20240812": {
+      "breakout_pullback_continuation": 16,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 12
+    },
+    "20240813": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 6,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 8
+    },
+    "20240814": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 4
+    },
+    "20240815": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 6
+    },
+    "20240816": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 16,
+      "tight_range_breakout": 4
+    },
+    "20240819": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 4
+    },
+    "20240820": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 13,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 7
+    },
+    "20240821": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 1
+    },
+    "20240822": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 4
+    },
+    "20240823": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 9,
+      "tight_range_breakout": 8
+    },
+    "20240826": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 21
+    },
+    "20240827": {
+      "breakout_pullback_continuation": 19,
+      "bull_pullback_continuation": 17,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 7
+    },
+    "20240828": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 4
+    },
+    "20240829": {
+      "breakout_pullback_continuation": 9,
+      "tight_range_breakout": 8
+    },
+    "20240830": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 9,
+      "tight_range_breakout": 7
+    },
+    "20240902": {
+      "breakout_pullback_continuation": 22,
+      "tight_range_breakout": 2
+    },
+    "20240903": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 2,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 10
+    },
+    "20240904": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 1
+    },
+    "20240905": {
+      "breakout_pullback_continuation": 14,
+      "tight_range_breakout": 3
+    },
+    "20240906": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 5
+    },
+    "20240909": {
+      "breakout_pullback_continuation": 28,
+      "tight_range_breakout": 1
+    },
+    "20240910": {
+      "breakout_pullback_continuation": 16,
+      "bull_pullback_continuation": 2,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 2
+    },
+    "20240911": {
+      "breakout_pullback_continuation": 10,
+      "tight_range_breakout": 2
+    },
+    "20240912": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 9,
+      "tight_range_breakout": 1
+    },
+    "20240913": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 23,
+      "tight_range_breakout": 4
+    },
+    "20240918": {
+      "breakout_pullback_continuation": 20,
+      "bull_pullback_continuation": 14,
+      "tight_range_breakout": 3
+    },
+    "20240919": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 3
+    },
+    "20240920": {
+      "breakout_pullback_continuation": 19,
+      "bull_pullback_continuation": 17,
+      "tight_range_breakout": 3
+    },
+    "20240923": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 16,
+      "tight_range_breakout": 3
+    },
+    "20240924": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 11,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 1
+    },
+    "20240925": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 26
+    },
+    "20240926": {
+      "breakout_pullback_continuation": 17,
+      "bull_pullback_continuation": 23,
+      "tight_range_breakout": 1
+    },
+    "20240927": {
+      "breakout_pullback_continuation": 17,
+      "bull_pullback_continuation": 27,
+      "tight_range_breakout": 1
+    },
+    "20240930": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 24,
+      "tight_range_breakout": 1
+    },
+    "20241008": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 22,
+      "cross_sectional_momentum": 28
+    },
+    "20241009": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 7
+    },
+    "20241010": {
+      "breakout_pullback_continuation": 2,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 5
+    },
+    "20241011": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 2
+    },
+    "20241014": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 12
+    },
+    "20241015": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 1,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 2
+    },
+    "20241016": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 12
+    },
+    "20241017": {
+      "breakout_pullback_continuation": 16,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 2
+    },
+    "20241018": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 3
+    },
+    "20241021": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 11,
+      "tight_range_breakout": 1
+    },
+    "20241022": {
+      "breakout_pullback_continuation": 1,
+      "bull_pullback_continuation": 1,
+      "cross_sectional_momentum": 29,
+      "tight_range_breakout": 2
+    },
+    "20241023": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 13,
+      "tight_range_breakout": 8
+    },
+    "20241024": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 6
+    },
+    "20241025": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 5
+    },
+    "20241028": {
+      "breakout_pullback_continuation": 1,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 2
+    },
+    "20241029": {
+      "breakout_pullback_continuation": 16,
+      "bull_pullback_continuation": 6,
+      "cross_sectional_momentum": 28,
+      "tight_range_breakout": 4
+    },
+    "20241030": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 1
+    },
+    "20241031": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 5
+    },
+    "20241101": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 3
+    },
+    "20241104": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 3
+    },
+    "20241105": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 10,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 10
+    },
+    "20241106": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 12,
+      "tight_range_breakout": 8
+    },
+    "20241107": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 16,
+      "tight_range_breakout": 9
+    },
+    "20241108": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 24,
+      "tight_range_breakout": 6
+    },
+    "20241111": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 4
+    },
+    "20241112": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 3,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 3
+    },
+    "20241113": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 6
+    },
+    "20241114": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 7
+    },
+    "20241115": {
+      "breakout_pullback_continuation": 19,
+      "tight_range_breakout": 4
+    },
+    "20241118": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 4
+    },
+    "20241119": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 7,
+      "cross_sectional_momentum": 29,
+      "tight_range_breakout": 12
+    },
+    "20241120": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 3
+    },
+    "20241121": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 17,
+      "cross_sectional_momentum": 1,
+      "tight_range_breakout": 5
+    },
+    "20241122": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 13
+    },
+    "20241125": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 4
+    },
+    "20241126": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 1,
+      "cross_sectional_momentum": 31,
+      "tight_range_breakout": 2
+    },
+    "20241127": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 14
+    },
+    "20241128": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 6
+    },
+    "20241129": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 15,
+      "tight_range_breakout": 5
+    },
+    "20241202": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 6
+    },
+    "20241203": {
+      "breakout_pullback_continuation": 2,
+      "bull_pullback_continuation": 5,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 18
+    },
+    "20241204": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 6
+    },
+    "20241205": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 15
+    },
+    "20241206": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 8
+    },
+    "20241209": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 2
+    },
+    "20241210": {
+      "breakout_pullback_continuation": 2,
+      "bull_pullback_continuation": 4,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 3
+    },
+    "20241211": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 11,
+      "tight_range_breakout": 11
+    },
+    "20241212": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 12,
+      "tight_range_breakout": 4
+    },
+    "20241213": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 6
+    },
+    "20241216": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 3
+    },
+    "20241217": {
+      "breakout_pullback_continuation": 16,
+      "bull_pullback_continuation": 2,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 5
+    },
+    "20241218": {
+      "breakout_pullback_continuation": 19,
+      "tight_range_breakout": 1
+    },
+    "20241219": {
+      "breakout_pullback_continuation": 20,
+      "tight_range_breakout": 2
+    },
+    "20241220": {
+      "breakout_pullback_continuation": 6,
+      "tight_range_breakout": 6
+    },
+    "20241223": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 2
+    },
+    "20241224": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 1,
+      "cross_sectional_momentum": 30
+    },
+    "20241225": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 9
+    },
+    "20241226": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 3
+    },
+    "20241227": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 7
+    },
+    "20241230": {
+      "breakout_pullback_continuation": 4,
+      "tight_range_breakout": 2
+    },
+    "20241231": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 5,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 5
+    },
+    "20250102": {
+      "breakout_pullback_continuation": 18,
+      "bull_pullback_continuation": 13,
+      "tight_range_breakout": 3
+    },
+    "20250103": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 4
+    },
+    "20250106": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 2
+    },
+    "20250107": {
+      "breakout_pullback_continuation": 6,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 5
+    },
+    "20250108": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 13
+    },
+    "20250109": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 4
+    },
+    "20250110": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 16,
+      "tight_range_breakout": 6
+    },
+    "20250113": {
+      "breakout_pullback_continuation": 16,
+      "bull_pullback_continuation": 20,
+      "tight_range_breakout": 2
+    },
+    "20250114": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 15,
+      "cross_sectional_momentum": 31,
+      "tight_range_breakout": 4
+    },
+    "20250115": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 12,
+      "tight_range_breakout": 4
+    },
+    "20250116": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 14,
+      "tight_range_breakout": 4
+    },
+    "20250117": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 12,
+      "tight_range_breakout": 2
+    },
+    "20250120": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 1
+    },
+    "20250121": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 8,
+      "cross_sectional_momentum": 31,
+      "tight_range_breakout": 5
+    },
+    "20250122": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 4
+    },
+    "20250123": {
+      "breakout_pullback_continuation": 19,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 6
+    },
+    "20250124": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 3
+    },
+    "20250127": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 3
+    },
+    "20250205": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 19,
+      "cross_sectional_momentum": 30
+    },
+    "20250206": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 14,
+      "tight_range_breakout": 7
+    },
+    "20250207": {
+      "breakout_pullback_continuation": 28,
+      "bull_pullback_continuation": 37,
+      "tight_range_breakout": 2
+    },
+    "20250210": {
+      "breakout_pullback_continuation": 17,
+      "bull_pullback_continuation": 21,
+      "tight_range_breakout": 5
+    },
+    "20250211": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 9,
+      "cross_sectional_momentum": 31,
+      "tight_range_breakout": 2
+    },
+    "20250212": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 9,
+      "tight_range_breakout": 5
+    },
+    "20250213": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 3
+    },
+    "20250214": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 14,
+      "tight_range_breakout": 4
+    },
+    "20250217": {
+      "breakout_pullback_continuation": 2,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 4
+    },
+    "20250218": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 4,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 5
+    },
+    "20250219": {
+      "breakout_pullback_continuation": 2,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 3
+    },
+    "20250220": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 9,
+      "tight_range_breakout": 5
+    },
+    "20250221": {
+      "breakout_pullback_continuation": 18,
+      "bull_pullback_continuation": 19,
+      "tight_range_breakout": 3
+    },
+    "20250224": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 1
+    },
+    "20250225": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 1,
+      "cross_sectional_momentum": 32,
+      "tight_range_breakout": 3
+    },
+    "20250226": {
+      "breakout_pullback_continuation": 5,
+      "tight_range_breakout": 4
+    },
+    "20250227": {
+      "breakout_pullback_continuation": 4,
+      "tight_range_breakout": 12
+    },
+    "20250228": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 6
+    },
+    "20250303": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 1
+    },
+    "20250304": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 1,
+      "cross_sectional_momentum": 31,
+      "tight_range_breakout": 6
+    },
+    "20250305": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 4
+    },
+    "20250306": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 2
+    },
+    "20250307": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 10
+    },
+    "20250310": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 1
+    },
+    "20250311": {
+      "breakout_pullback_continuation": 6,
+      "cross_sectional_momentum": 31,
+      "tight_range_breakout": 7
+    },
+    "20250312": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 9
+    },
+    "20250313": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 11,
+      "tight_range_breakout": 4
+    },
+    "20250314": {
+      "breakout_pullback_continuation": 18,
+      "bull_pullback_continuation": 22,
+      "tight_range_breakout": 9
+    },
+    "20250317": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 2
+    },
+    "20250318": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 13,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 1
+    },
+    "20250319": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 3
+    },
+    "20250320": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 3
+    },
+    "20250321": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 4
+    },
+    "20250324": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 3
+    },
+    "20250325": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 3,
+      "cross_sectional_momentum": 29,
+      "tight_range_breakout": 8
+    },
+    "20250326": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 5
+    },
+    "20250327": {
+      "breakout_pullback_continuation": 1,
+      "bull_pullback_continuation": 2,
+      "cross_sectional_momentum": 1,
+      "tight_range_breakout": 17
+    },
+    "20250328": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 6
+    },
+    "20250331": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 7
+    },
+    "20250401": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 5,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 5
+    },
+    "20250402": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 11,
+      "tight_range_breakout": 6
+    },
+    "20250403": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 3
+    },
+    "20250407": {
+      "breakout_pullback_continuation": 4
+    },
+    "20250408": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 2,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 15
+    },
+    "20250409": {
+      "breakout_pullback_continuation": 23,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 5
+    },
+    "20250410": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 1
+    },
+    "20250411": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 2
+    },
+    "20250414": {
+      "breakout_pullback_continuation": 1,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 4
+    },
+    "20250415": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 4,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 6
+    },
+    "20250416": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 13
+    },
+    "20250417": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 1
+    },
+    "20250418": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 8
+    },
+    "20250421": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 8
+    },
+    "20250422": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 10,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 2
+    },
+    "20250423": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 9,
+      "tight_range_breakout": 4
+    },
+    "20250424": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 7
+    },
+    "20250425": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 1
+    },
+    "20250428": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 7
+    },
+    "20250429": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 1,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 3
+    },
+    "20250430": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 10
+    },
+    "20250506": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 8
+    },
+    "20250507": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 6
+    },
+    "20250508": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 6
+    },
+    "20250509": {
+      "breakout_pullback_continuation": 2,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 2
+    },
+    "20250512": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 15,
+      "tight_range_breakout": 4
+    },
+    "20250513": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 13,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 8
+    },
+    "20250514": {
+      "breakout_pullback_continuation": 21,
+      "bull_pullback_continuation": 22,
+      "tight_range_breakout": 5
+    },
+    "20250515": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 7
+    },
+    "20250516": {
+      "tight_range_breakout": 1
+    },
+    "20250519": {
+      "breakout_pullback_continuation": 4,
+      "tight_range_breakout": 7
+    },
+    "20250520": {
+      "breakout_pullback_continuation": 2,
+      "cross_sectional_momentum": 31,
+      "tight_range_breakout": 19
+    },
+    "20250521": {
+      "breakout_pullback_continuation": 3,
+      "bull_pullback_continuation": 12,
+      "tight_range_breakout": 2
+    },
+    "20250522": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 3
+    },
+    "20250523": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 4
+    },
+    "20250526": {
+      "tight_range_breakout": 1
+    },
+    "20250527": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 1,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 2
+    },
+    "20250528": {
+      "breakout_pullback_continuation": 9,
+      "tight_range_breakout": 1
+    },
+    "20250529": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 5
+    },
+    "20250530": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 1
+    },
+    "20250603": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 1
+    },
+    "20250604": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 7
+    },
+    "20250605": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 15
+    },
+    "20250606": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 5
+    },
+    "20250609": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 9,
+      "tight_range_breakout": 6
+    },
+    "20250610": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 7,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 6
+    },
+    "20250611": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 2
+    },
+    "20250612": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 8
+    },
+    "20250613": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 17,
+      "tight_range_breakout": 2
+    },
+    "20250616": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 6
+    },
+    "20250617": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 9,
+      "cross_sectional_momentum": 31,
+      "tight_range_breakout": 5
+    },
+    "20250618": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 30,
+      "tight_range_breakout": 1
+    },
+    "20250619": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 14,
+      "tight_range_breakout": 9
+    },
+    "20250620": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 12,
+      "tight_range_breakout": 3
+    },
+    "20250623": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 5
+    },
+    "20250624": {
+      "breakout_pullback_continuation": 2,
+      "bull_pullback_continuation": 6,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 4
+    },
+    "20250625": {
+      "breakout_pullback_continuation": 16,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 4
+    },
+    "20250626": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 16,
+      "tight_range_breakout": 3
+    },
+    "20250627": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 19,
+      "tight_range_breakout": 7
+    },
+    "20250630": {
+      "breakout_pullback_continuation": 2,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 8
+    },
+    "20250701": {
+      "breakout_pullback_continuation": 2,
+      "bull_pullback_continuation": 2,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 10
+    },
+    "20250702": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 3
+    },
+    "20250703": {
+      "breakout_pullback_continuation": 3,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 9
+    },
+    "20250704": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 4
+    },
+    "20250707": {
+      "breakout_pullback_continuation": 4,
+      "tight_range_breakout": 6
+    },
+    "20250708": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 3,
+      "cross_sectional_momentum": 31,
+      "tight_range_breakout": 9
+    },
+    "20250709": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 8
+    },
+    "20250710": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 9
+    },
+    "20250711": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 4
+    },
+    "20250714": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 13,
+      "tight_range_breakout": 2
+    },
+    "20250715": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 2,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 1
+    },
+    "20250716": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 15
+    },
+    "20250717": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 12
+    },
+    "20250718": {
+      "breakout_pullback_continuation": 19,
+      "bull_pullback_continuation": 17,
+      "tight_range_breakout": 7
+    },
+    "20250721": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 23,
+      "tight_range_breakout": 3
+    },
+    "20250722": {
+      "breakout_pullback_continuation": 17,
+      "bull_pullback_continuation": 19,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 6
+    },
+    "20250723": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 16,
+      "tight_range_breakout": 4
+    },
+    "20250724": {
+      "breakout_pullback_continuation": 18,
+      "bull_pullback_continuation": 16,
+      "tight_range_breakout": 8
+    },
+    "20250725": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 14,
+      "tight_range_breakout": 10
+    },
+    "20250728": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 2
+    },
+    "20250729": {
+      "breakout_pullback_continuation": 3,
+      "bull_pullback_continuation": 4,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 12
+    },
+    "20250730": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 6
+    },
+    "20250731": {
+      "breakout_pullback_continuation": 15,
+      "tight_range_breakout": 9
+    },
+    "20250801": {
+      "breakout_pullback_continuation": 17,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 1
+    },
+    "20250804": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 4
+    },
+    "20250805": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 7,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 3
+    },
+    "20250806": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 9
+    },
+    "20250807": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 8
+    },
+    "20250808": {
+      "breakout_pullback_continuation": 2,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 9
+    },
+    "20250811": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 12,
+      "tight_range_breakout": 2
+    },
+    "20250812": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 17,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 2
+    },
+    "20250813": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 17
+    },
+    "20250814": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 2
+    },
+    "20250815": {
+      "breakout_pullback_continuation": 2,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 8
+    },
+    "20250818": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 15,
+      "tight_range_breakout": 3
+    },
+    "20250819": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 9,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 5
+    },
+    "20250820": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 3
+    },
+    "20250821": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 15
+    },
+    "20250822": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 11,
+      "tight_range_breakout": 10
+    },
+    "20250825": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 22,
+      "tight_range_breakout": 3
+    },
+    "20250826": {
+      "breakout_pullback_continuation": 3,
+      "bull_pullback_continuation": 6,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 22
+    },
+    "20250827": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 3
+    },
+    "20250828": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 7
+    },
+    "20250829": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 3
+    },
+    "20250901": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 2
+    },
+    "20250902": {
+      "breakout_pullback_continuation": 3,
+      "bull_pullback_continuation": 4,
+      "cross_sectional_momentum": 31,
+      "tight_range_breakout": 5
+    },
+    "20250903": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 4
+    },
+    "20250904": {
+      "breakout_pullback_continuation": 11,
+      "tight_range_breakout": 10
+    },
+    "20250905": {
+      "breakout_pullback_continuation": 3,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 6
+    },
+    "20250908": {
+      "breakout_pullback_continuation": 1,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 2
+    },
+    "20250909": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 8,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 5
+    },
+    "20250910": {
+      "breakout_pullback_continuation": 3,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 5
+    },
+    "20250911": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 6
+    },
+    "20250912": {
+      "breakout_pullback_continuation": 18,
+      "bull_pullback_continuation": 23,
+      "tight_range_breakout": 5
+    },
+    "20250915": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 5
+    },
+    "20250916": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 11,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 9
+    },
+    "20250917": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 11,
+      "tight_range_breakout": 9
+    },
+    "20250918": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 4
+    },
+    "20250919": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 8
+    },
+    "20250922": {
+      "breakout_pullback_continuation": 21,
+      "bull_pullback_continuation": 9,
+      "tight_range_breakout": 4
+    },
+    "20250923": {
+      "breakout_pullback_continuation": 27,
+      "bull_pullback_continuation": 5,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 3
+    },
+    "20250924": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 6
+    },
+    "20250925": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 3
+    },
+    "20250926": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 12
+    },
+    "20250929": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 2
+    },
+    "20250930": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 7,
+      "cross_sectional_momentum": 31,
+      "tight_range_breakout": 3
+    },
+    "20251009": {
+      "breakout_pullback_continuation": 16,
+      "bull_pullback_continuation": 27,
+      "tight_range_breakout": 2
+    },
+    "20251010": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 12,
+      "tight_range_breakout": 9
+    },
+    "20251013": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 4
+    },
+    "20251014": {
+      "breakout_pullback_continuation": 19,
+      "bull_pullback_continuation": 13,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 3
+    },
+    "20251015": {
+      "breakout_pullback_continuation": 3,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 1
+    },
+    "20251016": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 10
+    },
+    "20251017": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 17
+    },
+    "20251020": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 2
+    },
+    "20251021": {
+      "breakout_pullback_continuation": 9,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 8
+    },
+    "20251022": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 10
+    },
+    "20251023": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 24,
+      "tight_range_breakout": 7
+    },
+    "20251024": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 13,
+      "tight_range_breakout": 2
+    },
+    "20251027": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 8
+    },
+    "20251028": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 9,
+      "cross_sectional_momentum": 29,
+      "tight_range_breakout": 5
+    },
+    "20251029": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 6
+    },
+    "20251030": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 10,
+      "cross_sectional_momentum": 1,
+      "tight_range_breakout": 3
+    },
+    "20251031": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 4
+    },
+    "20251103": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 1
+    },
+    "20251104": {
+      "breakout_pullback_continuation": 3,
+      "bull_pullback_continuation": 3,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 1
+    },
+    "20251105": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 2
+    },
+    "20251106": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 5
+    },
+    "20251107": {
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 1
+    },
+    "20251110": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 12,
+      "tight_range_breakout": 10
+    },
+    "20251111": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 17,
+      "cross_sectional_momentum": 31,
+      "tight_range_breakout": 3
+    },
+    "20251112": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 7
+    },
+    "20251113": {
+      "breakout_pullback_continuation": 21,
+      "bull_pullback_continuation": 26,
+      "tight_range_breakout": 2
+    },
+    "20251114": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 7
+    },
+    "20251117": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 3
+    },
+    "20251118": {
+      "breakout_pullback_continuation": 23,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 8
+    },
+    "20251119": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 3
+    },
+    "20251120": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 1
+    },
+    "20251121": {
+      "breakout_pullback_continuation": 22,
+      "tight_range_breakout": 3
+    },
+    "20251124": {
+      "breakout_pullback_continuation": 12,
+      "tight_range_breakout": 1
+    },
+    "20251125": {
+      "breakout_pullback_continuation": 17,
+      "bull_pullback_continuation": 7,
+      "cross_sectional_momentum": 30
+    },
+    "20251126": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 2
+    },
+    "20251127": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 14
+    },
+    "20251128": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 15,
+      "tight_range_breakout": 5
+    },
+    "20251201": {
+      "breakout_pullback_continuation": 20,
+      "bull_pullback_continuation": 37,
+      "tight_range_breakout": 2
+    },
+    "20251202": {
+      "breakout_pullback_continuation": 2,
+      "bull_pullback_continuation": 4,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 4
+    },
+    "20251203": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 4
+    },
+    "20251204": {
+      "breakout_pullback_continuation": 16,
+      "bull_pullback_continuation": 12,
+      "tight_range_breakout": 8
+    },
+    "20251205": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 3
+    },
+    "20251208": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 9
+    },
+    "20251209": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 6,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 5
+    },
+    "20251210": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 1
+    },
+    "20251211": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 9,
+      "tight_range_breakout": 4
+    },
+    "20251212": {
+      "breakout_pullback_continuation": 28,
+      "bull_pullback_continuation": 15,
+      "tight_range_breakout": 2
+    },
+    "20251215": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 6
+    },
+    "20251216": {
+      "breakout_pullback_continuation": 25,
+      "bull_pullback_continuation": 3,
+      "cross_sectional_momentum": 31,
+      "tight_range_breakout": 2
+    },
+    "20251217": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 1
+    },
+    "20251218": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 1
+    },
+    "20251219": {
+      "breakout_pullback_continuation": 20,
+      "bull_pullback_continuation": 17,
+      "tight_range_breakout": 4
+    },
+    "20251222": {
+      "breakout_pullback_continuation": 17,
+      "bull_pullback_continuation": 25,
+      "tight_range_breakout": 1
+    },
+    "20251223": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 20,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 6
+    },
+    "20251224": {
+      "breakout_pullback_continuation": 16,
+      "bull_pullback_continuation": 19,
+      "tight_range_breakout": 4
+    },
+    "20251225": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 2
+    },
+    "20251226": {
+      "breakout_pullback_continuation": 24,
+      "bull_pullback_continuation": 43,
+      "tight_range_breakout": 8
+    },
+    "20251229": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 4
+    },
+    "20251230": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 12,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 6
+    },
+    "20251231": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 3
+    },
+    "20260105": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 9,
+      "tight_range_breakout": 6
+    },
+    "20260106": {
+      "breakout_pullback_continuation": 22,
+      "bull_pullback_continuation": 30,
+      "cross_sectional_momentum": 31,
+      "tight_range_breakout": 2
+    },
+    "20260107": {
+      "breakout_pullback_continuation": 27,
+      "bull_pullback_continuation": 47,
+      "tight_range_breakout": 1
+    },
+    "20260108": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 9
+    },
+    "20260109": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 12,
+      "tight_range_breakout": 1
+    },
+    "20260112": {
+      "breakout_pullback_continuation": 20,
+      "bull_pullback_continuation": 23,
+      "tight_range_breakout": 1
+    },
+    "20260113": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 14,
+      "cross_sectional_momentum": 31,
+      "tight_range_breakout": 1
+    },
+    "20260114": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 13
+    },
+    "20260115": {
+      "breakout_pullback_continuation": 16,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 1
+    },
+    "20260116": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 2
+    },
+    "20260119": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 5
+    },
+    "20260120": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 1,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 12
+    },
+    "20260121": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 11,
+      "tight_range_breakout": 4
+    },
+    "20260122": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 18,
+      "tight_range_breakout": 6
+    },
+    "20260123": {
+      "breakout_pullback_continuation": 19,
+      "bull_pullback_continuation": 33,
+      "tight_range_breakout": 1
+    },
+    "20260126": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 23,
+      "tight_range_breakout": 2
+    },
+    "20260127": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 16,
+      "cross_sectional_momentum": 32,
+      "tight_range_breakout": 6
+    },
+    "20260128": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 15,
+      "tight_range_breakout": 1
+    },
+    "20260129": {
+      "breakout_pullback_continuation": 22,
+      "bull_pullback_continuation": 43,
+      "tight_range_breakout": 10
+    },
+    "20260130": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 2
+    },
+    "20260202": {
+      "breakout_pullback_continuation": 16,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 1
+    },
+    "20260203": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 2,
+      "cross_sectional_momentum": 31
+    },
+    "20260204": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 6
+    },
+    "20260205": {
+      "breakout_pullback_continuation": 1,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 3
+    },
+    "20260206": {
+      "breakout_pullback_continuation": 2,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 2
+    },
+    "20260209": {
+      "breakout_pullback_continuation": 1,
+      "tight_range_breakout": 3
+    },
+    "20260210": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 4,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 3
+    },
+    "20260211": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 11,
+      "tight_range_breakout": 11
+    },
+    "20260212": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 13,
+      "tight_range_breakout": 10
+    },
+    "20260213": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 8
+    },
+    "20260224": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 17,
+      "tight_range_breakout": 1
+    },
+    "20260225": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 21,
+      "tight_range_breakout": 2
+    },
+    "20260226": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 9,
+      "tight_range_breakout": 3
+    },
+    "20260227": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 4
+    },
+    "20260302": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 18,
+      "tight_range_breakout": 1
+    },
+    "20260303": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 24,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 2
+    },
+    "20260304": {
+      "breakout_pullback_continuation": 16,
+      "bull_pullback_continuation": 8
+    },
+    "20260305": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 17,
+      "tight_range_breakout": 4
+    },
+    "20260306": {
+      "breakout_pullback_continuation": 17,
+      "bull_pullback_continuation": 34
+    },
+    "20260309": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 14,
+      "tight_range_breakout": 6
+    },
+    "20260310": {
+      "breakout_pullback_continuation": 1,
+      "bull_pullback_continuation": 1,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 2
+    },
+    "20260311": {
+      "breakout_pullback_continuation": 3,
+      "bull_pullback_continuation": 14,
+      "tight_range_breakout": 13
+    },
+    "20260312": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 7
+    },
+    "20260313": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 4
+    },
+    "20260316": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 3
+    },
+    "20260317": {
+      "breakout_pullback_continuation": 2,
+      "bull_pullback_continuation": 1,
+      "cross_sectional_momentum": 30
+    },
+    "20260318": {
+      "breakout_pullback_continuation": 7,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 7
+    },
+    "20260319": {
+      "breakout_pullback_continuation": 8,
+      "tight_range_breakout": 2
+    },
+    "20260320": {
+      "breakout_pullback_continuation": 19,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 2
+    },
+    "20260323": {
+      "breakout_pullback_continuation": 24,
+      "bull_pullback_continuation": 8,
+      "tight_range_breakout": 3
+    },
+    "20260324": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 4,
+      "cross_sectional_momentum": 30
+    },
+    "20260325": {
+      "breakout_pullback_continuation": 3,
+      "bull_pullback_continuation": 3
+    },
+    "20260326": {
+      "breakout_pullback_continuation": 3,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 13
+    },
+    "20260327": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 2
+    },
+    "20260330": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 5
+    },
+    "20260331": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 4,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 4
+    },
+    "20260401": {
+      "breakout_pullback_continuation": 23,
+      "bull_pullback_continuation": 12,
+      "tight_range_breakout": 2
+    },
+    "20260402": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 1
+    },
+    "20260403": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 2
+    },
+    "20260407": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 13
+    },
+    "20260408": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 6
+    },
+    "20260409": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 9
+    },
+    "20260410": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 6,
+      "tight_range_breakout": 4
+    },
+    "20260413": {
+      "breakout_pullback_continuation": 8,
+      "bull_pullback_continuation": 4,
+      "tight_range_breakout": 1
+    },
+    "20260414": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 19,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 6
+    },
+    "20260415": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 21,
+      "tight_range_breakout": 5
+    },
+    "20260416": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 16,
+      "tight_range_breakout": 1
+    },
+    "20260417": {
+      "breakout_pullback_continuation": 10,
+      "bull_pullback_continuation": 12,
+      "tight_range_breakout": 3
+    },
+    "20260420": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 8
+    },
+    "20260421": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 5,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 8
+    },
+    "20260422": {
+      "breakout_pullback_continuation": 22,
+      "bull_pullback_continuation": 27,
+      "tight_range_breakout": 2
+    },
+    "20260423": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 9,
+      "tight_range_breakout": 6
+    },
+    "20260424": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 8
+    },
+    "20260427": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 10,
+      "tight_range_breakout": 1
+    },
+    "20260428": {
+      "breakout_pullback_continuation": 23,
+      "bull_pullback_continuation": 28,
+      "cross_sectional_momentum": 29,
+      "tight_range_breakout": 1
+    },
+    "20260429": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 11,
+      "cross_sectional_momentum": 1,
+      "tight_range_breakout": 7
+    },
+    "20260430": {
+      "breakout_pullback_continuation": 9,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 3
+    },
+    "20260506": {
+      "breakout_pullback_continuation": 19,
+      "bull_pullback_continuation": 27,
+      "tight_range_breakout": 5
+    },
+    "20260507": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 18,
+      "tight_range_breakout": 1
+    },
+    "20260508": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 2
+    },
+    "20260511": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 14,
+      "tight_range_breakout": 3
+    },
+    "20260512": {
+      "breakout_pullback_continuation": 14,
+      "bull_pullback_continuation": 19,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 1
+    },
+    "20260513": {
+      "breakout_pullback_continuation": 13,
+      "bull_pullback_continuation": 11,
+      "tight_range_breakout": 1
+    },
+    "20260514": {
+      "breakout_pullback_continuation": 11,
+      "bull_pullback_continuation": 7,
+      "tight_range_breakout": 2
+    },
+    "20260515": {
+      "breakout_pullback_continuation": 14,
+      "tight_range_breakout": 1
+    },
+    "20260518": {
+      "breakout_pullback_continuation": 12,
+      "bull_pullback_continuation": 5
+    },
+    "20260519": {
+      "breakout_pullback_continuation": 6,
+      "bull_pullback_continuation": 3,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 2
+    },
+    "20260520": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 5,
+      "tight_range_breakout": 1
+    },
+    "20260521": {
+      "breakout_pullback_continuation": 3,
+      "bull_pullback_continuation": 3,
+      "tight_range_breakout": 2
+    },
+    "20260522": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 2
+    },
+    "20260525": {
+      "breakout_pullback_continuation": 5,
+      "bull_pullback_continuation": 2,
+      "tight_range_breakout": 5
+    },
+    "20260526": {
+      "breakout_pullback_continuation": 6,
+      "cross_sectional_momentum": 30,
+      "tight_range_breakout": 7
+    },
+    "20260527": {
+      "breakout_pullback_continuation": 4,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 4
+    },
+    "20260528": {
+      "breakout_pullback_continuation": 15,
+      "bull_pullback_continuation": 1,
+      "tight_range_breakout": 3
+    },
+    "20260529": {
+      "breakout_pullback_continuation": 1,
+      "bull_pullback_continuation": 4
+    }
+  }
+}

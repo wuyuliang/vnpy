@@ -128,6 +128,7 @@ def test_prepare_strategy_data_returns_signal_daily_context_for_replay(
             "signal_high": [51.0],
             "signal_low": [49.0],
             "signal_close": [50.5],
+            "contract_code": ["BR2604.SHF"],
         }
     )
     daily_signal = pd.DataFrame(
@@ -143,14 +144,14 @@ def test_prepare_strategy_data_returns_signal_daily_context_for_replay(
     monkeypatch.setattr(
         trend_runner,
         "_aggregate_trading_day_daily_bars",
-        lambda bars, *, sessions: daily_signal.copy()
+        lambda bars, *, sessions, assignments=None: daily_signal.copy()
         if float(bars.iloc[0]["open"]) == 50.0
         else daily_signal.assign(open=100.0),
     )
     monkeypatch.setattr(
         trend_runner,
         "aggregate_completed_bars",
-        lambda bars, *, minutes, sessions: daily_signal.copy(),
+        lambda bars, *, minutes, sessions, assignments=None: daily_signal.copy(),
     )
     monkeypatch.setattr(trend_runner, "_attach_adjustment", lambda frame, minute: frame)
     monkeypatch.setattr(
@@ -3757,6 +3758,7 @@ def test_render_opportunity_charts_groups_trade_and_rejection_outcomes(
         trades=trades,
         orders=pd.DataFrame(),
         rejections=rejections,
+        render_outcomes="all",
     )
 
     assert len(index) == len(candidates) == 2

@@ -1,0 +1,684 @@
+{
+  "run_tag": "20260627",
+  "group_by": "cluster",
+  "trade_side_mode": "both",
+  "intervals": [
+    "30min",
+    "60min",
+    "day"
+  ],
+  "entries": [
+    {
+      "interval": "day",
+      "group_name": "cluster_black",
+      "pool_name": "GRP_CLUSTER_BLACK",
+      "model_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_BLACK_day_both_model_pipeline",
+      "members": [
+        {
+          "symbol": "RB0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "HC0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "I0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "JM0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "J0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "JD0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "JR0",
+          "exchange": "CZCE"
+        }
+      ]
+    },
+    {
+      "interval": "day",
+      "group_name": "cluster_agri",
+      "pool_name": "GRP_CLUSTER_AGRI",
+      "model_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_AGRI_day_both_model_pipeline",
+      "members": [
+        {
+          "symbol": "M0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "P0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "Y0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "OI0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "CF0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "SR0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "PG0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "PX0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "PF0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "PK0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "PB0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "PL0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "PR0",
+          "exchange": "CZCE"
+        }
+      ]
+    },
+    {
+      "interval": "day",
+      "group_name": "cluster_chemical",
+      "pool_name": "GRP_CLUSTER_CHEMICAL",
+      "model_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_CHEMICAL_day_both_model_pipeline",
+      "members": [
+        {
+          "symbol": "MA0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "TA0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "EG0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "PP0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "L0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "V0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "LU0",
+          "exchange": "INE"
+        },
+        {
+          "symbol": "LH0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "LG0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "LR0",
+          "exchange": "CZCE"
+        }
+      ]
+    },
+    {
+      "interval": "day",
+      "group_name": "cluster_metal",
+      "pool_name": "GRP_CLUSTER_METAL",
+      "model_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_METAL_day_both_model_pipeline",
+      "members": [
+        {
+          "symbol": "CU0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "AL0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "ZN0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "SN0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "NI0",
+          "exchange": "SHFE"
+        }
+      ]
+    },
+    {
+      "interval": "day",
+      "group_name": "cluster_precious",
+      "pool_name": "GRP_CLUSTER_PRECIOUS",
+      "model_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_PRECIOUS_day_both_model_pipeline",
+      "members": [
+        {
+          "symbol": "AU0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "AG0",
+          "exchange": "SHFE"
+        }
+      ]
+    },
+    {
+      "interval": "day",
+      "group_name": "cluster_other",
+      "pool_name": "GRP_CLUSTER_OTHER",
+      "model_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_OTHER_day_both_model_pipeline",
+      "members": [
+        {
+          "symbol": "FU0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "BU0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "SC0",
+          "exchange": "INE"
+        },
+        {
+          "symbol": "RU0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "BR0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "NR0",
+          "exchange": "INE"
+        },
+        {
+          "symbol": "C0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "CS0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "A0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "B0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "RM0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "EB0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "FG0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "SA0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "SH0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "UR0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "AO0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "SS0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "SP0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "BC0",
+          "exchange": "INE"
+        },
+        {
+          "symbol": "CJ0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "AP0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "SF0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "SM0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "BZ0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "CY0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "RS0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "RR0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "OP0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "AD0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "FB0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "RI0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "WH0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "EC0",
+          "exchange": "INE"
+        }
+      ]
+    },
+    {
+      "interval": "day",
+      "group_name": "cluster_index",
+      "pool_name": "GRP_CLUSTER_INDEX",
+      "model_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_INDEX_day_both_model_pipeline",
+      "members": [
+        {
+          "symbol": "IF0",
+          "exchange": "CFFEX"
+        },
+        {
+          "symbol": "IH0",
+          "exchange": "CFFEX"
+        },
+        {
+          "symbol": "IC0",
+          "exchange": "CFFEX"
+        },
+        {
+          "symbol": "IM0",
+          "exchange": "CFFEX"
+        }
+      ]
+    },
+    {
+      "interval": "day",
+      "group_name": "cluster_bond",
+      "pool_name": "GRP_CLUSTER_BOND",
+      "model_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_BOND_day_both_model_pipeline",
+      "members": [
+        {
+          "symbol": "T0",
+          "exchange": "CFFEX"
+        },
+        {
+          "symbol": "TF0",
+          "exchange": "CFFEX"
+        },
+        {
+          "symbol": "TS0",
+          "exchange": "CFFEX"
+        }
+      ]
+    },
+    {
+      "interval": "60min",
+      "group_name": "cluster_agri",
+      "pool_name": "GRP_CLUSTER_AGRI",
+      "model_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_AGRI_minute60_both_model_pipeline",
+      "members": [
+        {
+          "symbol": "M0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "P0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "Y0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "OI0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "CF0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "SR0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "PG0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "PX0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "PF0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "PK0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "PB0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "PL0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "PR0",
+          "exchange": "CZCE"
+        }
+      ]
+    },
+    {
+      "interval": "60min",
+      "group_name": "cluster_metal",
+      "pool_name": "GRP_CLUSTER_METAL",
+      "model_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_METAL_minute60_both_model_pipeline",
+      "members": [
+        {
+          "symbol": "CU0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "AL0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "ZN0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "SN0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "NI0",
+          "exchange": "SHFE"
+        }
+      ]
+    },
+    {
+      "interval": "60min",
+      "group_name": "cluster_precious",
+      "pool_name": "GRP_CLUSTER_PRECIOUS",
+      "model_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_PRECIOUS_minute60_both_model_pipeline",
+      "members": [
+        {
+          "symbol": "AU0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "AG0",
+          "exchange": "SHFE"
+        }
+      ]
+    },
+    {
+      "interval": "60min",
+      "group_name": "cluster_index",
+      "pool_name": "GRP_CLUSTER_INDEX",
+      "model_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_INDEX_minute60_both_model_pipeline",
+      "members": [
+        {
+          "symbol": "IF0",
+          "exchange": "CFFEX"
+        },
+        {
+          "symbol": "IH0",
+          "exchange": "CFFEX"
+        },
+        {
+          "symbol": "IC0",
+          "exchange": "CFFEX"
+        },
+        {
+          "symbol": "IM0",
+          "exchange": "CFFEX"
+        }
+      ]
+    },
+    {
+      "interval": "60min",
+      "group_name": "cluster_bond",
+      "pool_name": "GRP_CLUSTER_BOND",
+      "model_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_BOND_minute60_both_model_pipeline",
+      "members": [
+        {
+          "symbol": "T0",
+          "exchange": "CFFEX"
+        },
+        {
+          "symbol": "TF0",
+          "exchange": "CFFEX"
+        },
+        {
+          "symbol": "TS0",
+          "exchange": "CFFEX"
+        }
+      ]
+    },
+    {
+      "interval": "30min",
+      "group_name": "cluster_agri",
+      "pool_name": "GRP_CLUSTER_AGRI",
+      "model_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_AGRI_minute30_both_model_pipeline",
+      "members": [
+        {
+          "symbol": "M0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "P0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "Y0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "OI0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "CF0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "SR0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "PG0",
+          "exchange": "DCE"
+        },
+        {
+          "symbol": "PX0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "PF0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "PK0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "PB0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "PL0",
+          "exchange": "CZCE"
+        },
+        {
+          "symbol": "PR0",
+          "exchange": "CZCE"
+        }
+      ]
+    },
+    {
+      "interval": "30min",
+      "group_name": "cluster_metal",
+      "pool_name": "GRP_CLUSTER_METAL",
+      "model_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_METAL_minute30_both_model_pipeline",
+      "members": [
+        {
+          "symbol": "CU0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "AL0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "ZN0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "SN0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "NI0",
+          "exchange": "SHFE"
+        }
+      ]
+    },
+    {
+      "interval": "30min",
+      "group_name": "cluster_precious",
+      "pool_name": "GRP_CLUSTER_PRECIOUS",
+      "model_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_PRECIOUS_minute30_both_model_pipeline",
+      "members": [
+        {
+          "symbol": "AU0",
+          "exchange": "SHFE"
+        },
+        {
+          "symbol": "AG0",
+          "exchange": "SHFE"
+        }
+      ]
+    },
+    {
+      "interval": "30min",
+      "group_name": "cluster_index",
+      "pool_name": "GRP_CLUSTER_INDEX",
+      "model_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_INDEX_minute30_both_model_pipeline",
+      "members": [
+        {
+          "symbol": "IF0",
+          "exchange": "CFFEX"
+        },
+        {
+          "symbol": "IH0",
+          "exchange": "CFFEX"
+        },
+        {
+          "symbol": "IC0",
+          "exchange": "CFFEX"
+        },
+        {
+          "symbol": "IM0",
+          "exchange": "CFFEX"
+        }
+      ]
+    },
+    {
+      "interval": "30min",
+      "group_name": "cluster_bond",
+      "pool_name": "GRP_CLUSTER_BOND",
+      "model_dir": "/Users/wuyuliang/code/vnpy/cta/backtest/20260627_GRP_CLUSTER_BOND_minute30_both_model_pipeline",
+      "members": [
+        {
+          "symbol": "T0",
+          "exchange": "CFFEX"
+        },
+        {
+          "symbol": "TF0",
+          "exchange": "CFFEX"
+        },
+        {
+          "symbol": "TS0",
+          "exchange": "CFFEX"
+        }
+      ]
+    }
+  ]
+}

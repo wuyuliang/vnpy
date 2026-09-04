@@ -1,0 +1,137 @@
+schema: brooks_cycle_v1
+version: cycle_v1
+
+enabled_setups:
+  - BREAKOUT
+  - H1
+  - H2
+  - FAILED_BREAKOUT
+
+features:
+  atr_period: 14
+  adx_period: 14
+  atr_compression_window: 50
+  momentum_window: 5
+  trend_bar_min_body_ratio: 0.50
+  ema_fast: 20
+  ema_slow: 60
+  ema_slope_lookback: 5
+  structure_window: 20
+  percentile_lookback: 252
+  pivot_left: 2
+  pivot_right: 2
+  structure_pivot_count: 5
+  volume_bucket_lookback: 20
+
+cycle:
+  direction_min_pressure_margin: 0.10
+  bo_min_body_ratio: 0.60
+  bo_min_close_pos: 0.75
+  bo_min_distance_atr: 0.10
+  bo_recent_window: 3
+  bo_min_trend_bars: 2
+  bo_max_overlap: 0.55
+  bo_min_pressure: 0.65
+  breakout_tolerance_atr: 0.10
+  channel_min_bars: 5
+  tight_min_slope: 0.05
+  tight_max_median_pb_bars: 2.0
+  tight_max_pb_depth: 0.35
+  tight_ema_cross_window: 10
+  tight_max_ema_crosses: 1
+  tight_max_opposite_ratio: 0.25
+  tight_min_structure_score: 0.67
+  broad_min_slope: 0.01
+  broad_min_structure_score: 0.55
+  broad_min_efficiency: 0.25
+  range_max_abs_slope: 0.03
+  range_min_overlap: 0.60
+  range_min_direction_changes: 0.45
+  range_max_efficiency: 0.35
+  range_max_directional_strength: 0.20
+  range_window: 40
+  range_lower_zone: 0.33
+  range_upper_zone: 0.67
+  range_min_width_cost_multiple: 6.0
+  range_tight_max_width_atr: 2.5
+  use_range_aux_gate: false
+  range_max_adx_percentile: 40.0
+  range_max_atr_compression_percentile: 40.0
+  enter_score: 0.65
+  confirm_bars: 2
+  switch_margin: 0.10
+  confidence_full_margin: 0.20
+  min_state_bars: 2
+  climax_range_percentile: 95.0
+  climax_ema_distance_atr: 2.5
+  climax_cumulative_move_atr: 3.0
+  transition_min_momentum_decay: 0.35
+  transition_opposite_score: 0.65
+  transition_pressure_delta: 0.15
+  transition_score_margin: 0.05
+
+setup:
+  max_signal_bar_atr: 1.50
+  strong_opposite_body_ratio: 0.60
+  strong_opposite_close_pos: 0.70
+  max_pullback_bars: 20
+  failed_breakout_max_excursion_atr: 0.50
+  failed_breakout_min_reclaim_atr: 0.05
+  failed_breakout_min_body_ratio: 0.35
+  failed_breakout_min_close_pos: 0.60
+  wedge_min_spacing: 2
+  wedge_max_span: 20
+  wedge_max_push_acceleration: 1.10
+  wedge_min_reversal_body_ratio: 0.35
+  wedge_min_reversal_close_pos: 0.60
+  setup_expiry_bars: 3
+
+execution:
+  stop_atr_floor: 0.50
+  stop_min_ticks: 2
+  limit_entry_buffer_atr: 0.25
+  min_space_R: 1.50
+  max_cost_R: 0.25
+  min_net_reward_R: 0.75
+  swing_initial_target_R: 2.00
+  break_even_min_mfe_R: 1.00
+  runner_min_space_R: 1.00
+  max_add_ons: 0
+  add_on_min_mfe_R: 1.00
+  add_on_risk_fraction: 0.50
+
+risk:
+  risk_per_trade: 0.0200
+  max_trade_risk: 0.0200
+  min_cycle_confidence: 0.55
+  max_symbol_open_risk: 0.020
+  max_sector_open_risk: 0.040
+  max_total_open_risk: 0.050
+  max_margin_utilization: 0.40
+  max_daily_loss_soft: 0.030
+  max_daily_loss_hard: 0.05
+  max_drawdown_soft: 0.08
+  max_drawdown_hard: 0.15
+  drawdown_floor_multiplier: 0.25
+  correlation_lookback_sessions: 126
+  correlation_min_observations: 63
+  correlation_threshold: 0.70
+  max_correlation_cluster_open_risk: 0.050
+  max_single_symbol_pnl_contribution: 0.40
+  cost_stress_mult: 2.0
+
+profile:
+  small_tf_candidates: [1m]
+  medium_tf_candidates: [5m]
+  large_tf_candidates: [30m]
+  target_medium_small_ratio: 6
+  target_large_medium_ratio: 6
+  min_history_sessions: 50
+  min_intraday_history_bars: 50
+  min_large_history_bars: 25
+  min_small_bars_per_session: 6
+  min_medium_bars_per_session: 2
+  min_atr_ticks: 8.0
+  max_cost_to_atr: 0.15
+  max_zero_volume_ratio: 0.01
+  max_gap_ratio: 0.005
