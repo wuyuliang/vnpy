@@ -578,23 +578,40 @@ def _position_scaling_summary(
         )
 
     scaled_entry_count = 0
+    scaled_by_reason: dict[str, int] = {}
     if "quantity_scale" in artifacts.trades and not artifacts.trades.empty:
         scales = pd.to_numeric(
             artifacts.trades["quantity_scale"], errors="coerce"
         )
-        scaled_entry_count = int(scales.lt(1.0).sum())
+        scaled = scales.lt(1.0)
+        scaled_entry_count = int(scaled.sum())
+        if "position_scaling_reason" in artifacts.trades:
+            reasons = (
+                artifacts.trades.loc[scaled, "position_scaling_reason"]
+                .fillna("")
+                .astype(str)
+            )
+            scaled_by_reason = {
+                str(k): int(v) for k, v in reasons.value_counts().items() if k
+            }
     return {
-        "symbol_loss_streak": effective.get("symbol_loss_streak"),
-        "symbol_position_scale": effective.get("symbol_position_scale"),
-        "portfolio_drawdown_threshold": effective.get(
-            "portfolio_drawdown_threshold"
+        # 真正决定手数的回撤减仓机制
+        "drawdown_scale_threshold": effective.get("drawdown_scale_threshold"),
+        "drawdown_scale_release": effective.get("drawdown_scale_release"),
+        "drawdown_scale_factor": effective.get("drawdown_scale_factor"),
+        "position_scale_min_one_lot": effective.get(
+            "position_scale_min_one_lot"
         ),
-        "portfolio_position_scale": effective.get("portfolio_position_scale"),
+        "drawdown_trigger_count": event_count("DRAWDOWN", "TRIGGER"),
+        "drawdown_recovery_count": event_count("DRAWDOWN", "RECOVER"),
+        # 品种连亏冷却：只影响是否开仓，不改手数
+        "symbol_loss_streak": effective.get("symbol_loss_streak"),
         "symbol_trigger_count": event_count("SYMBOL", "TRIGGER"),
-        "portfolio_trigger_count": event_count("PORTFOLIO", "TRIGGER"),
         "symbol_recovery_count": event_count("SYMBOL", "RECOVER"),
+        "portfolio_trigger_count": event_count("PORTFOLIO", "TRIGGER"),
         "portfolio_recovery_count": event_count("PORTFOLIO", "RECOVER"),
         "scaled_entry_count": scaled_entry_count,
+        "scaled_entry_by_reason": scaled_by_reason,
     }
 
 
@@ -757,23 +774,39 @@ def _render_report(summary: Mapping[str, Any]) -> str:
                 "",
                 "## 动态仓位",
                 "",
-                "- 品种连续亏损触发笔数："
+                "- 回撤减仓阈值："
+                + _format_value(
+                    scaling.get("drawdown_scale_threshold"), "percent"
+                ),
+                "- 回撤恢复阈值："
+                + _format_value(
+                    scaling.get("drawdown_scale_release"), "percent"
+                ),
+                "- 减仓系数："
+                + _format_value(scaling.get("drawdown_scale_factor"), "ratio"),
+                "- 缩放后不足一手时向上取整："
+                + _format_value(
+                    scaling.get("position_scale_min_one_lot"), "flag"
+                ),
+                "- 回撤减仓触发/恢复次数："
+                + _format_value(scaling.get("drawdown_trigger_count"), "count")
+                + "/"
+                + _format_value(
+                    scaling.get("drawdown_recovery_count"), "count"
+                ),
+                "- 使用缩放仓位的成交笔数："
+                + _format_value(scaling.get("scaled_entry_count"), "count")
+                + _scaled_reason_suffix(scaling.get("scaled_entry_by_reason")),
+                "",
+                "以下计数只影响是否开仓，不改变手数：",
+                "",
+                "- 品种连续亏损冷却笔数："
                 + _format_value(scaling.get("symbol_loss_streak"), "count"),
-                "- 品种缩放系数："
-                + _format_value(scaling.get("symbol_position_scale"), "ratio"),
-                "- 组合回撤触发阈值："
-                + _format_value(
-                    scaling.get("portfolio_drawdown_threshold"), "percent"
-                ),
-                "- 组合缩放系数："
-                + _format_value(
-                    scaling.get("portfolio_position_scale"), "ratio"
-                ),
-                "- 品种触发/恢复次数："
+                "- 品种冷却触发/恢复次数："
                 + _format_value(scaling.get("symbol_trigger_count"), "count")
                 + "/"
                 + _format_value(scaling.get("symbol_recovery_count"), "count"),
-                "- 组合触发/恢复次数："
+                "- 组合冷却触发/恢复次数："
                 + _format_value(
                     scaling.get("portfolio_trigger_count"), "count"
                 )
@@ -781,8 +814,6 @@ def _render_report(summary: Mapping[str, Any]) -> str:
                 + _format_value(
                     scaling.get("portfolio_recovery_count"), "count"
                 ),
-                "- 使用缩放仓位的成交笔数："
-                + _format_value(scaling.get("scaled_entry_count"), "count"),
             ]
         )
     lines.extend(
@@ -798,8 +829,29 @@ def _render_report(summary: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _scaled_reason_suffix(by_reason: object) -> str:
+    """Spell out which mechanism actually reduced size.
+
+    Without this the report can show a scaled-entry count next to a set of
+    counters that never touch position size, which reads as a contradiction.
+    """
+    if not isinstance(by_reason, Mapping) or not by_reason:
+        return ""
+    parts = [
+        f"{key} {int(value)}"
+        for key, value in sorted(
+            by_reason.items(), key=lambda item: (-int(item[1]), str(item[0]))
+        )
+    ]
+    return "（" + "，".join(parts) + "）"
+
+
 def _format_value(value: object, kind: str) -> str:
     if value is None:
+        return "N/A"
+    if kind == "flag":
+        if isinstance(value, bool):
+            return "是" if value else "否"
         return "N/A"
     try:
         number = float(value)

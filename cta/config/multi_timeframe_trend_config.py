@@ -48,6 +48,16 @@ class MultiTimeframeTrendConfig:
     symbol_loss_cooldown_enabled: bool = True
     symbol_loss_pair_window_hours: int = 48
     symbol_loss_cooldown_hours: int = 24
+    # 组合回撤分档减仓（无"必须全额赚回"的释放条件，改用迟滞带）：
+    # 回撤 > drawdown_scale_threshold 进入减仓，回落到 < drawdown_scale_release 恢复满仓。
+    # drawdown_scale_threshold = 0 表示关闭。
+    drawdown_scale_threshold: float = 0.02
+    drawdown_scale_release: float = 0.01
+    drawdown_scale_factor: float = 0.5
+    # 任何来源的缩放（品种/组合/回撤）把手数压到不足 1 手时，向上取整到 1 手而不是拒单。
+    # 不开这个的话，AG/AU/SC 这类高价值合约本来就常常只有 1 手，
+    # 一减仓就变 0 手被拒——等于在回撤里优先淘汰最赚钱的品种。
+    position_scale_min_one_lot: bool = True
     symbol_position_scale: float = 1.0
     portfolio_drawdown_threshold: float = 0.01
     portfolio_position_scale: float = 1.0
@@ -77,6 +87,16 @@ class MultiTimeframeTrendConfig:
     entry_range_lookback_days: int = 2
     max_entry_range_position: float = 0.85
     min_entry_range_width_atr: float = 2.0
+    # 跟踪止盈地板：峰值浮盈按 1 分钟 K 线极值确认，地板自下一分钟起生效。
+    # floor_R = max(0, peak_R - max(profit_floor_giveback_r,
+    #                               profit_floor_giveback_pct * peak_R))
+    # 峰值未达 profit_floor_arm_r 之前不启用——否则 peak<giveback_r 时地板恒为 0，
+    # 退化成保本止损，实测会把大量小幅浮盈的仓位过早扫出去。
+    profit_floor_enabled: bool = True
+    profit_floor_arm_r: float = 0.5
+    profit_floor_giveback_r: float = 1.0
+    profit_floor_giveback_pct: float = 0.25
+    profit_floor_extra_slippage_ticks: int = 1
     # 追高影子单：被区间位置闸门拦下的候选继续做虚拟单，组合层最近 N 笔虚拟净 R
     # 超过阈值时重新放行真实追高单。0 笔回看或未启用时一律不放行。
     # 是否允许开闸放行**真实**追高单。实测（r4_fixed vs 追高关闭）追高整体为负，
@@ -232,6 +252,26 @@ class MultiTimeframeTrendConfig:
             or self.symbol_loss_cooldown_hours <= 0
         ):
             raise ValueError("symbol_loss_cooldown_hours must be a positive int")
+        for name in ("drawdown_scale_threshold", "drawdown_scale_release"):
+            value = float(getattr(self, name))
+            if not math.isfinite(value) or not 0 <= value < 1:
+                raise ValueError(f"{name} must be finite and in [0, 1)")
+            object.__setattr__(self, name, value)
+        if float(self.drawdown_scale_threshold) > 0 and not (
+            float(self.drawdown_scale_release)
+            < float(self.drawdown_scale_threshold)
+        ):
+            raise ValueError(
+                "drawdown_scale_release must be below drawdown_scale_threshold "
+                "so the band has hysteresis instead of flapping on one level"
+            )
+        if not 0 < float(self.drawdown_scale_factor) <= 1:
+            raise ValueError("drawdown_scale_factor must be in (0, 1]")
+        object.__setattr__(
+            self, "drawdown_scale_factor", float(self.drawdown_scale_factor)
+        )
+        if type(self.position_scale_min_one_lot) is not bool:
+            raise ValueError("position_scale_min_one_lot must be bool")
         if not 0 < float(self.symbol_position_scale) <= 1:
             raise ValueError("symbol_position_scale must be in (0, 1]")
         if not 0 < float(self.portfolio_drawdown_threshold) <= 1:
@@ -322,6 +362,26 @@ class MultiTimeframeTrendConfig:
             or self.entry_range_lookback_days <= 0
         ):
             raise ValueError("entry_range_lookback_days must be a positive int")
+        if type(self.profit_floor_enabled) is not bool:
+            raise ValueError("profit_floor_enabled must be bool")
+        for name in ("profit_floor_arm_r", "profit_floor_giveback_r"):
+            value = float(getattr(self, name))
+            if not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be finite and nonnegative")
+            object.__setattr__(self, name, value)
+        if float(self.profit_floor_giveback_r) <= 0:
+            raise ValueError("profit_floor_giveback_r must be positive")
+        pct = float(self.profit_floor_giveback_pct)
+        if not math.isfinite(pct) or not 0 < pct < 1:
+            raise ValueError("profit_floor_giveback_pct must be in (0, 1)")
+        object.__setattr__(self, "profit_floor_giveback_pct", pct)
+        if (
+            type(self.profit_floor_extra_slippage_ticks) is not int
+            or self.profit_floor_extra_slippage_ticks < 0
+        ):
+            raise ValueError(
+                "profit_floor_extra_slippage_ticks must be a nonnegative int"
+            )
         if type(self.chase_high_entry_enabled) is not bool:
             raise ValueError("chase_high_entry_enabled must be bool")
         if type(self.chase_high_virtual_enabled) is not bool:

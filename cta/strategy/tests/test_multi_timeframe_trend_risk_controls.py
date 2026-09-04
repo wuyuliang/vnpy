@@ -468,6 +468,8 @@ _OPEN_WINDOWS = dict(
     entry_blocked_session_windows=(),
     daily_circuit_breaker_enabled=False,
     max_positions_per_sector=99,
+    # 这些用例测的是跨休市保护与板块限额，止盈地板会抢先平仓，先关掉
+    profit_floor_enabled=False,
 )
 
 

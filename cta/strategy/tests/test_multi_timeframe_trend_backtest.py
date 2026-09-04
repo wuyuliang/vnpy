@@ -1696,6 +1696,10 @@ def test_replay_scales_entry_when_symbol_and_portfolio_states_are_active() -> No
     triggers = artifacts.position_scaling_events.query(
         "event_type == 'TRIGGER'"
     )
+    # 新增了 DRAWDOWN 这个缩放来源，这里只断言原有两个来源仍在
+    triggers = artifacts.position_scaling_events.query(
+        "event_type == 'TRIGGER' and scope in ['SYMBOL', 'PORTFOLIO']"
+    )
     assert set(triggers["scope"]) == {"SYMBOL", "PORTFOLIO"}
     assert set(triggers["candidate_id"]) == {"AG-000002"}
 
@@ -1803,6 +1807,8 @@ def test_replay_rejects_dynamic_scale_below_one_lot() -> None:
     config = MultiTimeframeTrendConfig(
         symbol_position_scale=0.1,
         portfolio_position_scale=0.1,
+        # 本用例测的正是"缩放到不足一手就拒单"的旧行为
+        position_scale_min_one_lot=False,
     )
 
     artifacts = _replay(
@@ -2290,6 +2296,7 @@ def test_portfolio_reduces_newest_positions_ten_minutes_before_close() -> None:
         ),
         config=MultiTimeframeTrendConfig(
             pre_break_protection_enabled=False,
+            profit_floor_enabled=False,
             entry_blocked_session_windows=(),
             daily_circuit_breaker_enabled=False,
             max_positions_per_sector=99,
@@ -2407,6 +2414,7 @@ def test_portfolio_reduces_only_required_lots_ten_minutes_before_close(
         metadata_store=store,
         config=MultiTimeframeTrendConfig(
             pre_break_protection_enabled=False,
+            profit_floor_enabled=False,
             entry_blocked_session_windows=(),
             daily_circuit_breaker_enabled=False,
             max_positions_per_sector=99,
@@ -2688,6 +2696,7 @@ def test_overnight_reduction_keeps_newest_first_when_cutoff_bar_is_missing() -> 
         ),
         config=MultiTimeframeTrendConfig(
             pre_break_protection_enabled=False,
+            profit_floor_enabled=False,
             entry_blocked_session_windows=(),
             daily_circuit_breaker_enabled=False,
             max_positions_per_sector=99,
@@ -2764,6 +2773,7 @@ def test_portfolio_overnight_reduction_considers_all_tradeable_positions() -> No
         ),
         config=MultiTimeframeTrendConfig(
             pre_break_protection_enabled=False,
+            profit_floor_enabled=False,
             entry_blocked_session_windows=(),
             daily_circuit_breaker_enabled=False,
             max_positions_per_sector=99,
@@ -2820,6 +2830,7 @@ def test_portfolio_overnight_reduction_retries_after_limit_lock() -> None:
         ),
         config=MultiTimeframeTrendConfig(
             pre_break_protection_enabled=False,
+            profit_floor_enabled=False,
             entry_blocked_session_windows=(),
             daily_circuit_breaker_enabled=False,
             max_positions_per_sector=99,
@@ -2884,6 +2895,7 @@ def test_protective_stop_overrides_pending_overnight_partial_reduction() -> None
         ),
         config=MultiTimeframeTrendConfig(
             pre_break_protection_enabled=False,
+            profit_floor_enabled=False,
             entry_blocked_session_windows=(),
             daily_circuit_breaker_enabled=False,
             max_positions_per_sector=99,
@@ -2939,6 +2951,7 @@ def test_limit_locked_stop_replaces_pending_overnight_partial_reduction() -> Non
         ),
         config=MultiTimeframeTrendConfig(
             pre_break_protection_enabled=False,
+            profit_floor_enabled=False,
             entry_blocked_session_windows=(),
             daily_circuit_breaker_enabled=False,
             max_positions_per_sector=99,
@@ -3120,9 +3133,10 @@ def test_report_contains_metrics_command_and_audit_tables(tmp_path) -> None:
             "loaded_symbols": ["AG0.SHFE"],
             "position_scaling_config": {
                 "symbol_loss_streak": 2,
-                "symbol_position_scale": 0.5,
-                "portfolio_drawdown_threshold": 0.01,
-                "portfolio_position_scale": 0.5,
+                "drawdown_scale_threshold": 0.02,
+                "drawdown_scale_release": 0.01,
+                "drawdown_scale_factor": 0.5,
+                "position_scale_min_one_lot": True,
             },
         },
         reproduction_command={
@@ -3180,15 +3194,21 @@ def test_report_contains_metrics_command_and_audit_tables(tmp_path) -> None:
         "OVERNIGHT_REDUCTION_LIMIT_LOCKED": 1,
     }
     assert summary["position_scaling"] == {
+        # 真正决定手数的回撤减仓机制
+        "drawdown_scale_threshold": 0.02,
+        "drawdown_scale_release": 0.01,
+        "drawdown_scale_factor": 0.5,
+        "position_scale_min_one_lot": True,
+        "drawdown_trigger_count": 0,
+        "drawdown_recovery_count": 0,
+        # 冷却类计数：只影响是否开仓，不改手数
         "symbol_loss_streak": 2,
-        "symbol_position_scale": 0.5,
-        "portfolio_drawdown_threshold": 0.01,
-        "portfolio_position_scale": 0.5,
         "symbol_trigger_count": 0,
         "portfolio_trigger_count": 0,
         "symbol_recovery_count": 0,
         "portfolio_recovery_count": 0,
         "scaled_entry_count": 0,
+        "scaled_entry_by_reason": {},
     }
     fee_audit = pd.read_csv(output / "fee_audit.csv")
     exit_legs = pd.read_csv(output / "exit_legs.csv")

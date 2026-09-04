@@ -575,11 +575,17 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
         },
         "position_scaling_config": {
             "symbol_loss_streak": config.symbol_loss_streak,
-            "symbol_position_scale": config.symbol_position_scale,
-            "portfolio_drawdown_threshold": (
+            # 真正驱动减仓的三个参数
+            "drawdown_scale_threshold": config.drawdown_scale_threshold,
+            "drawdown_scale_release": config.drawdown_scale_release,
+            "drawdown_scale_factor": config.drawdown_scale_factor,
+            "position_scale_min_one_lot": config.position_scale_min_one_lot,
+            # 以下为历史遗留字段，已不参与减仓判定，仅为向后兼容保留
+            "legacy_symbol_position_scale": config.symbol_position_scale,
+            "legacy_portfolio_drawdown_threshold": (
                 config.portfolio_drawdown_threshold
             ),
-            "portfolio_position_scale": config.portfolio_position_scale,
+            "legacy_portfolio_position_scale": config.portfolio_position_scale,
         },
         "symbol_loss_cooldown_config": {
             "enabled": config.symbol_loss_cooldown_enabled,

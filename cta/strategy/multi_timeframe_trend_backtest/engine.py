@@ -268,6 +268,7 @@ class _Position:
     is_first_trade_in_trend_segment: int
     trigger_to_prior_5d_high_ratio: float
     opened_via_chase_gate: bool = False
+    profit_floor_price: float = math.nan
     exit_legs: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -390,6 +391,114 @@ def _advance_open_position_context(
     return ""
 
 
+def _position_point_value(position: _Position) -> float:
+    """每一个价格点对应的现金金额。"""
+    return float(position.quantity) * float(
+        position.current_metadata.contract_size
+    )
+
+
+def _price_for_unrealized_r(position: _Position, target_r: float) -> float:
+    """把以 R 表示的浮盈换算成价格。"""
+    risk = float(position.initial_risk_cash)
+    value = _position_point_value(position)
+    if not np.isfinite(risk) or risk <= 0 or value <= 0:
+        return math.nan
+    direction = int(position.pending.candidate["direction"])
+    return float(position.entry_price) + direction * target_r * risk / value
+
+
+def _peak_unrealized_r(position: _Position) -> float:
+    """已确认的峰值浮盈（R）。极值由 ``_update_excursions`` 按 1 分钟 K 线的
+    最高价（多头）/最低价（空头）维护。"""
+    risk = float(position.initial_risk_cash)
+    value = _position_point_value(position)
+    if not np.isfinite(risk) or risk <= 0 or value <= 0:
+        return math.nan
+    direction = int(position.pending.candidate["direction"])
+    move = direction * (
+        float(position.maximum_favorable_price) - float(position.entry_price)
+    )
+    return move * value / risk
+
+
+def _refresh_profit_floor(
+    position: _Position,
+    config: MultiTimeframeTrendConfig,
+) -> None:
+    """按当前峰值浮盈重算止盈地板，供**下一根** K 线使用。
+
+    地板只上抬不下移：峰值本身单调不减，所以地板天然单调，但显式取 max 以防
+    合约乘数或手数在减仓后变化时地板意外回落。
+    """
+    if not config.profit_floor_enabled:
+        return
+    peak_r = _peak_unrealized_r(position)
+    if not np.isfinite(peak_r) or peak_r < float(config.profit_floor_arm_r):
+        return
+    giveback = max(
+        float(config.profit_floor_giveback_r),
+        float(config.profit_floor_giveback_pct) * peak_r,
+    )
+    floor_r = max(0.0, peak_r - giveback)
+    price = _price_for_unrealized_r(position, floor_r)
+    if not np.isfinite(price):
+        return
+    direction = int(position.pending.candidate["direction"])
+    current = position.profit_floor_price
+    if not np.isfinite(current):
+        position.profit_floor_price = price
+    elif direction > 0:
+        position.profit_floor_price = max(current, price)
+    else:
+        position.profit_floor_price = min(current, price)
+
+
+def _profit_floor_touched(position: _Position, bar: Any) -> bool:
+    """地板是否被击穿。用上一根 K 线收盘后确认的地板，所以最早在设定峰值的
+    下一分钟才可能触发。"""
+    floor = float(position.profit_floor_price)
+    if not np.isfinite(floor):
+        return False
+    direction = int(position.pending.candidate["direction"])
+    if direction > 0:
+        return float(bar["low"]) <= floor
+    return float(bar["high"]) >= floor
+
+
+def _profit_floor_exit(
+    position: _Position,
+    bar: Any,
+    *,
+    metadata: Any,
+    config: MultiTimeframeTrendConfig,
+) -> tuple[str, float, float]:
+    """按市价单成交，在既有滑点模型之上再加 ``profit_floor_extra_slippage_ticks`` 档。
+
+    地板被击穿时价格通常正在快速回落，按地板价原价成交是偏乐观的，
+    额外一档滑点是刻意的保守处理。
+    """
+    if _protective_limit_locked(
+        bar, metadata, int(position.pending.candidate["direction"])
+    ):
+        return "", math.nan, math.nan
+    direction = int(position.pending.candidate["direction"])
+    floor = float(position.profit_floor_price)
+    reference = (
+        min(float(bar["open"]), floor)
+        if direction > 0
+        else max(float(bar["open"]), floor)
+    )
+    price = _market_exit_price(position, reference, metadata)
+    tick = float(metadata.price_tick)
+    extra = int(config.profit_floor_extra_slippage_ticks)
+    if extra > 0 and np.isfinite(tick) and tick > 0:
+        price = _round_adverse(
+            price - direction * extra * tick, tick, -direction
+        )
+    return "PROFIT_FLOOR", price, reference
+
+
 def _manage_open_position(
     position: _Position,
     bar: Any,
@@ -399,13 +508,54 @@ def _manage_open_position(
     exchange: str,
     pending_reason: str,
     protective_first: bool,
+    config: MultiTimeframeTrendConfig,
 ) -> _PositionExitDecision:
-    """Resolve pending and protective exits without mutating account state."""
+    """Resolve pending and protective exits without mutating account state.
+
+    止盈地板先于极值更新判定：地板来自**上一根** K 线收盘后确认的峰值，
+    所以最早只能在设定峰值的下一分钟触发，不会用当根自己的最高价反过来平自己。
+    """
+    floor_touched = (
+        config.profit_floor_enabled
+        and pending_reason != "ROLL_MAPPING_CHANGED"
+        and _profit_floor_touched(position, bar)
+    )
     _update_excursions(position, bar)
+    _refresh_profit_floor(position, config)
     protective_touched = (
         pending_reason != "ROLL_MAPPING_CHANGED"
         and _protective_exit_touched(position, bar)
     )
+    if floor_touched:
+        direction = int(position.pending.candidate["direction"])
+        floor = float(position.profit_floor_price)
+        stop = float(position.stop)
+        # 两个价位同根都被触及时，先被打到的那个成交。多头地板在止损之上，
+        # 价格是先穿地板再穿止损，按地板成交才是时序正确的。
+        floor_first = (
+            floor >= stop if direction > 0 else floor <= stop
+        )
+        if floor_first or not protective_touched:
+            metadata = _exit_metadata_snapshot(
+                metadata_store,
+                root_symbol=root_symbol,
+                exchange=exchange,
+                position=position,
+                bar=bar,
+            )
+            reason, price, reference = _profit_floor_exit(
+                position, bar, metadata=metadata, config=config
+            )
+            if reason:
+                return _PositionExitDecision(
+                    reason, price, reference, metadata, pending_reason
+                )
+            # 涨跌停锁板：退化成待执行的市价平仓，下一根再试
+            return _PositionExitDecision(
+                metadata=metadata,
+                pending_reason=pending_reason or "PROFIT_FLOOR",
+                limit_locked=True,
+            )
     if not pending_reason and not protective_touched:
         return _PositionExitDecision(pending_reason=pending_reason)
     metadata = _exit_metadata_snapshot(
@@ -565,6 +715,42 @@ class _SymbolScalingState:
     consecutive_losses: int = 0
     consecutive_loss_cash: float = 0.0
     recovery_deficit: float = 0.0
+
+
+@dataclass
+class _DrawdownScalingState:
+    """Hysteresis band on realized-equity drawdown.
+
+    The older portfolio scaler releases only once the whole loss has been earned
+    back, which in practice never releases: on the 2026H1 run it triggered at
+    1.23% drawdown on 01-26 and was still active on 06-03. This one enters above
+    ``drawdown_scale_threshold`` and leaves below ``drawdown_scale_release``,
+    so it recovers on its own and cannot latch.
+    """
+
+    high_water: float
+    active: bool = False
+
+    def drawdown(self, cash: float) -> float:
+        if self.high_water <= 0:
+            return 0.0
+        return max(0.0, (self.high_water - cash) / self.high_water)
+
+    def advance(self, cash: float, config: MultiTimeframeTrendConfig) -> bool:
+        """Fold realized equity in; return True when the active flag changed."""
+        self.high_water = max(self.high_water, float(cash))
+        threshold = float(config.drawdown_scale_threshold)
+        if threshold <= 0:
+            changed = self.active
+            self.active = False
+            return changed
+        level = self.drawdown(cash)
+        was_active = self.active
+        if not self.active and level > threshold:
+            self.active = True
+        elif self.active and level < float(config.drawdown_scale_release):
+            self.active = False
+        return self.active != was_active
 
 
 @dataclass
@@ -1027,6 +1213,39 @@ def _update_symbol_scaling_after_trade(
 
 
 
+def _record_drawdown_scaling(
+    state: _DrawdownScalingState,
+    *,
+    cash: float,
+    timestamp: pd.Timestamp,
+    candidate_id: str,
+    net_pnl: float,
+    config: MultiTimeframeTrendConfig,
+    event_rows: list[dict[str, Any]],
+) -> None:
+    """Advance the drawdown band and audit any state change."""
+    if not state.advance(cash, config):
+        return
+    event_rows.append(
+        {
+            "event_time": timestamp,
+            "sequence": len(event_rows) + 1,
+            "scope": "DRAWDOWN",
+            "symbol": "",
+            "event_type": "TRIGGER" if state.active else "RECOVER",
+            "candidate_id": candidate_id,
+            "net_pnl": net_pnl,
+            "realized_cash": cash,
+            "high_water": state.high_water,
+            "drawdown_fraction": state.drawdown(cash),
+            "position_scale": (
+                config.drawdown_scale_factor if state.active else 1.0
+            ),
+            "recovery_deficit": max(0.0, state.high_water - cash),
+        }
+    )
+
+
 def _update_portfolio_scaling_after_exit(
     *,
     candidate_id: str,
@@ -1083,18 +1302,32 @@ def _position_scaling_snapshot(
     symbol_state: _SymbolScalingState,
     portfolio_state: _PortfolioScalingState,
     config: MultiTimeframeTrendConfig,
+    drawdown_state: "_DrawdownScalingState | None" = None,
 ) -> tuple[int, float, float, float, str]:
     symbol_factor = config.symbol_position_scale if symbol_state.active else 1.0
     portfolio_factor = (
         config.portfolio_position_scale if portfolio_state.active else 1.0
     )
-    quantity_scale = symbol_factor * portfolio_factor
+    drawdown_active = bool(drawdown_state is not None and drawdown_state.active)
+    drawdown_factor = config.drawdown_scale_factor if drawdown_active else 1.0
+    quantity_scale = symbol_factor * portfolio_factor * drawdown_factor
     scaled_quantity = math.floor(base_quantity * quantity_scale)
+    if (
+        config.position_scale_min_one_lot
+        and scaled_quantity < 1
+        and base_quantity >= 1
+        and quantity_scale > 0
+    ):
+        # 高价值合约（AG/AU/SC）常常本来就只有 1 手，向下取整会直接把它们减成 0 手
+        # 而被拒单，等于在回撤里优先淘汰最赚钱的品种。
+        scaled_quantity = 1
     reasons = []
     if symbol_state.active:
         reasons.append("SYMBOL")
     if portfolio_state.active:
         reasons.append("PORTFOLIO")
+    if drawdown_active:
+        reasons.append("DRAWDOWN")
     return (
         scaled_quantity,
         symbol_factor,
@@ -1140,6 +1373,7 @@ def replay_trend_strategy(
     cash = float(initial_equity)
     symbol_scaling = _SymbolScalingState()
     portfolio_scaling = _PortfolioScalingState(high_water=cash)
+    drawdown_scaling = _DrawdownScalingState(high_water=cash)
     pending: _PendingOrder | None = None
     position: _Position | None = None
     filled_bull_trend_ids: set[int] = set()
@@ -1190,6 +1424,7 @@ def replay_trend_strategy(
                 exchange=exchange,
                 pending_reason=pending_market_exit,
                 protective_first=False,
+                config=config,
             )
             if exit_decision.reason:
                 trade, fill, leg = _close_position(
@@ -1210,6 +1445,15 @@ def replay_trend_strategy(
                     timestamp=timestamp,
                     cash=cash,
                     portfolio_state=portfolio_scaling,
+                    config=config,
+                    event_rows=scaling_event_rows,
+                )
+                _record_drawdown_scaling(
+                    drawdown_scaling,
+                    cash=cash,
+                    timestamp=timestamp,
+                    candidate_id=str(leg["candidate_id"]),
+                    net_pnl=float(leg["net_pnl"]),
                     config=config,
                     event_rows=scaling_event_rows,
                 )
@@ -1290,6 +1534,7 @@ def replay_trend_strategy(
                     symbol_state=symbol_scaling,
                     portfolio_state=portfolio_scaling,
                     config=config,
+                    drawdown_state=drawdown_scaling,
                 )
                 if quantity < 1:
                     reason = "DYNAMIC_RISK_SCALE_BELOW_ONE_LOT"
@@ -1464,6 +1709,15 @@ def replay_trend_strategy(
             config=config,
             event_rows=scaling_event_rows,
         )
+        _record_drawdown_scaling(
+            drawdown_scaling,
+            cash=cash,
+            timestamp=timestamp,
+            candidate_id=str(leg["candidate_id"]),
+            net_pnl=float(leg["net_pnl"]),
+            config=config,
+            event_rows=scaling_event_rows,
+        )
         if trade is None:
             raise RuntimeError("interval-end liquidation must close the position")
         trade_rows.append(trade)
@@ -1594,6 +1848,7 @@ def replay_trend_portfolio(
         root: _SymbolLossCooldownState() for root in roots
     }
     portfolio_scaling = _PortfolioScalingState(high_water=cash)
+    drawdown_scaling = _DrawdownScalingState(high_water=cash)
     pending: dict[str, _PendingOrder] = {}
     positions: dict[str, _Position] = {}
     filled_bull_trend_ids: dict[str, set[int]] = {
@@ -1781,6 +2036,7 @@ def replay_trend_portfolio(
                 exchange=definition.exchange,
                 pending_reason=pending_reason,
                 protective_first=True,
+                config=config,
             )
             if (
                 exit_decision.limit_locked
@@ -1828,6 +2084,15 @@ def replay_trend_portfolio(
                 timestamp=timestamp,
                 cash=cash,
                 portfolio_state=portfolio_scaling,
+                config=config,
+                event_rows=scaling_event_rows,
+            )
+            _record_drawdown_scaling(
+                drawdown_scaling,
+                cash=cash,
+                timestamp=timestamp,
+                candidate_id=str(leg["candidate_id"]),
+                net_pnl=float(leg["net_pnl"]),
                 config=config,
                 event_rows=scaling_event_rows,
             )
@@ -2094,6 +2359,7 @@ def replay_trend_portfolio(
                 symbol_state=symbol_scaling[root_symbol],
                 portfolio_state=portfolio_scaling,
                 config=config,
+                drawdown_state=drawdown_scaling,
             )
             if scaled_quantity < 1:
                 reason = "DYNAMIC_RISK_SCALE_BELOW_ONE_LOT"
@@ -2479,6 +2745,15 @@ def replay_trend_portfolio(
             timestamp=timestamp,
             cash=cash,
             portfolio_state=portfolio_scaling,
+            config=config,
+            event_rows=scaling_event_rows,
+        )
+        _record_drawdown_scaling(
+            drawdown_scaling,
+            cash=cash,
+            timestamp=timestamp,
+            candidate_id=str(leg["candidate_id"]),
+            net_pnl=float(leg["net_pnl"]),
             config=config,
             event_rows=scaling_event_rows,
         )

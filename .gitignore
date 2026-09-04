@@ -5,6 +5,7 @@ cta/data_code/finished.csv
 cta/report/backtest
 cta/strategy/report/
 stock/report
+cta/.claude
 *.csv
 
 # Credentials (NEVER commit real CTP/SimNow accounts)
