@@ -29,6 +29,7 @@ import glob
 import json
 import os
 from pathlib import Path
+import re
 
 import pandas as pd
 
@@ -47,6 +48,8 @@ TURNOVER_COLUMNS = (
 )
 DATE_SEMANTICS = "exchange_trade_date"
 _EXCHANGE_ALIASES = {"CFX": "CFFEX", "CZC": "CZCE", "SHF": "SHFE", "ZCE": "CZCE"}
+# 连续合约文件名：品种代码 + 结尾的 0，例如 RB0.csv / AU0.csv
+_CONTINUOUS_SYMBOL_PATTERN = re.compile(r"^[A-Z]{1,3}0$")
 
 
 def _parse_date(value: str, label: str) -> date:
@@ -59,7 +62,11 @@ def _parse_date(value: str, label: str) -> date:
 def _load_contract_size_history(meta_cache_root: str | Path) -> pd.DataFrame:
     """Load dated multiplier records from every valid metadata bundle."""
     records: list[pd.DataFrame] = []
-    for path in sorted(Path(meta_cache_root).glob("*/contract_specs.csv")):
+    root = Path(meta_cache_root)
+    paths = sorted(root.glob("*/contract_specs.csv")) + sorted(
+        root.glob("contract_specs.csv")
+    )
+    for path in paths:
         try:
             frame = pd.read_csv(path)
         except (OSError, ValueError):
@@ -68,25 +75,29 @@ def _load_contract_size_history(meta_cache_root: str | Path) -> pd.DataFrame:
         if not required.issubset(frame.columns):
             continue
         if "known_at" not in frame.columns and "effective_from" not in frame.columns:
-            continue
-        known = pd.to_datetime(
-            frame.get("known_at", frame.get("effective_from")),
-            errors="coerce",
-            utc=True,
-        )
-        effective = pd.to_datetime(
-            frame.get("effective_from", frame.get("known_at")),
-            errors="coerce",
-            utc=True,
-        )
+            known_date = pd.Series(date.min, index=frame.index)
+            effective_date = known_date
+        else:
+            known = pd.to_datetime(
+                frame.get("known_at", frame.get("effective_from")),
+                errors="coerce",
+                utc=True,
+            )
+            effective = pd.to_datetime(
+                frame.get("effective_from", frame.get("known_at")),
+                errors="coerce",
+                utc=True,
+            )
+            known_date = known.dt.date
+            effective_date = effective.dt.date
         part = pd.DataFrame(
             {
                 "root_symbol": frame["root_symbol"].astype(str).str.upper(),
                 "contract_size": pd.to_numeric(
                     frame["contract_size"], errors="coerce"
                 ),
-                "known_date": known.dt.date,
-                "effective_date": effective.dt.date,
+                "known_date": known_date,
+                "effective_date": effective_date,
                 "source_path": str(path),
             }
         ).dropna(
@@ -141,7 +152,7 @@ def _contract_sizes_asof(
 def load_contract_sizes(
     meta_cache_root: str | Path,
     *,
-    as_of: date,
+    as_of: date = date.max,
 ) -> dict[str, float]:
     """Map roots to multipliers known and effective by the target date."""
     return _contract_sizes_asof(
@@ -153,7 +164,10 @@ def load_contract_sizes(
 def _load_next_open_dates(meta_cache_root: Path) -> dict[tuple[str, date], date]:
     values: dict[tuple[str, date], date] = {}
     ambiguous: set[tuple[str, date]] = set()
-    for path in sorted(meta_cache_root.glob("*/exchange_calendar.csv")):
+    calendars = sorted(meta_cache_root.glob("*/exchange_calendar.csv")) + sorted(
+        meta_cache_root.glob("exchange_calendar.csv")
+    )
+    for path in calendars:
         try:
             frame = pd.read_csv(path)
         except (OSError, ValueError):
@@ -183,22 +197,69 @@ def _load_next_open_dates(meta_cache_root: Path) -> dict[tuple[str, date], date]
     return values
 
 
+def _session_dates_from_partitions(minute_root: Path) -> list[date]:
+    """Every natural date on which the local minute partitions hold data.
+
+    The vendor calendar lives in ``exchange_calendar.csv``, which is not tracked
+    in git — a machine that only has the checkout has no calendar at all, and
+    then every root with a night session is dropped. The partition filenames are
+    themselves a record of which days traded, and every Chinese exchange follows
+    the same public-holiday calendar, so one shared set of dates reconstructs
+    the "next open date" mapping the night-session bars need.
+    """
+    if not minute_root.is_dir():
+        return []
+    dates: set[date] = set()
+    for directory in minute_root.iterdir():
+        if not directory.is_dir():
+            continue
+        for path in directory.glob("*.parquet"):
+            try:
+                dates.add(datetime.strptime(path.stem, "%Y-%m-%d").date())
+            except ValueError:
+                continue
+    return sorted(dates)
+
+
+def _next_session_dates(session_dates: list[date]) -> dict[date, date]:
+    """Map each session date to the one that follows it."""
+    return {
+        current: following
+        for current, following in zip(session_dates, session_dates[1:])
+    }
+
+
 def _minute_rows(
     minute_root: Path,
     start: date,
     end: date,
     next_open_dates: dict[tuple[str, date], date],
-) -> tuple[list[dict[str, object]], set[str], set[str]]:
+) -> tuple[list[dict[str, object]], set[str], set[str], dict[str, object]]:
     rows: list[dict[str, object]] = []
     covered: set[str] = set()
     missing_calendar: set[str] = set()
+    calendar_audit: dict[str, object] = {
+        "vendor_calendar_entries": len(next_open_dates),
+        "partition_session_dates": 0,
+        "roots_using_partition_calendar": [],
+    }
     if not minute_root.is_dir():
-        return rows, covered, missing_calendar
+        return rows, covered, missing_calendar, calendar_audit
+    fallback_next_open = _next_session_dates(
+        _session_dates_from_partitions(minute_root)
+    )
+    calendar_audit["partition_session_dates"] = len(fallback_next_open)
+    fallback_roots: set[str] = set()
     prior_natural_dates = {
         natural_date
         for (_exchange, natural_date), next_open in next_open_dates.items()
         if start <= next_open <= end
     }
+    prior_natural_dates.update(
+        natural_date
+        for natural_date, next_open in fallback_next_open.items()
+        if start <= next_open <= end
+    )
     for directory in sorted(minute_root.iterdir()):
         if not directory.is_dir():
             continue
@@ -237,6 +298,10 @@ def _minute_rows(
                 natural_date = timestamp.date()
                 if timestamp.hour >= 18:
                     trade_date = next_open_dates.get((exchange, natural_date))
+                    if trade_date is None:
+                        trade_date = fallback_next_open.get(natural_date)
+                        if trade_date is not None:
+                            fallback_roots.add(root)
                     if trade_date is None:
                         calendar_missing = True
                         break
@@ -282,7 +347,8 @@ def _minute_rows(
                     }
                 )
             covered.add(root)
-    return rows, covered, missing_calendar
+    calendar_audit["roots_using_partition_calendar"] = sorted(fallback_roots)
+    return rows, covered, missing_calendar, calendar_audit
 
 
 def _daily_rows(
@@ -299,6 +365,10 @@ def _daily_rows(
         return rows, missing_multiplier
     for path in sorted(day_root.glob("*.csv")):
         symbol = path.stem.upper()
+        # 日线目录里还躺着 symbols_list.csv / download_*_summary.csv 之类的台账，
+        # 把它们当成品种会让 roots_missing_multiplier 变成一份假警报
+        if not _CONTINUOUS_SYMBOL_PATTERN.fullmatch(symbol):
+            continue
         root = symbol[:-1] if symbol.endswith("0") else symbol
         if root in skip_roots:
             continue
@@ -350,7 +420,7 @@ def build_turnover_table(
     contract_size_history = _load_contract_size_history(meta_root)
     contract_sizes = _contract_sizes_asof(contract_size_history, end)
     next_open_dates = _load_next_open_dates(meta_root)
-    minute_rows, covered, missing_calendar = _minute_rows(
+    minute_rows, covered, missing_calendar, calendar_audit = _minute_rows(
         Path(minute_root), start, end, next_open_dates
     )
     daily_rows, missing = _daily_rows(
@@ -370,6 +440,8 @@ def build_turnover_table(
         "roots_missing_multiplier": sorted(set(missing)),
         "roots_missing_trade_calendar": sorted(missing_calendar),
         "contract_sizes_known": len(contract_sizes),
+        "meta_cache_root": str(meta_root),
+        **calendar_audit,
     }
     return frame, audit
 

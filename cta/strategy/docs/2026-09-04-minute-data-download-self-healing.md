@@ -169,11 +169,72 @@ python3 -m cta.strategy.multi_timeframe_trend_backtest.runner \
 - `--allow-missing-symbols` 让这两个品种被跳过、其余 38 个继续跑，长区间的跑
   不会再因为两个品种整个作废。
 
-## 11. 测试
+## 11. 第三轮：`BLOCKED_METADATA` —— 根因是 `.gitignore` 的 `*.csv`
 
-`cta/strategy/tests/test_missing_symbol_diagnosis.py`（18 例）：诊断文本的
+```
+{"status":"INVALID_ARGUMENT","reason":"BLOCKED_METADATA: required metadata file
+ is missing: /opt/vnpy/cta/strategy/brooks/scalp/meta/exchange_calendar.csv"}
+```
+
+`git check-ignore -v` 直接给出答案：
+
+```
+.gitignore:9:*.csv     cta/strategy/brooks/scalp/meta/exchange_calendar.csv
+.gitignore:2:cta/data  cta/data/origin/day/OI0.csv
+```
+
+仓库根的 `*.csv` 把执行元数据包的四个规范 CSV 全排除了
+（`git ls-files` 里确实一个都没有），所以服务器 clone 出来这个目录是空的。
+同一条规则也解释了**上一轮**的现象：`cycle_v1/meta_cache` 里的 CSV 同样没进 git，
+所以重建拿不到合约乘数和交易日历，只剩 1 个品种。
+
+### 这份元数据不能自动下载
+
+`prepare_execution_metadata` 强制 `MetadataBundle.load(base_root)`，而且把
+`manifest.json` 的 sha256 算进缓存键；包本身由 `shfe_metadata_builder` 从交易所
+源文件导入（本地目录里那份 `shfe_source_audit.jsonl.gz` 就是证据），不是 tushare
+能生成的。所以"缺了就从供应商拉一份"在这里做不到，也不该做——fail-closed 的
+执行元数据一旦允许运行时凭空捏造，回测的可复现性就没了。
+
+### 已修 (a)：预检提前到下载之前
+
+`_preflight_required_data()` 在 `run_from_args` 里、任何下载动作之前检查
+`manifest.json` + 四个规范 CSV，缺了就报出**文件名 + 根因 + 两条可执行的修复**，
+两秒失败而不是下载一小时之后失败。
+
+日线目录和成交额元数据缓存缺失只降级、不阻塞，各打一行
+`preflight_day_data_missing` / `preflight_turnover_meta_cache_missing` 说明影响。
+
+### 已修 (b)：降级分支里的二次抛错
+
+`prepare_backtest_metadata` 的 `except` 分支本意是"记一笔缺口然后继续"，但它
+`return MetadataBundle.load(args.meta_root)` —— 基准包缺失时这一行**又抛一次**，
+于是降级被伪装成了一句看不懂的 `BLOCKED_METADATA: required metadata file is
+missing`，真正的首因（`prepare_execution_metadata` 那次失败）被吞掉。现在包住它，
+抛出的消息同时带上首因和基准包的加载错误。
+
+### 服务器修复
+
+```bash
+# 1. 执行元数据包（约 5MB，必需）
+git add -f cta/strategy/brooks/scalp/meta/
+git commit -m "track execution metadata bundle"
+# 服务器 git pull
+
+# 2. 日线数据（约 16MB，--include-ema-eligible 和成交额表的日线部分要用）
+git add -f cta/data/origin/day/
+# 或 rsync -av cta/data/origin/day/ <server>:<repo>/cta/data/origin/day/
+
+# 3. 成交额表重建改用 scalp/meta（load_contract_sizes / _load_next_open_dates
+#    都已同时支持扁平布局，不必再传 234MB 的 cycle_v1/meta_cache）
+--turnover-meta-cache-root cta/strategy/brooks/scalp/meta
+```
+
+## 12. 测试
+
+`cta/strategy/tests/test_missing_symbol_diagnosis.py`（23 例）：诊断文本的
 逐品种计数/原因归并/跨品种隔离、成交额表新鲜与过期两条路径、重建失败回退、
-映射逐行降级的四种情形、响应级交易所不符仍然硬失败、重建体检的四条判据、被拒的重建不覆盖磁盘。
+映射逐行降级的四种情形、响应级交易所不符仍然硬失败、重建体检的四条判据、被拒的重建不覆盖磁盘、预检的缺文件/可执行修复/两条降级警告/扁平元数据布局。
 `test_universe_and_metadata_window.py` 里两条"表坏了要抛错"改成"退回 --top-n 并留痕"。
 
-全量：535 passed。
+全量：545 passed。

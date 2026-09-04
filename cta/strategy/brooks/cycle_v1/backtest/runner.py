@@ -406,7 +406,17 @@ def prepare_backtest_metadata(
             "reason_code": reason_code,
             "reason": str(exc),
         }
-        return MetadataBundle.load(args.meta_root), audit, gap
+        try:
+            return MetadataBundle.load(args.meta_root), audit, gap
+        except (BlockedMetadataError, FileNotFoundError, OSError, ValueError) as base_exc:
+            # 这条路本来是"记一笔缺口然后继续"，但退回来加载基准包又炸了，
+            # 于是降级被伪装成了一个看不懂的报错。基准包本身缺失时没有任何
+            # 可继续的东西，唯一有用的动作是说清楚是它缺了。
+            raise BlockedMetadataError(
+                f"execution metadata bundle at {str(args.meta_root)!r} cannot be "
+                f"loaded, so the earlier failure ({reason_code}: {exc}) cannot be "
+                f"degraded: {base_exc}"
+            ) from base_exc
     return (
         MetadataBundle.load(prepared.metadata_root),
         {"enabled": True, **prepared.to_audit_dict()},

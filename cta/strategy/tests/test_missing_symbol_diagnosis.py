@@ -340,3 +340,100 @@ def test_a_rejected_rebuild_does_not_overwrite_the_table(tmp_path, capsys) -> No
     assert set(pd.read_parquet(target)["root_symbol"]) == set(good["root_symbol"])
     assert "turnover_table_rebuild_rejected" in capsys.readouterr().err
     assert DATE_SEMANTICS  # 表结构没被改动
+
+
+# --------------------------------------------------------------------------
+# 预检：不可下载的输入要在下载之前就说清楚
+# --------------------------------------------------------------------------
+def _preflight_args(tmp_path, meta_root, **kwargs):
+    base = {
+        "meta_root": str(meta_root),
+        "day_root": str(tmp_path / "day"),
+        "turnover_meta_cache_root": str(tmp_path / "metacache"),
+        "include_top_turnover": 0.0,
+    }
+    base.update(kwargs)
+    return argparse.Namespace(**base)
+
+
+def _complete_meta_root(tmp_path):
+    from cta.strategy.brooks.scalp.metadata_importer import CANONICAL_FILENAMES
+
+    root = tmp_path / "meta"
+    root.mkdir()
+    for name in ("manifest.json", *CANONICAL_FILENAMES):
+        (root / name).write_text("x", encoding="utf-8")
+    return root
+
+
+def test_preflight_names_the_missing_metadata_files(tmp_path) -> None:
+    from cta.strategy.multi_timeframe_trend_backtest.runner import (
+        _preflight_required_data,
+    )
+
+    root = _complete_meta_root(tmp_path)
+    (root / "exchange_calendar.csv").unlink()
+    with pytest.raises(ValueError) as excinfo:
+        _preflight_required_data(_preflight_args(tmp_path, root))
+    message = str(excinfo.value)
+    assert "exchange_calendar.csv" in message
+    # 要给出可执行的修复，而不是只说"缺文件"
+    assert "git add -f" in message
+    assert "*.csv" in message
+
+
+def test_preflight_passes_with_a_complete_bundle(tmp_path, capsys) -> None:
+    from cta.strategy.multi_timeframe_trend_backtest.runner import (
+        _preflight_required_data,
+    )
+
+    root = _complete_meta_root(tmp_path)
+    (tmp_path / "day").mkdir()
+    (tmp_path / "day" / "AU0.csv").write_text("x", encoding="utf-8")
+    _preflight_required_data(_preflight_args(tmp_path, root))
+    assert "preflight_day_data_missing" not in capsys.readouterr().err
+
+
+def test_preflight_warns_about_day_data_without_blocking(tmp_path, capsys) -> None:
+    from cta.strategy.multi_timeframe_trend_backtest.runner import (
+        _preflight_required_data,
+    )
+
+    root = _complete_meta_root(tmp_path)
+    _preflight_required_data(_preflight_args(tmp_path, root))
+    assert "preflight_day_data_missing" in capsys.readouterr().err
+
+
+def test_preflight_warns_about_the_turnover_meta_cache_only_when_used(
+    tmp_path, capsys
+) -> None:
+    from cta.strategy.multi_timeframe_trend_backtest.runner import (
+        _preflight_required_data,
+    )
+
+    root = _complete_meta_root(tmp_path)
+    _preflight_required_data(_preflight_args(tmp_path, root))
+    assert "preflight_turnover_meta_cache_missing" not in capsys.readouterr().err
+
+    _preflight_required_data(
+        _preflight_args(tmp_path, root, include_top_turnover=0.8)
+    )
+    assert "preflight_turnover_meta_cache_missing" in capsys.readouterr().err
+
+
+def test_preflight_accepts_a_flat_turnover_meta_cache(tmp_path, capsys) -> None:
+    """服务器上直接把 --turnover-meta-cache-root 指向 scalp/meta 就该被接受。"""
+    from cta.strategy.multi_timeframe_trend_backtest.runner import (
+        _preflight_required_data,
+    )
+
+    root = _complete_meta_root(tmp_path)
+    _preflight_required_data(
+        _preflight_args(
+            tmp_path,
+            root,
+            include_top_turnover=0.8,
+            turnover_meta_cache_root=str(root),
+        )
+    )
+    assert "preflight_turnover_meta_cache_missing" not in capsys.readouterr().err

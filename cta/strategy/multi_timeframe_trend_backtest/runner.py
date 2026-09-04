@@ -353,6 +353,76 @@ def build_reproduction_command(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
+def _preflight_required_data(args: argparse.Namespace) -> None:
+    """Fail on un-downloadable inputs before the run spends an hour downloading.
+
+    The execution metadata bundle is fail-closed and cannot be rebuilt from the
+    vendor: ``prepare_execution_metadata`` hashes its manifest into the cache
+    key, and the bundle itself is produced by the exchange-source importer, not
+    by tushare. So a checkout that is missing it can only fail — the useful
+    thing is to say so in two seconds, naming the file and the fix, instead of
+    after the minute download.
+    """
+    from cta.strategy.brooks.scalp.metadata_importer import CANONICAL_FILENAMES
+
+    meta_root = Path(getattr(args, "meta_root", ""))
+    missing = [
+        name
+        for name in ("manifest.json", *CANONICAL_FILENAMES)
+        if not (meta_root / name).is_file()
+    ]
+    if missing:
+        raise ValueError(
+            f"execution metadata bundle at {str(meta_root)!r} is missing: "
+            + ",".join(missing)
+            + "\n这套元数据是 fail-closed 的，无法从行情供应商重建"
+            "（它由交易所源文件导入，manifest 哈希还参与缓存键）。"
+            "\n仓库根 .gitignore 里的 `*.csv` 会把这四个文件全部排除，"
+            "服务器上 clone 出来就是空的。修复二选一："
+            "\n  git add -f cta/strategy/brooks/scalp/meta/  # 约 5MB，提交后 pull"
+            "\n  rsync -av cta/strategy/brooks/scalp/meta/ <server>:<repo>/cta/strategy/brooks/scalp/meta/"
+        )
+    # 下面两项缺失只是降级，不阻塞：提前说清楚，免得看到空结果去猜
+    day_root = Path(getattr(args, "day_root", ""))
+    if str(day_root) and not any(day_root.glob("*.csv")):
+        print(
+            json.dumps(
+                {
+                    "event": "preflight_day_data_missing",
+                    "day_root": str(day_root),
+                    "impact": (
+                        "--include-ema-eligible 与成交额表的日线部分会为空；"
+                        ".gitignore 的 `cta/data` 会排除它"
+                    ),
+                },
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
+    turnover_meta = Path(
+        getattr(args, "turnover_meta_cache_root", DEFAULT_TURNOVER_META_CACHE)
+    )
+    has_specs = (turnover_meta / "contract_specs.csv").is_file() or any(
+        turnover_meta.glob("*/contract_specs.csv")
+    )
+    if float(getattr(args, "include_top_turnover", 0.0) or 0.0) > 0 and not has_specs:
+        print(
+            json.dumps(
+                {
+                    "event": "preflight_turnover_meta_cache_missing",
+                    "turnover_meta_cache_root": str(turnover_meta),
+                    "impact": (
+                        "成交额表重建会缺合约乘数与交易日历，产出会被判为不可采纳；"
+                        f"服务器上改用 --turnover-meta-cache-root "
+                        f"{getattr(args, 'meta_root', '')}"
+                    ),
+                },
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
+
+
 def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
     start = _parse_date(args.start, "start")
     end = _parse_date(args.end, "end")
@@ -379,6 +449,7 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
     if Path(run_id).name != run_id or run_id in {"", ".", ".."}:
         raise ValueError("run-id must be one plain directory name")
     warmup_start = start - timedelta(days=WARMUP_CALENDAR_DAYS)
+    _preflight_required_data(args)
     _extend_symbols_with_top_turnover(args, start=start)
     discovered, selected, minute_update = prepare_backtest_symbols(
         args,

@@ -376,3 +376,116 @@ def test_contract_size_changes_are_resolved_per_trade_date(tmp_path) -> None:
         date(2026, 1, 5): 500.0,
         date(2026, 7, 1): 1000.0,
     }
+
+
+# --------------------------------------------------------------------------
+# 没有厂商交易日历时的本地兜底
+# --------------------------------------------------------------------------
+def _night_and_day(minute_root, root="RB"):
+    """两天数据：05 日夜盘 + 06 日日盘，夜盘归属 06 日。"""
+    directory = minute_root / root
+    directory.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "datetime": ["2026-01-05 09:01:00", "2026-01-05 21:01:00"],
+            "contract_code": ["RB2605.SHF", "RB2605.SHF"],
+            "exchange": ["SHFE", "SHFE"],
+            "turnover": [100.0, 30.0],
+        }
+    ).to_parquet(directory / "2026-01-05.parquet", index=False)
+    pd.DataFrame(
+        {
+            "datetime": ["2026-01-06 09:01:00"],
+            "contract_code": ["RB2605.SHF"],
+            "exchange": ["SHFE"],
+            "turnover": [200.0],
+        }
+    ).to_parquet(directory / "2026-01-06.parquet", index=False)
+
+
+def test_partition_dates_stand_in_for_a_missing_vendor_calendar(tmp_path) -> None:
+    """exchange_calendar.csv 没进 git，服务器上就是完全没有日历的状态。
+
+    分区文件名本身就记录了哪些自然日有交易，可以据此还原夜盘的归属日。
+    """
+    minute = tmp_path / "minute"
+    _night_and_day(minute)
+    frame, audit = build_turnover_table(
+        start=date(2026, 1, 1),
+        end=date(2026, 1, 31),
+        minute_root=minute,
+        day_root=tmp_path / "day",
+        meta_cache_root=tmp_path / "empty-meta",
+    )
+    by_date = dict(zip(frame["trade_date"], frame["turnover"]))
+    # 05 日夜盘的 30 归到 06 日，而不是留在 05 日
+    assert by_date[date(2026, 1, 5)] == pytest.approx(100.0)
+    assert by_date[date(2026, 1, 6)] == pytest.approx(230.0)
+    assert audit["roots_missing_trade_calendar"] == []
+    assert audit["vendor_calendar_entries"] == 0
+    assert audit["roots_using_partition_calendar"] == ["RB"]
+
+
+def test_the_fallback_agrees_with_the_vendor_calendar(tmp_path) -> None:
+    minute = tmp_path / "minute"
+    _night_and_day(minute)
+    _write_calendar(
+        tmp_path / "meta",
+        [("SHFE", "2026-01-05", "2026-01-06"), ("SHFE", "2026-01-06", "2026-01-07")],
+    )
+    kwargs = dict(
+        start=date(2026, 1, 1), end=date(2026, 1, 31),
+        minute_root=minute, day_root=tmp_path / "day",
+    )
+    vendor, vendor_audit = build_turnover_table(
+        **kwargs, meta_cache_root=tmp_path / "meta"
+    )
+    local, _ = build_turnover_table(**kwargs, meta_cache_root=tmp_path / "empty-meta")
+    assert vendor_audit["roots_using_partition_calendar"] == []
+    pd.testing.assert_frame_equal(
+        vendor.sort_values(["root_symbol", "trade_date"]).reset_index(drop=True),
+        local.sort_values(["root_symbol", "trade_date"]).reset_index(drop=True),
+    )
+
+
+def test_the_vendor_calendar_still_wins_where_it_has_an_entry(tmp_path) -> None:
+    """厂商日历说 05 的下一交易日是 07（06 是节假日），要听厂商的。"""
+    minute = tmp_path / "minute"
+    _night_and_day(minute)
+    _write_calendar(tmp_path / "meta", [("SHFE", "2026-01-05", "2026-01-07")])
+    frame, audit = build_turnover_table(
+        start=date(2026, 1, 1), end=date(2026, 1, 31),
+        minute_root=minute, day_root=tmp_path / "day",
+        meta_cache_root=tmp_path / "meta",
+    )
+    by_date = dict(zip(frame["trade_date"], frame["turnover"]))
+    assert by_date[date(2026, 1, 7)] == pytest.approx(30.0)
+    assert audit["roots_using_partition_calendar"] == []
+
+
+def test_the_day_root_ledger_files_are_not_treated_as_symbols(tmp_path) -> None:
+    day = tmp_path / "day"
+    day.mkdir(parents=True)
+    for name in ("symbols_list", "download_failed_summary", "download_success_summary"):
+        pd.DataFrame({"datetime": ["2026-01-05"], "close": [1.0], "volume": [1.0]}).to_csv(
+            day / f"{name}.csv", index=False
+        )
+    pd.DataFrame({"datetime": ["2026-01-05"], "close": [1.0], "volume": [1.0]}).to_csv(
+        day / "RB0.csv", index=False
+    )
+    _frame, audit = build_turnover_table(
+        start=date(2026, 1, 1), end=date(2026, 1, 31),
+        minute_root=tmp_path / "minute", day_root=day,
+        meta_cache_root=tmp_path / "empty-meta",
+    )
+    # 只有 RB 该因为缺乘数被记一笔，台账 csv 不该出现在里面
+    assert audit["roots_missing_multiplier"] == ["RB"]
+
+
+def test_contract_sizes_load_from_a_flat_bundle(tmp_path) -> None:
+    """scalp 的 meta 目录是扁平的，以前只 glob 了 <root>/<hash>/ 一层。"""
+    pd.DataFrame(
+        [{"root_symbol": "RB", "contract_size": 10.0},
+         {"root_symbol": "CU", "contract_size": 5.0}]
+    ).to_csv(tmp_path / "contract_specs.csv", index=False)
+    assert load_contract_sizes(tmp_path) == {"RB": 10.0, "CU": 5.0}
