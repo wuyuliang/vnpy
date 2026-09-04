@@ -119,10 +119,14 @@ def test_stale_table_triggers_a_rebuild(tmp_path, monkeypatch) -> None:
     }]).to_parquet(target, index=False)
 
     calls: list[dict] = []
-    rebuilt = pd.DataFrame([{
-        "root_symbol": "RB", "trade_date": date(2026, 6, 30), "turnover": 100.0,
-        "date_semantics": DATE_SEMANTICS,
-    }])
+    # 重建结果要足够"像样"才会被采纳：品种数太少会被当成本机元数据不全
+    rebuilt = pd.DataFrame([
+        {
+            "root_symbol": root, "trade_date": date(2026, 6, 30),
+            "turnover": 100.0, "date_semantics": DATE_SEMANTICS,
+        }
+        for root in ("RB", "AU", "CU", "AG", "I", "M", "P", "Y", "TA", "MA", "OI")
+    ])
 
     def _fake_build(**kwargs):
         calls.append(kwargs)
@@ -246,3 +250,93 @@ def test_degradations_are_summarised_for_the_audit() -> None:
     assert "dropped 9 trade date(s)" in reasons[0]
     assert "(+3)" in reasons[0]
     assert "invalid mapped contract code: X" in reasons[1]
+
+
+# --------------------------------------------------------------------------
+# 重建结果的采纳门槛
+# --------------------------------------------------------------------------
+def _rebuilt(roots, day=date(2026, 6, 30)):
+    from cta.data_code.build_symbol_turnover import DATE_SEMANTICS
+
+    return pd.DataFrame([
+        {"root_symbol": root, "trade_date": day, "turnover": 1.0,
+         "date_semantics": DATE_SEMANTICS}
+        for root in roots
+    ])
+
+
+def _existing(roots, day=date(2025, 1, 1)):
+    return _rebuilt(roots, day)
+
+
+def test_rejection_flags_a_nearly_empty_rebuild() -> None:
+    """服务器上就是这一幕：重建只剩 1 个品种，却把好表覆盖掉了。"""
+    from cta.strategy.multi_timeframe_trend_backtest.runner import _rebuild_rejection
+
+    reason = _rebuild_rejection(
+        _rebuilt(["UR"]),
+        previous=_existing([f"S{i}" for i in range(40)]),
+        required_through=date(2026, 7, 1),
+    )
+    assert "only 1 root" in reason
+
+
+def test_rejection_flags_a_rebuild_that_misses_the_window() -> None:
+    from cta.strategy.multi_timeframe_trend_backtest.runner import _rebuild_rejection
+
+    reason = _rebuild_rejection(
+        _rebuilt([f"S{i}" for i in range(20)], day=date(2026, 8, 1)),
+        previous=_existing(["AU"]),
+        required_through=date(2026, 7, 1),
+    )
+    assert "no rows before 2026-07-01" in reason
+
+
+def test_rejection_flags_a_rebuild_that_lost_most_roots() -> None:
+    from cta.strategy.multi_timeframe_trend_backtest.runner import _rebuild_rejection
+
+    reason = _rebuild_rejection(
+        _rebuilt([f"S{i}" for i in range(12)]),
+        previous=_existing([f"S{i}" for i in range(60)]),
+        required_through=date(2026, 7, 1),
+    )
+    assert "12 root(s) versus 60" in reason
+
+
+def test_a_healthy_rebuild_is_accepted() -> None:
+    from cta.strategy.multi_timeframe_trend_backtest.runner import _rebuild_rejection
+
+    assert _rebuild_rejection(
+        _rebuilt([f"S{i}" for i in range(60)]),
+        previous=_existing([f"S{i}" for i in range(58)]),
+        required_through=date(2026, 7, 1),
+    ) == ""
+
+
+def test_a_rejected_rebuild_does_not_overwrite_the_table(tmp_path, capsys) -> None:
+    from cta.data_code.build_symbol_turnover import DATE_SEMANTICS
+    from cta.strategy.multi_timeframe_trend_backtest import runner as runner_module
+
+    target = tmp_path / "t.parquet"
+    good = _rebuilt([f"S{i}" for i in range(40)], day=date(2025, 1, 1))
+    good.to_parquet(target, index=False)
+
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(
+        runner_module,
+        "build_turnover_table",
+        lambda **kwargs: (_rebuilt(["UR"]), {"rows": 20, "roots": 1}),
+    )
+    try:
+        out = _turnover_table_for(
+            _args(tmp_path, target, tmp_path / "minute"),
+            required_through=date(2026, 7, 1),
+        )
+    finally:
+        monkey.undo()
+
+    # 旧表原样保留，磁盘上也没被换掉
+    assert set(out["root_symbol"]) == set(good["root_symbol"])
+    assert set(pd.read_parquet(target)["root_symbol"]) == set(good["root_symbol"])
+    assert "turnover_table_rebuild_rejected" in capsys.readouterr().err
+    assert DATE_SEMANTICS  # 表结构没被改动

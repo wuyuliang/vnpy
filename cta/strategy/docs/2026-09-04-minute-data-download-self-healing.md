@@ -87,7 +87,71 @@ missing selected minute data after download: OI.CZCE,MA.CZCE
 `symbol=OI0`），没有分合约的持仓量，无法算出"当日持仓量最大的合约"。所以
 供应商映射为空时没有本地兜底，只能靠 §2 的诊断说清楚是映射层的问题。
 
-## 8. 服务器重跑
+## 8. 第二轮：重建反而把好表覆盖掉了
+
+服务器上第一版自动重建打出：
+
+```
+{"event":"turnover_table_rebuilt", "rows":20, "roots":1,
+ "roots_from_minute":["UR"],
+ "roots_missing_multiplier":["A","AD","AG",... 几乎全部]}
+{"status":"INVALID_ARGUMENT","reason":"turnover table '...' has no rows before 2026-01-01"}
+```
+
+两个独立的缺陷叠在一起：
+
+**(a) 重建用的是默认元数据缓存路径。** `build_turnover_table` 靠
+`load_contract_sizes(meta_root)` 拿合约乘数、靠 `_load_next_open_dates(meta_root)`
+拿交易日历。服务器上那个默认路径是空的 → 乘数几乎全缺 → 日线行全被丢掉；
+交易日历也缺 → 分钟行只剩 UR 一个。builder **不报错**，就是返回得很少。
+
+修复：新增 `--turnover-meta-cache-root`（默认
+`cta/strategy/brooks/cycle_v1/meta_cache`），显式传给重建，并在事件里回显这个
+路径，缺乘数/缺日历的品种也一并打出来。
+
+**(b) 重建结果无条件采纳并落盘。** 于是一份 68 品种 / 11670 行的好表被 20 行
+1 品种的残次品换掉，然后整跑挂在"没有 start 之前的行"。
+
+修复：`_rebuild_rejection()` 在采纳之前做三道体检——
+
+| 条件 | 判定 |
+| --- | --- |
+| 空表 / `trade_date` 全解析不出来 | 拒绝 |
+| 没有任何行早于所需日期 | 拒绝（用它排名必然要看未来数据） |
+| 品种数 < 10 | 拒绝（本机元数据不全的典型信号） |
+| 品种数 < 已有表的一半 | 拒绝 |
+
+拒绝时保留旧表、**不落盘**，打 `turnover_table_rebuild_rejected` 事件并带上
+`roots_missing_multiplier` / `roots_missing_trade_calendar` / `meta_cache_root`，
+直接指向病因。采纳时改为写临时文件 + `os.replace` 原子替换，中途失败不会留下
+半张表。
+
+**(c) 补池失败不再阻塞整跑。** 表不可用或覆盖不到窗口时，以前两条路都是
+`raise`。现在退回纯 `--top-n` 选池继续跑，并且：
+
+- stderr 打一行 `{"event":"turnover_topup_skipped","reason_code":...}`
+- `metadata_gaps.csv` 记一行 `field=turnover_universe`，
+  `reason_code` 为 `TURNOVER_TABLE_UNUSABLE` 或 `TURNOVER_TABLE_WINDOW_UNCOVERED`
+
+补池本来就是"锦上添花"——它的作用是把 SN/LC/JD 这类成交额高但研究排名靠后的
+品种捞进来。缺了它跑出来的是一个更小的池子，不是错误结果；为它牺牲整跑不划算。
+
+## 9. 服务器上的一次性修复
+
+服务器那份表已经被覆盖成 20 行了，需要重建一次（本地这份是好的：
+68 品种 / 11670 行 / 2024-01-02 ~ 2026-07-28）：
+
+```bash
+python3 -m cta.data_code.build_symbol_turnover \
+  --start 2023-01-01 --end 2026-07-01 \
+  --meta-cache-root cta/strategy/brooks/cycle_v1/meta_cache
+```
+
+跑完确认 `roots` 是几十而不是个位数。若 `roots_missing_multiplier` 仍然很长，
+说明服务器上的 `meta_cache` 目录本身没同步过去——那才是根因，重建多少次都没用。
+即便如此，回测本身现在也不会再被它卡住。
+
+## 10. 服务器重跑
 
 ```bash
 python3 -m cta.strategy.multi_timeframe_trend_backtest.runner \
@@ -105,10 +169,11 @@ python3 -m cta.strategy.multi_timeframe_trend_backtest.runner \
 - `--allow-missing-symbols` 让这两个品种被跳过、其余 38 个继续跑，长区间的跑
   不会再因为两个品种整个作废。
 
-## 9. 测试
+## 11. 测试
 
-`cta/strategy/tests/test_missing_symbol_diagnosis.py`（13 例）：诊断文本的
+`cta/strategy/tests/test_missing_symbol_diagnosis.py`（18 例）：诊断文本的
 逐品种计数/原因归并/跨品种隔离、成交额表新鲜与过期两条路径、重建失败回退、
-映射逐行降级的四种情形、响应级交易所不符仍然硬失败。
+映射逐行降级的四种情形、响应级交易所不符仍然硬失败、重建体检的四条判据、被拒的重建不覆盖磁盘。
+`test_universe_and_metadata_window.py` 里两条"表坏了要抛错"改成"退回 --top-n 并留痕"。
 
-全量：530 passed。
+全量：535 passed。

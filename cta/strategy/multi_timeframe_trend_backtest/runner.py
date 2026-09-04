@@ -7,6 +7,7 @@ from dataclasses import fields, replace
 from datetime import date, datetime, timedelta
 import json
 import math
+import os
 from pathlib import Path
 import shlex
 import sys
@@ -78,6 +79,7 @@ from .engine import (
     replay_trend_portfolio,
 )
 from cta.data_code.build_symbol_turnover import (
+    DEFAULT_META_CACHE as DEFAULT_TURNOVER_META_CACHE,
     DEFAULT_OUTPUT as DEFAULT_TURNOVER_TABLE,
     build_turnover_table,
     load_turnover_table,
@@ -92,6 +94,9 @@ from .report import publish_backtest_report
 
 
 DEFAULT_OUTPUT_ROOT = Path("cta/strategy/report/multi_timeframe_trend")
+# 一次正常的重建覆盖几十个品种；只剩个位数说明本机元数据不全，
+# 这种表不配替换已有的那份。
+_MIN_TURNOVER_ROOTS = 10
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WARMUP_CALENDAR_DAYS = 120
 
@@ -209,6 +214,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--turnover-meta-cache-root",
+        default=str(DEFAULT_TURNOVER_META_CACHE),
+        help=(
+            "Metadata cache the turnover table is rebuilt against, for the "
+            "contract multipliers and the exchange trade calendar. A rebuild "
+            "against an empty cache produces an almost-empty table and is "
+            "rejected rather than written."
+        ),
+    )
+    parser.add_argument(
         "--config-override",
         action="append",
         default=[],
@@ -291,6 +306,11 @@ def build_reproduction_command(args: argparse.Namespace) -> dict[str, object]:
             "--aggregation-cache-root",
         ),
         ("turnover_table", str(DEFAULT_TURNOVER_TABLE), "--turnover-table"),
+        (
+            "turnover_meta_cache_root",
+            str(DEFAULT_TURNOVER_META_CACHE),
+            "--turnover-meta-cache-root",
+        ),
         ("output_root", str(DEFAULT_OUTPUT_ROOT), "--output-root"),
     ):
         value = str(getattr(args, name))
@@ -384,6 +404,16 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
     gap_rows: list[dict[str, object]] = (
         [preparation_gap] if preparation_gap is not None else []
     )
+    skipped_topup = getattr(args, "_turnover_topup_skipped", None)
+    if skipped_topup:
+        gap_rows.append(
+            {
+                "root_symbol": "ALL",
+                "field": "turnover_universe",
+                "reason_code": str(skipped_topup.get("reason_code", "")),
+                "reason": str(skipped_topup.get("detail", ""))[:900],
+            }
+        )
     for token in minute_update.get("turnover_topup_rejected", ()) or ():
         gap_rows.append(
             {
@@ -1404,6 +1434,31 @@ def _parse_config_overrides(items: Sequence[str]) -> dict[str, object]:
     return parsed
 
 
+def _skip_turnover_topup(
+    args: argparse.Namespace,
+    reason_code: str,
+    detail: str,
+) -> None:
+    """Fall back to plain ``--top-n`` selection without failing the run."""
+    args._turnover_universe_added = []
+    args._turnover_topup_skipped = {"reason_code": reason_code, "detail": detail}
+    print(
+        json.dumps(
+            {
+                "event": "turnover_topup_skipped",
+                "reason_code": reason_code,
+                "detail": detail,
+                "rebuild": (
+                    "python3 -m cta.data_code.build_symbol_turnover "
+                    "--start <YYYY-MM-DD> --end <YYYY-MM-DD>"
+                ),
+            },
+            ensure_ascii=False,
+        ),
+        file=sys.stderr,
+    )
+
+
 def _extend_symbols_with_top_turnover(
     args: argparse.Namespace,
     *,
@@ -1426,23 +1481,27 @@ def _extend_symbols_with_top_turnover(
         raise ValueError("include-top-turnover must be in (0, 1]")
     table = _turnover_table_for(args, required_through=start)
     if table.empty:
-        # 静默跳过会让人以为补池生效了，实际什么都没发生
-        raise ValueError(
-            "include-top-turnover needs a usable turnover table; "
-            f"{args.turnover_table!r} is missing, empty, or was built by an "
-            "older builder whose date semantics no longer match. Rebuild it: "
-            "python3 -m cta.data_code.build_symbol_turnover --start <YYYY-MM-DD> "
-            "--end <YYYY-MM-DD>"
+        # 补池是锦上添花：表坏了就退回 --top-n 继续跑，不要让整跑失败。
+        # 静默跳过同样不行，所以缺口记进 metadata_gaps.csv 并打一行事件。
+        _skip_turnover_topup(
+            args,
+            "TURNOVER_TABLE_UNUSABLE",
+            f"{args.turnover_table!r} 缺失、为空，或由旧版 builder 生成、"
+            "date_semantics 已经对不上；本次跑退回纯 --top-n 选池",
         )
+        return
     frame = table.copy()
     frame["trade_date"] = pd.to_datetime(frame["trade_date"], errors="coerce")
     frame = frame.dropna(subset=["trade_date"])
     frame = frame[frame["trade_date"].dt.date < start]
     if frame.empty:
-        raise ValueError(
-            f"turnover table {args.turnover_table!r} has no rows before "
-            f"{start.isoformat()}; rebuild it to cover the pre-backtest window"
+        _skip_turnover_topup(
+            args,
+            "TURNOVER_TABLE_WINDOW_UNCOVERED",
+            f"{args.turnover_table!r} 在 {start.isoformat()} 之前没有任何行，"
+            "无法在不看未来数据的前提下排名；本次跑退回纯 --top-n 选池",
         )
+        return
     recent = sorted(frame["trade_date"].unique())[-20:]
     weights = (
         frame[frame["trade_date"].isin(recent)]
@@ -1504,6 +1563,9 @@ def _turnover_table_for(
             end=rebuild_through,
             minute_root=args.data_root,
             day_root=getattr(args, "day_root", DEFAULT_DAY_ROOT),
+            meta_cache_root=getattr(
+                args, "turnover_meta_cache_root", DEFAULT_TURNOVER_META_CACHE
+            ),
         )
     except (OSError, ValueError) as exc:
         print(
@@ -1514,12 +1576,44 @@ def _turnover_table_for(
             file=sys.stderr,
         )
         return table
-    if rebuilt.empty:
+    rejection = _rebuild_rejection(
+        rebuilt, previous=table, required_through=required_through
+    )
+    if rejection:
+        # 重建出来的表比手里这份还差时，绝不能落盘覆盖：服务器上就是这么把
+        # 一份好表换成了 20 行 1 个品种，然后整跑挂在"没有 start 之前的行"。
+        print(
+            json.dumps(
+                {
+                    "event": "turnover_table_rebuild_rejected",
+                    "reason": rejection,
+                    **{key: audit.get(key) for key in ("rows", "roots")},
+                    "roots_missing_multiplier": list(
+                        audit.get("roots_missing_multiplier", ())
+                    )[:12],
+                    "roots_missing_trade_calendar": list(
+                        audit.get("roots_missing_trade_calendar", ())
+                    )[:12],
+                    "meta_cache_root": str(
+                        getattr(
+                            args,
+                            "turnover_meta_cache_root",
+                            DEFAULT_TURNOVER_META_CACHE,
+                        )
+                    ),
+                },
+                ensure_ascii=False,
+            )[:900],
+            file=sys.stderr,
+        )
         return table
     target = Path(args.turnover_table)
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        rebuilt.to_parquet(target, index=False)
+        # 先写临时文件再原子替换：重建中途失败不该留下半张表
+        staging = target.with_suffix(target.suffix + ".tmp")
+        rebuilt.to_parquet(staging, index=False)
+        os.replace(staging, target)
     except (OSError, ValueError, ImportError):
         pass
     print(
@@ -1530,6 +1624,46 @@ def _turnover_table_for(
         file=sys.stderr,
     )
     return rebuilt
+
+
+def _rebuild_rejection(
+    rebuilt: pd.DataFrame,
+    *,
+    previous: pd.DataFrame,
+    required_through: date,
+) -> str:
+    """Say why a rebuilt turnover table must not replace ``previous``.
+
+    A rebuild runs with whatever roots and metadata the machine happens to
+    have. When the contract-size cache or the trade calendar is missing, the
+    builder still succeeds — it just returns almost nothing — and adopting that
+    silently throws away a good table and then fails the run.
+    """
+    if rebuilt.empty:
+        return "rebuilt table is empty"
+    dates = pd.to_datetime(rebuilt.get("trade_date"), errors="coerce")
+    if dates.notna().sum() == 0:
+        return "rebuilt table has no parseable trade_date"
+    if not (dates.dt.date < required_through).any():
+        return (
+            "rebuilt table has no rows before "
+            f"{required_through.isoformat()}"
+        )
+    rebuilt_roots = rebuilt["root_symbol"].astype(str).nunique()
+    if rebuilt_roots < _MIN_TURNOVER_ROOTS:
+        return (
+            f"rebuilt table covers only {rebuilt_roots} root(s); expected at "
+            f"least {_MIN_TURNOVER_ROOTS} — the contract-size cache or trade "
+            "calendar is probably missing on this machine"
+        )
+    if not previous.empty and "root_symbol" in previous.columns:
+        previous_roots = previous["root_symbol"].astype(str).nunique()
+        if rebuilt_roots * 2 < previous_roots:
+            return (
+                f"rebuilt table covers {rebuilt_roots} root(s) versus "
+                f"{previous_roots} in the existing table"
+            )
+    return ""
 
 
 def _trading_days_before(

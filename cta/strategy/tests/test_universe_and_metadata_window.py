@@ -69,25 +69,36 @@ def test_top_turnover_is_a_noop_when_disabled(tmp_path) -> None:
     assert args.symbols == ["AU"]
 
 
-def test_missing_turnover_table_fails_loudly(tmp_path) -> None:
+def test_missing_turnover_table_degrades_to_top_n(tmp_path, capsys) -> None:
+    """补池是锦上添花：表不可用时退回 --top-n 继续跑，但要留下痕迹。"""
     args = _args(
         symbols=["AU"],
         include_top_turnover=0.9,
         turnover_table=str(tmp_path / "nope.parquet"),
     )
-    with pytest.raises(ValueError, match="build_symbol_turnover"):
-        _extend_symbols_with_top_turnover(args, start=date(2026, 2, 1))
+    _extend_symbols_with_top_turnover(args, start=date(2026, 2, 1))
+    assert args.symbols == ["AU"]
+    assert args._turnover_universe_added == []
+    assert args._turnover_topup_skipped["reason_code"] == "TURNOVER_TABLE_UNUSABLE"
+    assert "turnover_topup_skipped" in capsys.readouterr().err
 
 
-def test_turnover_table_not_covering_the_window_fails_loudly(tmp_path) -> None:
+def test_turnover_table_not_covering_the_window_degrades_to_top_n(
+    tmp_path, capsys
+) -> None:
     target = tmp_path / "t.parquet"
     pd.DataFrame(
         [{"root_symbol": "AU", "trade_date": date(2026, 6, 1), "turnover": 1.0,
           "date_semantics": DATE_SEMANTICS}]
     ).to_parquet(target, index=False)
     args = _args(symbols=["AU"], include_top_turnover=0.9, turnover_table=str(target))
-    with pytest.raises(ValueError, match="rebuild it"):
-        _extend_symbols_with_top_turnover(args, start=date(2026, 2, 1))
+    _extend_symbols_with_top_turnover(args, start=date(2026, 2, 1))
+    assert args.symbols == ["AU"]
+    assert (
+        args._turnover_topup_skipped["reason_code"]
+        == "TURNOVER_TABLE_WINDOW_UNCOVERED"
+    )
+    assert "turnover_topup_skipped" in capsys.readouterr().err
 
 
 def test_top_turnover_uses_only_dates_before_the_backtest_start(tmp_path) -> None:
