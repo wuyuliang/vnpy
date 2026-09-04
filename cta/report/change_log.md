@@ -3172,6 +3172,13 @@ python3 -m pytest -q cta/feature/tests/test_feature_modules_smoke.py cta/feature
 - 新增换月同时清理影子订单/仓位且 `chase_state.outcomes` 不增加的测试。
 - 验收区间未触发影子仓换月，拒绝码分布及 `trades.csv` 与金标准一致；验证：`python3 -m pytest -q cta/strategy/tests`，549 passed。
 
+## 2026-09-04 · fix · R-05 合约乘数逐日 as-of
+
+- 合并所有包含 `known_at` 或 `effective_from` 的合约规格 bundle，不再按覆盖品种数选择单一快照。
+- 每个交易日仅使用当日已知且已生效的最新乘数；缺失乘数的品种继续排除并写入审计。
+- 新增同一 root 在早晚日期分别使用旧/新乘数的加载器及成交额建表测试。
+- 验收区间复用已有成交额表，拒绝码分布及 `trades.csv` 与金标准一致；验证：`python3 -m pytest -q cta/strategy/tests`，550 passed。
+
 ---
 
 ## 2026-05-30 · current · OOT 日度仓位分布改为“当时资金占比(%)”

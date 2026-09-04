@@ -242,7 +242,13 @@ def test_build_falls_back_to_daily_when_minute_is_absent(tmp_path) -> None:
     ).to_csv(day / "XX0.csv", index=False)
     meta = tmp_path / "meta" / "bundle"
     meta.mkdir(parents=True)
-    pd.DataFrame({"root_symbol": ["XX"], "contract_size": [5.0]}).to_csv(
+    pd.DataFrame(
+        {
+            "root_symbol": ["XX"],
+            "contract_size": [5.0],
+            "known_at": ["2025-01-01"],
+        }
+    ).to_csv(
         meta / "contract_specs.csv", index=False
     )
     frame, audit = build_turnover_table(
@@ -296,14 +302,77 @@ def test_load_turnover_table_rejects_legacy_natural_date_semantics(tmp_path) -> 
     assert "date_semantics" in result.columns
 
 
-def test_load_contract_sizes_prefers_the_richest_bundle(tmp_path) -> None:
+def test_load_contract_sizes_combines_bundles_as_of_date(tmp_path) -> None:
     small = tmp_path / "a"; small.mkdir(parents=True)
-    pd.DataFrame({"root_symbol": ["RB"], "contract_size": [10.0]}).to_csv(
+    pd.DataFrame(
+        {
+            "root_symbol": ["RB"],
+            "contract_size": [10.0],
+            "known_at": ["2025-01-01"],
+        }
+    ).to_csv(
         small / "contract_specs.csv", index=False
     )
     big = tmp_path / "b"; big.mkdir(parents=True)
     pd.DataFrame(
-        {"root_symbol": ["RB", "AU", "AG"], "contract_size": [10.0, 1000.0, 15.0]}
+        {
+            "root_symbol": ["RB", "AU", "AG"],
+            "contract_size": [10.0, 1000.0, 15.0],
+            "known_at": ["2025-02-01"] * 3,
+        }
     ).to_csv(big / "contract_specs.csv", index=False)
-    sizes = load_contract_sizes(tmp_path)
+    sizes = load_contract_sizes(tmp_path, as_of=date(2026, 1, 1))
     assert sizes == {"RB": 10.0, "AU": 1000.0, "AG": 15.0}
+
+
+def test_contract_size_changes_are_resolved_per_trade_date(tmp_path) -> None:
+    day = tmp_path / "day"
+    day.mkdir(parents=True)
+    pd.DataFrame(
+        {
+            "datetime": ["2026-01-05", "2026-07-01"],
+            "close": [100.0, 100.0],
+            "volume": [1.0, 1.0],
+        }
+    ).to_csv(day / "XX0.csv", index=False)
+    old = tmp_path / "meta" / "old"
+    new = tmp_path / "meta" / "new"
+    old.mkdir(parents=True)
+    new.mkdir(parents=True)
+    pd.DataFrame(
+        {
+            "root_symbol": ["XX"],
+            "contract_size": [5.0],
+            "effective_from": ["2025-01-01"],
+            "known_at": ["2025-01-01"],
+        }
+    ).to_csv(old / "contract_specs.csv", index=False)
+    pd.DataFrame(
+        {
+            "root_symbol": ["XX"],
+            "contract_size": [10.0],
+            "effective_from": ["2026-06-01"],
+            "known_at": ["2026-05-15"],
+        }
+    ).to_csv(new / "contract_specs.csv", index=False)
+
+    early = load_contract_sizes(
+        tmp_path / "meta", as_of=date(2026, 1, 5)
+    )
+    late = load_contract_sizes(
+        tmp_path / "meta", as_of=date(2026, 7, 1)
+    )
+    frame, _ = build_turnover_table(
+        start=date(2026, 1, 1),
+        end=date(2026, 7, 1),
+        minute_root=tmp_path / "minute",
+        day_root=day,
+        meta_cache_root=tmp_path / "meta",
+    )
+
+    assert early["XX"] == 5.0
+    assert late["XX"] == 10.0
+    assert frame.set_index("trade_date")["turnover"].to_dict() == {
+        date(2026, 1, 5): 500.0,
+        date(2026, 7, 1): 1000.0,
+    }

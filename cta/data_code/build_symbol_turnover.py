@@ -56,27 +56,98 @@ def _parse_date(value: str, label: str) -> date:
         raise ValueError(f"{label} must be YYYY-MM-DD, got {value!r}") from exc
 
 
-def load_contract_sizes(meta_cache_root: str | Path) -> dict[str, float]:
-    """Map root symbol to contract size, preferring the richest cached bundle."""
-    sizes: dict[str, float] = {}
-    paths = sorted(Path(meta_cache_root).glob("*/contract_specs.csv"))
-    best: pd.DataFrame | None = None
-    for path in paths:
+def _load_contract_size_history(meta_cache_root: str | Path) -> pd.DataFrame:
+    """Load dated multiplier records from every valid metadata bundle."""
+    records: list[pd.DataFrame] = []
+    for path in sorted(Path(meta_cache_root).glob("*/contract_specs.csv")):
         try:
             frame = pd.read_csv(path)
         except (OSError, ValueError):
             continue
-        if "root_symbol" not in frame.columns or "contract_size" not in frame.columns:
+        required = {"root_symbol", "contract_size"}
+        if not required.issubset(frame.columns):
             continue
-        if best is None or frame["root_symbol"].nunique() > best["root_symbol"].nunique():
-            best = frame
-    if best is None:
-        return sizes
-    for root, group in best.groupby(best["root_symbol"].astype(str).str.upper()):
-        values = pd.to_numeric(group["contract_size"], errors="coerce").dropna()
-        if not values.empty:
-            sizes[root] = float(values.mode().iloc[0])
-    return sizes
+        if "known_at" not in frame.columns and "effective_from" not in frame.columns:
+            continue
+        known = pd.to_datetime(
+            frame.get("known_at", frame.get("effective_from")),
+            errors="coerce",
+            utc=True,
+        )
+        effective = pd.to_datetime(
+            frame.get("effective_from", frame.get("known_at")),
+            errors="coerce",
+            utc=True,
+        )
+        part = pd.DataFrame(
+            {
+                "root_symbol": frame["root_symbol"].astype(str).str.upper(),
+                "contract_size": pd.to_numeric(
+                    frame["contract_size"], errors="coerce"
+                ),
+                "known_date": known.dt.date,
+                "effective_date": effective.dt.date,
+                "source_path": str(path),
+            }
+        ).dropna(
+            subset=[
+                "root_symbol",
+                "contract_size",
+                "known_date",
+                "effective_date",
+            ]
+        )
+        part = part.loc[part["contract_size"] > 0]
+        if not part.empty:
+            records.append(part)
+    if not records:
+        return pd.DataFrame(
+            columns=[
+                "root_symbol",
+                "contract_size",
+                "known_date",
+                "effective_date",
+                "source_path",
+            ]
+        )
+    return pd.concat(records, ignore_index=True)
+
+
+def _contract_sizes_asof(
+    history: pd.DataFrame,
+    as_of: date,
+) -> dict[str, float]:
+    """Resolve the latest known and effective multiplier for each root."""
+    if history.empty:
+        return {}
+    eligible = history.loc[
+        history["known_date"].le(as_of)
+        & history["effective_date"].le(as_of)
+    ].sort_values(
+        ["root_symbol", "effective_date", "known_date", "source_path"],
+        kind="stable",
+    )
+    if eligible.empty:
+        return {}
+    latest = eligible.drop_duplicates("root_symbol", keep="last")
+    return dict(
+        zip(
+            latest["root_symbol"],
+            latest["contract_size"].astype(float),
+        )
+    )
+
+
+def load_contract_sizes(
+    meta_cache_root: str | Path,
+    *,
+    as_of: date,
+) -> dict[str, float]:
+    """Map roots to multipliers known and effective by the target date."""
+    return _contract_sizes_asof(
+        _load_contract_size_history(meta_cache_root),
+        as_of,
+    )
 
 
 def _load_next_open_dates(meta_cache_root: Path) -> dict[tuple[str, date], date]:
@@ -218,21 +289,18 @@ def _daily_rows(
     day_root: Path,
     start: date,
     end: date,
-    contract_sizes: dict[str, float],
+    contract_size_history: pd.DataFrame,
     skip_roots: set[str],
 ) -> tuple[list[dict[str, object]], list[str]]:
     rows: list[dict[str, object]] = []
     missing_multiplier: list[str] = []
+    sizes_by_date: dict[date, dict[str, float]] = {}
     if not day_root.is_dir():
         return rows, missing_multiplier
     for path in sorted(day_root.glob("*.csv")):
         symbol = path.stem.upper()
         root = symbol[:-1] if symbol.endswith("0") else symbol
         if root in skip_roots:
-            continue
-        size = contract_sizes.get(root)
-        if not size or size <= 0:
-            missing_multiplier.append(root)
             continue
         try:
             frame = pd.read_csv(path, encoding="utf-8-sig")
@@ -248,6 +316,14 @@ def _daily_rows(
                 continue
             day = stamp.date()
             if not start <= day <= end or lots <= 0 or price <= 0:
+                continue
+            sizes = sizes_by_date.get(day)
+            if sizes is None:
+                sizes = _contract_sizes_asof(contract_size_history, day)
+                sizes_by_date[day] = sizes
+            size = sizes.get(root)
+            if not size or size <= 0:
+                missing_multiplier.append(root)
                 continue
             rows.append(
                 {
@@ -271,13 +347,14 @@ def build_turnover_table(
     meta_cache_root: str | Path = DEFAULT_META_CACHE,
 ) -> tuple[pd.DataFrame, dict[str, object]]:
     meta_root = Path(meta_cache_root)
-    contract_sizes = load_contract_sizes(meta_root)
+    contract_size_history = _load_contract_size_history(meta_root)
+    contract_sizes = _contract_sizes_asof(contract_size_history, end)
     next_open_dates = _load_next_open_dates(meta_root)
     minute_rows, covered, missing_calendar = _minute_rows(
         Path(minute_root), start, end, next_open_dates
     )
     daily_rows, missing = _daily_rows(
-        Path(day_root), start, end, contract_sizes, covered
+        Path(day_root), start, end, contract_size_history, covered
     )
     frame = pd.DataFrame(minute_rows + daily_rows, columns=list(TURNOVER_COLUMNS))
     if not frame.empty:
