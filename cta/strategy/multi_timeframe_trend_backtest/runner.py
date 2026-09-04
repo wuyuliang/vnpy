@@ -1249,8 +1249,9 @@ def _extend_symbols_with_top_turnover(
     if table.empty:
         # 静默跳过会让人以为补池生效了，实际什么都没发生
         raise ValueError(
-            "include-top-turnover needs a turnover table; "
-            f"{args.turnover_table!r} is missing or empty. Build it with: "
+            "include-top-turnover needs a usable turnover table; "
+            f"{args.turnover_table!r} is missing, empty, or was built by an "
+            "older builder whose date semantics no longer match. Rebuild it: "
             "python3 -m cta.data_code.build_symbol_turnover --start <YYYY-MM-DD> "
             "--end <YYYY-MM-DD>"
         )
