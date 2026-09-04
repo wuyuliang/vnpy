@@ -3186,6 +3186,13 @@ python3 -m pytest -q cta/feature/tests/test_feature_modules_smoke.py cta/feature
 - 新增输入类型契约测试；金标准与 R-08 后 `trades.csv` SHA-256 均为 `6685b6b89476c22b2c8d1b070e8140c81d108edfb0b79b3e963e7e9fbf850f0d`，拒绝码分布不变。
 - 验证：`python3 -m pytest -q cta/strategy/tests`，551 passed。
 
+## 2026-09-04 · refactor · R-10 拆分回测引擎职责
+
+- 将回放数据模型、审计行、会话与风险门控、虚拟追高订单簿、组合权益与保证金计算拆分到 `engine_components`，`engine.py` 保留编排职责并重新导出兼容符号。
+- 新增模块结构契约测试；`engine.py` 降至 3142 行、53 个顶层定义。
+- 金标准与 R-10 后 `trades.csv` SHA-256 均为 `6685b6b89476c22b2c8d1b070e8140c81d108edfb0b79b3e963e7e9fbf850f0d`，`cmp` 逐字节一致；拒绝码分布不变。
+- 验证：`python3 -m pytest -q cta/strategy/tests`，552 passed。
+
 ---
 
 ## 2026-05-30 · current · OOT 日度仓位分布改为“当时资金占比(%)”
