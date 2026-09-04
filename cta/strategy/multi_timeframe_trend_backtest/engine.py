@@ -18,7 +18,7 @@ from cta.config.futures_sector_map import sector_for_root
 from cta.config.multi_timeframe_trend_config import (
     MultiTimeframeTrendConfig,
     is_entry_window_blocked,
-    minutes_of_day,
+    minute_of_day_from_time,
 )
 from cta.strategy.brooks.cycle_v1.backtest.execution_metadata import BACKTEST_GATEWAY
 from cta.strategy.brooks.cycle_v1.instruments.metadata import BlockedMetadataError
@@ -367,7 +367,7 @@ def _apply_candidate_filters(
                     "SYMBOL_LOSS_COOLDOWN", detail
                 )
         elif check == "session":
-            minute = _minute_of_day(timestamp.timetz())
+            minute = minute_of_day_from_time(timestamp.timetz())
             if is_entry_window_blocked(
                 minute,
                 config.entry_blocked_session_windows,
@@ -3071,19 +3071,15 @@ def _session_break_closes(sessions: tuple[Any, ...]) -> tuple[Any, ...]:
     return tuple(closes)
 
 
-def _minute_of_day(value: Any) -> int:
-    return int(value.hour) * 60 + int(value.minute)
-
-
 def _is_pre_break_time(
     timestamp: pd.Timestamp,
     sessions: tuple[Any, ...],
     lead_minutes: int,
 ) -> bool:
     """Return whether ``timestamp`` sits in the lead-in to any session close."""
-    current = _minute_of_day(timestamp.timetz())
+    current = minute_of_day_from_time(timestamp.timetz())
     for close_time in _session_break_closes(sessions):
-        close = _minute_of_day(close_time)
+        close = minute_of_day_from_time(close_time)
         start = (close - int(lead_minutes)) % 1440
         if start <= close:
             if start <= current <= close:
@@ -3205,7 +3201,7 @@ def _entry_blocked_at_match(
     midday recess fills inside a blocked afternoon window.
     """
     if is_entry_window_blocked(
-        _minute_of_day(timestamp.timetz()),
+        minute_of_day_from_time(timestamp.timetz()),
         config.entry_blocked_session_windows,
     ):
         return "ENTRY_SESSION_WINDOW_BLOCKED"

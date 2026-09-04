@@ -3179,6 +3179,13 @@ python3 -m pytest -q cta/feature/tests/test_feature_modules_smoke.py cta/feature
 - 新增同一 root 在早晚日期分别使用旧/新乘数的加载器及成交额建表测试。
 - 验收区间复用已有成交额表，拒绝码分布及 `trades.csv` 与金标准一致；验证：`python3 -m pytest -q cta/strategy/tests`，550 passed。
 
+## 2026-09-04 · refactor · R-08 分离分钟转换命名
+
+- 配置模块提供 `minute_of_day_from_text` 与 `minute_of_day_from_time`，分别严格接收 `HH:MM` 和 `datetime.time`。
+- engine 删除本地近似同名函数，时段过滤、跨休市窗口和撮合复检统一使用配置函数。
+- 新增输入类型契约测试；金标准与 R-08 后 `trades.csv` SHA-256 均为 `6685b6b89476c22b2c8d1b070e8140c81d108edfb0b79b3e963e7e9fbf850f0d`，拒绝码分布不变。
+- 验证：`python3 -m pytest -q cta/strategy/tests`，551 passed。
+
 ---
 
 ## 2026-05-30 · current · OOT 日度仓位分布改为“当时资金占比(%)”

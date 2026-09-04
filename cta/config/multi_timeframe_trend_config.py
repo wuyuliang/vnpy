@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
+from datetime import time
 
 
 _ENTRY_WINDOW_PATTERN = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
@@ -440,10 +441,21 @@ def _normalize_entry_windows(
     return tuple(normalized)
 
 
-def minutes_of_day(value: str) -> int:
+def minute_of_day_from_text(value: str) -> int:
     """Return minutes since midnight for an ``HH:MM`` string."""
+    if not isinstance(value, str):
+        raise TypeError("minute text must be a string")
+    if not _ENTRY_WINDOW_PATTERN.fullmatch(value):
+        raise ValueError("minute text must be HH:MM in 00:00..23:59")
     hours, minutes = value.split(":")
     return int(hours) * 60 + int(minutes)
+
+
+def minute_of_day_from_time(value: time) -> int:
+    """Return minutes since midnight for a time object."""
+    if not isinstance(value, time):
+        raise TypeError("minute time must be datetime.time")
+    return int(value.hour) * 60 + int(value.minute)
 
 
 def is_entry_window_blocked(
@@ -452,8 +464,8 @@ def is_entry_window_blocked(
 ) -> bool:
     """Return whether ``minute_of_day`` falls in any half-open blocked window."""
     for start, end in windows:
-        start_minute = minutes_of_day(start)
-        end_minute = minutes_of_day(end)
+        start_minute = minute_of_day_from_text(start)
+        end_minute = minute_of_day_from_text(end)
         if start_minute < end_minute:
             if start_minute <= minute_of_day < end_minute:
                 return True
@@ -465,5 +477,6 @@ def is_entry_window_blocked(
 __all__ = [
     "MultiTimeframeTrendConfig",
     "is_entry_window_blocked",
-    "minutes_of_day",
+    "minute_of_day_from_text",
+    "minute_of_day_from_time",
 ]

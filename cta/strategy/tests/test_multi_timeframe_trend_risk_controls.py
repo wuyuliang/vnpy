@@ -11,7 +11,8 @@ from cta.config.futures_sector_map import sector_for_root
 from cta.config.multi_timeframe_trend_config import (
     MultiTimeframeTrendConfig,
     is_entry_window_blocked,
-    minutes_of_day,
+    minute_of_day_from_text,
+    minute_of_day_from_time,
 )
 from cta.strategy.multi_timeframe_trend_backtest.engine import (
     _DailyCircuitState,
@@ -89,7 +90,19 @@ def test_default_entry_windows_cover_the_two_loss_making_blocks() -> None:
 )
 def test_entry_window_boundaries_are_half_open(clock: str, blocked: bool) -> None:
     windows = MultiTimeframeTrendConfig().entry_blocked_session_windows
-    assert is_entry_window_blocked(minutes_of_day(clock), windows) is blocked
+    assert (
+        is_entry_window_blocked(minute_of_day_from_text(clock), windows)
+        is blocked
+    )
+
+
+def test_minute_of_day_converters_have_distinct_input_contracts() -> None:
+    assert minute_of_day_from_text("13:45") == 13 * 60 + 45
+    assert minute_of_day_from_time(time(13, 45)) == 13 * 60 + 45
+    with pytest.raises(TypeError):
+        minute_of_day_from_text(time(13, 45))  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        minute_of_day_from_time("13:45")  # type: ignore[arg-type]
 
 
 def test_empty_entry_windows_block_nothing() -> None:
