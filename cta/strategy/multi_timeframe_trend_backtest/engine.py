@@ -271,6 +271,86 @@ class _Position:
 
 
 @dataclass
+class _IncrementalPortfolioEquity:
+    """Cache per-position marked PnL components between portfolio events."""
+
+    _components: dict[str, tuple[float, float]] = field(default_factory=dict)
+    _dirty: bool = True
+    _cached_cash: float = math.nan
+    _cached_roots: tuple[str, ...] = ()
+    _cached_equity: float = math.nan
+
+    def update_position(
+        self,
+        root_symbol: str,
+        position: _Position,
+        mark: float,
+    ) -> None:
+        direction = int(position.pending.candidate["direction"])
+        multiplier = float(position.pending.metadata.contract_size)
+        fee_per_lot = float(
+            position.pending.metadata.stressed_round_trip_fee_cash
+        )
+        components = (
+            direction
+            * (float(mark) - position.entry_price)
+            * position.quantity
+            * multiplier,
+            fee_per_lot * position.quantity,
+        )
+        if self._components.get(root_symbol) != components:
+            self._components[root_symbol] = components
+            self._dirty = True
+
+    def remove_position(self, root_symbol: str) -> None:
+        if self._components.pop(root_symbol, None) is not None:
+            self._dirty = True
+
+    def marked_equity(
+        self,
+        cash: float,
+        positions: dict[str, _Position],
+    ) -> float:
+        roots = tuple(positions)
+        if (
+            not self._dirty
+            and cash == self._cached_cash
+            and roots == self._cached_roots
+        ):
+            return self._cached_equity
+        # Preserve the full calculation's position order and floating-point order.
+        equity = cash
+        for root_symbol in roots:
+            marked_pnl, fees = self._components[root_symbol]
+            equity += marked_pnl
+            equity -= fees
+        self._dirty = False
+        self._cached_cash = cash
+        self._cached_roots = roots
+        self._cached_equity = equity
+        return equity
+
+    def reconcile(
+        self,
+        cash: float,
+        positions: dict[str, _Position],
+        marks: dict[str, float],
+        *,
+        trade_date: date,
+    ) -> None:
+        self._dirty = True
+        incremental = self.marked_equity(cash, positions)
+        expected = _portfolio_marked_equity(cash, positions, marks)
+        tolerance = max(1e-9, abs(expected) * 1e-12)
+        if abs(incremental - expected) > tolerance:
+            raise RuntimeError(
+                "incremental portfolio equity drift "
+                f"on {trade_date}: incremental={incremental:.17g};"
+                f"expected={expected:.17g};tolerance={tolerance:.17g}"
+            )
+
+
+@dataclass
 class _SymbolScalingState:
     active: bool = False
     consecutive_losses: int = 0
@@ -1324,8 +1404,16 @@ def replay_trend_portfolio(
     pending_exit_quantity: dict[str, int] = {}
     active_contract: dict[str, str] = {}
     marks: dict[str, float] = {}
-    last_bars: dict[str, pd.Series] = {}
-    last_position_bars: dict[str, pd.Series] = {}
+    last_bars: dict[str, dict[str, Any]] = {}
+    last_position_bars: dict[str, dict[str, Any]] = {}
+    equity_tracker = _IncrementalPortfolioEquity()
+    equity_trade_dates: frozenset[date] = frozenset()
+    overnight_bounds_cache: dict[
+        tuple[Any, ...], tuple[pd.Timestamp, pd.Timestamp]
+    ] = {}
+    overnight_sessions_id = {
+        root: _sessions_cache_id(definitions[root].sessions) for root in roots
+    }
     plan_rows: list[dict[str, Any]] = []
     order_rows: list[dict[str, Any]] = []
     fill_rows: list[dict[str, Any]] = []
@@ -1351,14 +1439,28 @@ def replay_trend_portfolio(
         item.root_symbol: _high_gap_flags_by_trade_date(item.daily_context, config)
         for item in ordered_inputs
     }
+    event_columns = tuple(events.columns)
+    event_root_index = event_columns.index("_root_symbol")
 
     for timestamp_value, event_rows in events.groupby("bar_end", sort=True):
         timestamp = pd.Timestamp(timestamp_value)
-        event_rows = event_rows.sort_values("_root_symbol", kind="stable")
+        # ``events`` is already globally stable-sorted by time and root above.
         bars_at_event = {
-            str(row["_root_symbol"]): row for _, row in event_rows.iterrows()
+            str(values[event_root_index]): dict(zip(event_columns, values))
+            for values in event_rows.to_numpy(copy=False)
         }
-        position_bars: dict[str, pd.Series] = {}
+        event_trade_dates = frozenset(
+            bar["exchange_trade_date"] for bar in bars_at_event.values()
+        )
+        if equity_trade_dates and event_trade_dates != equity_trade_dates:
+            equity_tracker.reconcile(
+                cash,
+                positions,
+                marks,
+                trade_date=max(equity_trade_dates),
+            )
+        equity_trade_dates = event_trade_dates
+        position_bars: dict[str, dict[str, Any]] = {}
         for root_symbol, bar in bars_at_event.items():
             contract = str(bar["contract_code"])
             previous_contract = active_contract.get(root_symbol, "")
@@ -1397,6 +1499,9 @@ def replay_trend_portfolio(
             position_bars[root_symbol] = position_bar
             last_position_bars[root_symbol] = position_bar
             marks[root_symbol] = float(position_bar["close"])
+            equity_tracker.update_position(
+                root_symbol, position, marks[root_symbol]
+            )
             if (
                 position.current_metadata.daily.exchange_trade_date
                 != position_bar["exchange_trade_date"]
@@ -1540,6 +1645,11 @@ def replay_trend_portfolio(
                 bar_index=int(bar["_bar_index"]),
             )
             cash += float(leg["net_pnl"])
+            equity_tracker.update_position(
+                root_symbol,
+                position,
+                marks.get(root_symbol, position.entry_price),
+            )
             fill_rows.append(fill)
             exit_leg_rows.append(leg)
             _update_portfolio_scaling_after_exit(
@@ -1572,7 +1682,7 @@ def replay_trend_portfolio(
                     daily_circuit,
                     trade_date=bar["exchange_trade_date"],
                     net_pnl=float(trade["net_pnl"]),
-                    equity=_portfolio_marked_equity(cash, positions, marks),
+                    equity=equity_tracker.marked_equity(cash, positions),
                     config=config,
                 )
                 trade_rows.append(trade)
@@ -1591,6 +1701,7 @@ def replay_trend_portfolio(
                     event_rows=scaling_event_rows,
                 )
                 positions.pop(root_symbol)
+                equity_tracker.remove_position(root_symbol)
 
         cutoff_roots = {
             root_symbol
@@ -1599,6 +1710,8 @@ def replay_trend_portfolio(
                 timestamp,
                 definitions[root_symbol].sessions,
                 config.overnight_reduction_minutes,
+                bounds_cache=overnight_bounds_cache,
+                sessions_id=overnight_sessions_id[root_symbol],
             )
         }
         for root_symbol in sorted(cutoff_roots):
@@ -1618,7 +1731,7 @@ def replay_trend_portfolio(
                     )
                 )
         if positions and cutoff_roots:
-            equity = _portfolio_marked_equity(cash, positions, marks)
+            equity = equity_tracker.marked_equity(cash, positions)
             margin = _portfolio_margin_used(positions, marks)
             margin_limit = equity * config.overnight_margin_utilization
             if equity > 0 and margin > margin_limit:
@@ -1770,7 +1883,7 @@ def replay_trend_portfolio(
                 )
                 pending.pop(root_symbol)
                 continue
-            equity = _portfolio_marked_equity(cash, positions, marks)
+            equity = equity_tracker.marked_equity(cash, positions)
             outcome = _match_entry(
                 active_order,
                 bar,
@@ -1869,6 +1982,11 @@ def replay_trend_portfolio(
                 filled_bull_trend_ids[root_symbol],
             )
             positions[root_symbol] = position
+            equity_tracker.update_position(
+                root_symbol,
+                position,
+                marks.get(root_symbol, position.entry_price),
+            )
             last_position_bars[root_symbol] = bar
             fill_rows.append(fill)
             order_rows.append(
@@ -2080,7 +2198,9 @@ def replay_trend_portfolio(
                         exchange=definition.exchange,
                         metadata_store=metadata_store,
                         config=config,
-                        equity=_portfolio_marked_equity(cash, positions, marks),
+                        equity=equity_tracker.marked_equity(
+                            cash, positions
+                        ),
                     )
                 except (LookupError, TypeError, ValueError) as exc:
                     rejection_rows.append(
@@ -2104,6 +2224,9 @@ def replay_trend_portfolio(
                 cash=cash,
                 positions=positions,
                 marks=marks,
+                marked_equity=equity_tracker.marked_equity(
+                    cash, positions
+                ),
                 overnight=(
                     bool(cutoff_roots)
                     or any(
@@ -2118,6 +2241,13 @@ def replay_trend_portfolio(
                 daily_rows.get(trade_date), row
             )
 
+    if equity_trade_dates:
+        equity_tracker.reconcile(
+            cash,
+            positions,
+            marks,
+            trade_date=max(equity_trade_dates),
+        )
     for root_symbol, position in sorted(positions.items()):
         if pending_market_exit.get(root_symbol) == "ROLL_MAPPING_CHANGED":
             raise _blocked_roll_execution_bar(
@@ -2158,6 +2288,11 @@ def replay_trend_portfolio(
             bar_index=int(bar["_bar_index"]),
         )
         cash += float(leg["net_pnl"])
+        equity_tracker.update_position(
+            root_symbol,
+            position,
+            marks.get(root_symbol, position.entry_price),
+        )
         fill_rows.append(fill)
         exit_leg_rows.append(leg)
         _update_portfolio_scaling_after_exit(
@@ -2187,12 +2322,14 @@ def replay_trend_portfolio(
             event_rows=scaling_event_rows,
         )
         positions.pop(root_symbol)
+        equity_tracker.remove_position(root_symbol)
         trade_date = bar["exchange_trade_date"]
         row = _portfolio_equity_row(
             date_value=bar["exchange_trade_date"],
             cash=cash,
             positions=positions,
             marks=marks,
+            marked_equity=equity_tracker.marked_equity(cash, positions),
         )
         daily_rows[trade_date] = _merge_portfolio_daily_row(
             daily_rows.get(trade_date), row
@@ -2480,21 +2617,57 @@ def _is_overnight_reduction_time(
     timestamp: pd.Timestamp,
     sessions: tuple[Any, ...],
     lead_minutes: int,
+    *,
+    bounds_cache: dict[
+        tuple[Any, ...], tuple[pd.Timestamp, pd.Timestamp]
+    ] | None = None,
+    sessions_id: tuple[Any, ...] | None = None,
 ) -> bool:
-    day_ends = [
-        segment.end
-        for session in sessions
-        if not bool(session.is_night)
-        for segment in session.segments
-    ]
-    if not day_ends:
-        raise ValueError("portfolio replay requires a day-session close")
-    close_time = max(day_ends)
-    close = pd.Timestamp.combine(timestamp.date(), close_time).tz_localize(
-        timestamp.tz
+    resolved_sessions_id = sessions_id or _sessions_cache_id(sessions)
+    key = (
+        resolved_sessions_id,
+        timestamp.date(),
+        str(timestamp.tz),
+        int(lead_minutes),
     )
-    cutoff = close - pd.Timedelta(minutes=lead_minutes)
+    bounds = bounds_cache.get(key) if bounds_cache is not None else None
+    if bounds is None:
+        day_ends = [
+            segment.end
+            for session in sessions
+            if not bool(session.is_night)
+            for segment in session.segments
+        ]
+        if not day_ends:
+            raise ValueError("portfolio replay requires a day-session close")
+        close_time = max(day_ends)
+        close = pd.Timestamp.combine(timestamp.date(), close_time).tz_localize(
+            timestamp.tz
+        )
+        bounds = (close - pd.Timedelta(minutes=lead_minutes), close)
+        if bounds_cache is not None:
+            bounds_cache[key] = bounds
+    cutoff, close = bounds
     return bool(cutoff <= timestamp <= close)
+
+
+def _sessions_cache_id(sessions: tuple[Any, ...]) -> tuple[Any, ...]:
+    return tuple(
+        (
+            str(session.session_id),
+            bool(session.is_night),
+            tuple(
+                (
+                    str(segment.segment_id),
+                    segment.start,
+                    segment.end,
+                    segment.bucket_anchor,
+                )
+                for segment in session.segments
+            ),
+        )
+        for session in sessions
+    )
 
 
 def _is_night_timestamp(
@@ -2589,9 +2762,14 @@ def _portfolio_equity_row(
     cash: float,
     positions: dict[str, _Position],
     marks: dict[str, float],
+    marked_equity: float | None = None,
     overnight: bool = False,
 ) -> dict[str, Any]:
-    equity = _portfolio_marked_equity(cash, positions, marks)
+    equity = (
+        _portfolio_marked_equity(cash, positions, marks)
+        if marked_equity is None
+        else marked_equity
+    )
     margin = _portfolio_margin_used(positions, marks)
     unrealized = equity - cash
     open_risk = sum(

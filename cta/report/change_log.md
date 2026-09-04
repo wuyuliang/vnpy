@@ -3134,6 +3134,15 @@ python3 -m pytest -q cta/feature/tests/test_feature_modules_smoke.py cta/feature
 - 单品种单月为 14.23 秒，相对初始累计加速 2.05x；10 个验收 CSV 及 `--chart-outcomes all` 图表目录逐字节一致。
 - 验证：`python3 -m pytest cta/strategy/tests -q`，537 passed。
 
+## 2026-09-04 · feature · P-05 事件循环微优化
+
+- 组合事件行改为一次性 NumPy 行数组转换，复用全局 `(bar_end, root)` 排序，避免逐行 Series 和逐事件重复排序。
+- 持仓权益按 mark/数量变化增量更新并复用同状态结果；保持原浮点运算顺序，交易日边界及区间结束与全量结果强制对账。
+- 隔夜减仓时间边界按完整 session 标识、日期、时区和提前分钟数缓存。
+- 同机直接父提交基线 13.78 秒降至 13.12 秒，单项加速 1.05x，相对初始 29.17 秒累计加速 2.22x；10 个验收 CSV 与 P-05 动手前直接父提交逐字节一致。
+- 最初金标准的 `rejections.csv` 与直接父提交已有差异，来源是先于 P-05 的 `737ec35bf` 追高开关语义提交；其余 9 个 CSV 与最初金标准一致。
+- 验证：`python3 -m pytest cta/strategy/tests -q`，541 passed。
+
 ---
 
 ## 2026-05-30 · current · OOT 日度仓位分布改为“当时资金占比(%)”
