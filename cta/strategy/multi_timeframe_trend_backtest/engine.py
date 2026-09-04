@@ -271,6 +271,214 @@ class _Position:
     exit_legs: list[dict[str, Any]] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class _PendingOrderDecision:
+    status: str
+    reason: str = ""
+    match: tuple[Any, ...] | None = None
+
+
+@dataclass(frozen=True)
+class _CandidateFilterDecision:
+    reason: str = ""
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class _PositionExitDecision:
+    reason: str = ""
+    price: float = math.nan
+    reference: float = math.nan
+    metadata: Any = None
+    pending_reason: str = ""
+    limit_locked: bool = False
+
+
+def _process_pending_order(
+    pending: _PendingOrder,
+    bar: Any,
+    timestamp: pd.Timestamp,
+    *,
+    config: MultiTimeframeTrendConfig,
+    equity: float,
+) -> _PendingOrderDecision:
+    """Evaluate one resting order without mutating account state."""
+    expires_at = pd.Timestamp(pending.candidate["expires_at"])
+    active_at = pd.Timestamp(pending.candidate["active_time"])
+    if timestamp > expires_at:
+        return _PendingOrderDecision("EXPIRED", "ORDER_EXPIRED")
+    if timestamp < active_at or str(bar["contract_code"]) != str(
+        pending.candidate["contract_code"]
+    ):
+        return _PendingOrderDecision("WAITING")
+    blocked = _entry_blocked_at_match(active_at, timestamp, config)
+    if blocked:
+        return _PendingOrderDecision("BLOCKED", blocked)
+    match = _match_entry(pending, bar, config=config, equity=equity)
+    status = str(match[0])
+    reason = str(match[1]) if status == "CANCELLED" else ""
+    return _PendingOrderDecision(status, reason, match)
+
+
+def _apply_candidate_filters(
+    candidate: dict[str, Any],
+    *,
+    filled_bull_trend_ids: set[int],
+    timestamp: pd.Timestamp,
+    config: MultiTimeframeTrendConfig,
+    checks: tuple[str, ...],
+    stored_reason: str | None = None,
+    cooldown_state: _SymbolLossCooldownState | None = None,
+) -> _CandidateFilterDecision:
+    """Apply shared candidate gates in the caller's existing priority order."""
+    for check in checks:
+        if check == "stored":
+            reason = (
+                str(candidate.get("filtered_reason", "") or "").strip()
+                if stored_reason is None
+                else str(stored_reason).strip()
+            )
+            if reason:
+                return _CandidateFilterDecision(reason)
+        elif check == "breakout":
+            reason = _first_trend_entry_breakout_buffer_reason(
+                candidate,
+                filled_bull_trend_ids,
+                config,
+            )
+            if reason:
+                return _CandidateFilterDecision(reason)
+        elif check == "cooldown":
+            if cooldown_state is None:
+                continue
+            detail = _symbol_loss_cooldown_detail(
+                cooldown_state,
+                timestamp,
+                config,
+            )
+            if detail:
+                return _CandidateFilterDecision(
+                    "SYMBOL_LOSS_COOLDOWN", detail
+                )
+        elif check == "session":
+            minute = _minute_of_day(timestamp.timetz())
+            if is_entry_window_blocked(
+                minute,
+                config.entry_blocked_session_windows,
+            ):
+                return _CandidateFilterDecision(
+                    "ENTRY_SESSION_WINDOW_BLOCKED",
+                    f"minute_of_day={minute}",
+                )
+        else:
+            raise ValueError(f"unknown candidate filter: {check}")
+    return _CandidateFilterDecision()
+
+
+def _advance_open_position_context(
+    position: _Position,
+    context_row: dict[str, Any],
+    *,
+    config: MultiTimeframeTrendConfig,
+) -> str:
+    """Advance a position from shared higher-timeframe context."""
+    daily_direction = int(context_row.get("daily_direction", 0) or 0)
+    direction = int(position.pending.candidate["direction"])
+    if daily_direction != direction:
+        return "DAILY_DIRECTION_INVALID"
+    _advance_position_stop(position, context_row, config=config)
+    return ""
+
+
+def _manage_open_position(
+    position: _Position,
+    bar: Any,
+    *,
+    metadata_store: Any,
+    root_symbol: str,
+    exchange: str,
+    pending_reason: str,
+    protective_first: bool,
+) -> _PositionExitDecision:
+    """Resolve pending and protective exits without mutating account state."""
+    _update_excursions(position, bar)
+    protective_touched = (
+        pending_reason != "ROLL_MAPPING_CHANGED"
+        and _protective_exit_touched(position, bar)
+    )
+    if not pending_reason and not protective_touched:
+        return _PositionExitDecision(pending_reason=pending_reason)
+    metadata = _exit_metadata_snapshot(
+        metadata_store,
+        root_symbol=root_symbol,
+        exchange=exchange,
+        position=position,
+        bar=bar,
+    )
+    effective_pending = pending_reason
+    if protective_first and protective_touched:
+        reason, price, reference = _protective_exit(
+            position,
+            bar,
+            metadata=metadata,
+        )
+        if reason:
+            return _PositionExitDecision(
+                reason,
+                price,
+                reference,
+                metadata,
+                effective_pending,
+            )
+        if _protective_limit_locked(
+            bar,
+            metadata,
+            int(position.pending.candidate["direction"]),
+        ):
+            effective_pending = "STOP"
+            return _PositionExitDecision(
+                metadata=metadata,
+                pending_reason=effective_pending,
+                limit_locked=True,
+            )
+    if effective_pending:
+        if _protective_limit_locked(
+            bar,
+            metadata,
+            int(position.pending.candidate["direction"]),
+        ):
+            return _PositionExitDecision(
+                metadata=metadata,
+                pending_reason=effective_pending,
+                limit_locked=True,
+            )
+        reference = float(bar["open"])
+        return _PositionExitDecision(
+            effective_pending,
+            _market_exit_price(position, reference, metadata),
+            reference,
+            metadata,
+            effective_pending,
+        )
+    if protective_touched:
+        reason, price, reference = _protective_exit(
+            position,
+            bar,
+            metadata=metadata,
+        )
+        return _PositionExitDecision(
+            reason,
+            price,
+            reference,
+            metadata,
+            effective_pending,
+        )
+    return _PositionExitDecision(
+        metadata=metadata,
+        pending_reason=effective_pending,
+    )
+
+
 @dataclass
 class _IncrementalPortfolioEquity:
     """Cache per-position marked PnL components between portfolio events."""
@@ -974,47 +1182,23 @@ def replay_trend_strategy(
             position_bar = position_bar.copy()
             position_bar["_bar_index"] = bar_index
             last_position_bar = position_bar
-            _update_excursions(position, position_bar)
-            exit_reason = pending_market_exit
-            exit_price = math.nan
-            exit_reference = math.nan
-            exit_metadata = None
-            if exit_reason or _protective_exit_touched(position, position_bar):
-                exit_metadata = _exit_metadata_snapshot(
-                    metadata_store,
-                    root_symbol=root_symbol,
-                    exchange=exchange,
-                    position=position,
-                    bar=position_bar,
-                )
-            if exit_reason and exit_metadata is not None:
-                if _protective_limit_locked(
-                    position_bar,
-                    exit_metadata,
-                    int(position.pending.candidate["direction"]),
-                ):
-                    exit_reason = ""
-                else:
-                    exit_reference = float(position_bar["open"])
-                    exit_price = _market_exit_price(
-                        position,
-                        exit_reference,
-                        exit_metadata,
-                    )
-            elif exit_metadata is not None:
-                exit_reason, exit_price, exit_reference = _protective_exit(
-                    position,
-                    position_bar,
-                    metadata=exit_metadata,
-                )
-            if exit_reason:
+            exit_decision = _manage_open_position(
+                position,
+                position_bar,
+                metadata_store=metadata_store,
+                root_symbol=root_symbol,
+                exchange=exchange,
+                pending_reason=pending_market_exit,
+                protective_first=False,
+            )
+            if exit_decision.reason:
                 trade, fill, leg = _close_position(
                     position,
-                    exit_metadata=exit_metadata,
+                    exit_metadata=exit_decision.metadata,
                     timestamp=timestamp,
-                    price=exit_price,
-                    reference=exit_reference,
-                    reason=exit_reason,
+                    price=exit_decision.price,
+                    reference=exit_decision.reference,
+                    reason=exit_decision.reason,
                     bar_index=bar_index,
                 )
                 cash += float(leg["net_pnl"])
@@ -1044,98 +1228,117 @@ def replay_trend_strategy(
                 pending_market_exit = ""
 
         if pending is not None:
-            expires_at = pd.Timestamp(pending.candidate["expires_at"])
-            active_at = pd.Timestamp(pending.candidate["active_time"])
-            if timestamp > expires_at:
+            active_order = pending
+            decision = _process_pending_order(
+                active_order,
+                bar,
+                timestamp,
+                config=config,
+                equity=_marked_equity(cash, position, bar),
+            )
+            if decision.status == "EXPIRED":
                 order_rows.append(
-                    _order_row(pending, "EXPIRED", "ORDER_EXPIRED", timestamp)
+                    _order_row(
+                        active_order,
+                        "EXPIRED",
+                        decision.reason,
+                        timestamp,
+                    )
                 )
                 pending = None
-            elif timestamp >= active_at and contract == str(
-                pending.candidate["contract_code"]
-            ):
-                blocked = _entry_blocked_at_match(active_at, timestamp, config)
-                if blocked:
+            elif decision.status == "BLOCKED":
+                order_rows.append(
+                    _order_row(
+                        active_order,
+                        "CANCELLED",
+                        decision.reason,
+                        timestamp,
+                    )
+                )
+                rejection_rows.append(
+                    _rejection(
+                        root_symbol,
+                        active_order.candidate,
+                        decision.reason,
+                        detail=f"stage=match;event_time={timestamp.isoformat()}",
+                    )
+                )
+                pending = None
+            elif decision.status == "CANCELLED":
+                order_rows.append(
+                    _order_row(
+                        active_order,
+                        "CANCELLED",
+                        decision.reason,
+                        timestamp,
+                    )
+                )
+                pending = None
+            elif decision.status == "FILLED":
+                outcome = decision.match
+                if outcome is None:
+                    raise RuntimeError("filled order decision requires match data")
+                base_quantity = int(outcome[4])
+                (
+                    quantity,
+                    symbol_factor,
+                    portfolio_factor,
+                    quantity_scale,
+                    scaling_reason,
+                ) = _position_scaling_snapshot(
+                    base_quantity=base_quantity,
+                    symbol_state=symbol_scaling,
+                    portfolio_state=portfolio_scaling,
+                    config=config,
+                )
+                if quantity < 1:
+                    reason = "DYNAMIC_RISK_SCALE_BELOW_ONE_LOT"
                     order_rows.append(
-                        _order_row(pending, "CANCELLED", blocked, timestamp)
+                        _order_row(active_order, "CANCELLED", reason, timestamp)
                     )
                     rejection_rows.append(
-                        _rejection(
-                            root_symbol,
-                            pending.candidate,
-                            blocked,
-                            detail=f"stage=match;event_time={timestamp.isoformat()}",
-                        )
+                        _rejection(root_symbol, active_order.candidate, reason)
                     )
-                    pending = None
-                    outcome = ("BLOCKED", blocked)
                 else:
-                    outcome = _match_entry(pending, bar, config=config, equity=_marked_equity(cash, position, bar))
-                if outcome[0] == "CANCELLED":
-                    order_rows.append(_order_row(pending, "CANCELLED", outcome[1], timestamp))
-                    pending = None
-                elif outcome[0] == "FILLED":
-                    base_quantity = int(outcome[4])
-                    (
-                        quantity,
-                        symbol_factor,
-                        portfolio_factor,
-                        quantity_scale,
-                        scaling_reason,
-                    ) = _position_scaling_snapshot(
-                        base_quantity=base_quantity,
-                        symbol_state=symbol_scaling,
-                        portfolio_state=portfolio_scaling,
-                        config=config,
-                    )
-                    if quantity < 1:
-                        reason = "DYNAMIC_RISK_SCALE_BELOW_ONE_LOT"
-                        order_rows.append(
-                            _order_row(pending, "CANCELLED", reason, timestamp)
-                        )
-                        rejection_rows.append(
-                            _rejection(root_symbol, pending.candidate, reason)
-                        )
-                    else:
-                        is_first_trade_in_trend_segment = (
-                            _is_first_trade_in_trend_segment(
-                                pending.candidate,
-                                filled_bull_trend_ids,
-                            )
-                        )
-                        position, fill = _open_position(
-                            pending,
-                            timestamp=timestamp,
-                            bar_index=bar_index,
-                            fill_price=float(outcome[2]),
-                            reference=float(outcome[3]),
-                            quantity=quantity,
-                            base_quantity=base_quantity,
-                            symbol_quantity_scale=symbol_factor,
-                            portfolio_quantity_scale=portfolio_factor,
-                            quantity_scale=quantity_scale,
-                            position_scaling_reason=scaling_reason,
-                            symbol_recovery_deficit=(
-                                symbol_scaling.recovery_deficit
-                            ),
-                            portfolio_recovery_deficit=(
-                                portfolio_scaling.recovery_deficit
-                            ),
-                            is_first_trade_in_trend_segment=(
-                                is_first_trade_in_trend_segment
-                            ),
-                            config=config,
-                        )
-                        _record_bull_trend_fill(
-                            pending.candidate,
+                    is_first_trade_in_trend_segment = (
+                        _is_first_trade_in_trend_segment(
+                            active_order.candidate,
                             filled_bull_trend_ids,
                         )
-                        fill_rows.append(fill)
-                        last_position_bar = bar
-                        order_rows.append(
-                            _order_row(pending, "FILLED", "FILLED", timestamp)
-                        )
-                    pending = None
+                    )
+                    position, fill = _open_position(
+                        active_order,
+                        timestamp=timestamp,
+                        bar_index=bar_index,
+                        fill_price=float(outcome[2]),
+                        reference=float(outcome[3]),
+                        quantity=quantity,
+                        base_quantity=base_quantity,
+                        symbol_quantity_scale=symbol_factor,
+                        portfolio_quantity_scale=portfolio_factor,
+                        quantity_scale=quantity_scale,
+                        position_scaling_reason=scaling_reason,
+                        symbol_recovery_deficit=(
+                            symbol_scaling.recovery_deficit
+                        ),
+                        portfolio_recovery_deficit=(
+                            portfolio_scaling.recovery_deficit
+                        ),
+                        is_first_trade_in_trend_segment=(
+                            is_first_trade_in_trend_segment
+                        ),
+                        config=config,
+                    )
+                    _record_bull_trend_fill(
+                        active_order.candidate,
+                        filled_bull_trend_ids,
+                    )
+                    fill_rows.append(fill)
+                    last_position_bar = bar
+                    order_rows.append(
+                        _order_row(active_order, "FILLED", "FILLED", timestamp)
+                    )
+                pending = None
 
         context_row = context.get(timestamp)
         if context_row is not None:
@@ -1153,35 +1356,29 @@ def replay_trend_strategy(
                     )
                     pending = None
             if position is not None and pending_market_exit != "ROLL_MAPPING_CHANGED":
-                direction = int(position.pending.candidate["direction"])
-                if daily_direction != direction:
-                    pending_market_exit = "DAILY_DIRECTION_INVALID"
-                else:
-                    _advance_position_stop(position, context_row, config=config)
+                position_reason = _advance_open_position_context(
+                    position,
+                    context_row,
+                    config=config,
+                )
+                if position_reason:
+                    pending_market_exit = position_reason
 
         for candidate in by_signal.get(timestamp, ()):  # Known only after this bar closes.
-            reason = str(candidate.get("filtered_reason", "") or "").strip()
-            if reason:
-                rejection_rows.append(_rejection(root_symbol, candidate, reason))
-                continue
-            reason = _first_trend_entry_breakout_buffer_reason(
+            filter_decision = _apply_candidate_filters(
                 candidate,
-                filled_bull_trend_ids,
-                config,
+                filled_bull_trend_ids=filled_bull_trend_ids,
+                timestamp=timestamp,
+                config=config,
+                checks=("stored", "breakout", "session"),
             )
-            if reason:
-                rejection_rows.append(_rejection(root_symbol, candidate, reason))
-                continue
-            if is_entry_window_blocked(
-                _minute_of_day(timestamp.timetz()),
-                config.entry_blocked_session_windows,
-            ):
+            if filter_decision.reason:
                 rejection_rows.append(
                     _rejection(
                         root_symbol,
                         candidate,
-                        "ENTRY_SESSION_WINDOW_BLOCKED",
-                        detail=f"minute_of_day={_minute_of_day(timestamp.timetz())}",
+                        filter_decision.reason,
+                        detail=filter_decision.detail,
                     )
                 )
                 continue
@@ -1574,81 +1771,47 @@ def replay_trend_portfolio(
             position = positions.get(root_symbol)
             if position is None:
                 continue
-            _update_excursions(position, bar)
             pending_reason = pending_market_exit.get(root_symbol, "")
-            exit_reason = ""
-            close_quantity: int | None = None
-            exit_metadata = None
-            protective_touched = (
-                pending_reason != "ROLL_MAPPING_CHANGED"
-                and _protective_exit_touched(position, bar)
+            definition = definitions[root_symbol]
+            exit_decision = _manage_open_position(
+                position,
+                bar,
+                metadata_store=metadata_store,
+                root_symbol=root_symbol,
+                exchange=definition.exchange,
+                pending_reason=pending_reason,
+                protective_first=True,
             )
-            if pending_reason or protective_touched:
-                definition = definitions[root_symbol]
-                exit_metadata = _exit_metadata_snapshot(
-                    metadata_store,
-                    root_symbol=root_symbol,
-                    exchange=definition.exchange,
-                    position=position,
-                    bar=bar,
-                )
-            exit_price = math.nan
-            exit_reference = math.nan
-            if protective_touched and exit_metadata is not None:
-                exit_reason, exit_price, exit_reference = _protective_exit(
-                    position,
-                    bar,
-                    metadata=exit_metadata,
-                )
-                if not exit_reason and _protective_limit_locked(
-                    bar,
-                    exit_metadata,
-                    int(position.pending.candidate["direction"]),
-                ):
-                    if pending_reason == "OVERNIGHT_MARGIN_REDUCTION":
-                        rejection_rows.append(
-                            _rejection(
-                                root_symbol,
-                                position.pending.candidate,
-                                "OVERNIGHT_REDUCTION_LIMIT_LOCKED",
-                                detail=f"retry_pending_at={timestamp.isoformat()}",
-                            )
-                        )
-                    pending_reason = "STOP"
-                    pending_market_exit[root_symbol] = pending_reason
-                    pending_exit_quantity.pop(root_symbol, None)
-            if not exit_reason and pending_reason and exit_metadata is not None:
-                if _protective_limit_locked(
-                    bar,
-                    exit_metadata,
-                    int(position.pending.candidate["direction"]),
-                ):
-                    if pending_reason == "OVERNIGHT_MARGIN_REDUCTION":
-                        rejection_rows.append(
-                            _rejection(
-                                root_symbol,
-                                position.pending.candidate,
-                                "OVERNIGHT_REDUCTION_LIMIT_LOCKED",
-                                detail=f"retry_pending_at={timestamp.isoformat()}",
-                            )
-                        )
-                else:
-                    exit_reason = pending_reason
-                    close_quantity = pending_exit_quantity.get(root_symbol)
-                    exit_reference = float(bar["open"])
-                    exit_price = _market_exit_price(
-                        position, exit_reference, exit_metadata
+            if (
+                exit_decision.limit_locked
+                and pending_reason == "OVERNIGHT_MARGIN_REDUCTION"
+            ):
+                rejection_rows.append(
+                    _rejection(
+                        root_symbol,
+                        position.pending.candidate,
+                        "OVERNIGHT_REDUCTION_LIMIT_LOCKED",
+                        detail=f"retry_pending_at={timestamp.isoformat()}",
                     )
-            if not exit_reason:
+                )
+            if exit_decision.pending_reason != pending_reason:
+                pending_market_exit[root_symbol] = exit_decision.pending_reason
+                pending_exit_quantity.pop(root_symbol, None)
+            if not exit_decision.reason:
                 continue
+            close_quantity = (
+                pending_exit_quantity.get(root_symbol)
+                if exit_decision.reason == exit_decision.pending_reason
+                else None
+            )
             trade, fill, leg = _close_position(
                 position,
                 quantity=close_quantity,
-                exit_metadata=exit_metadata,
+                exit_metadata=exit_decision.metadata,
                 timestamp=timestamp,
-                price=exit_price,
-                reference=exit_reference,
-                reason=exit_reason,
+                price=exit_decision.price,
+                reference=exit_decision.reference,
+                reason=exit_decision.reason,
                 bar_index=int(bar["_bar_index"]),
             )
             cash += float(leg["net_pnl"])
@@ -1863,48 +2026,62 @@ def replay_trend_portfolio(
             active_order = pending.get(root_symbol)
             if active_order is None:
                 continue
-            expires_at = pd.Timestamp(active_order.candidate["expires_at"])
-            active_at = pd.Timestamp(active_order.candidate["active_time"])
-            if timestamp > expires_at:
+            equity = equity_tracker.marked_equity(cash, positions)
+            decision = _process_pending_order(
+                active_order,
+                bar,
+                timestamp,
+                config=config,
+                equity=equity,
+            )
+            if decision.status == "EXPIRED":
                 order_rows.append(
-                    _order_row(active_order, "EXPIRED", "ORDER_EXPIRED", timestamp)
+                    _order_row(
+                        active_order,
+                        "EXPIRED",
+                        decision.reason,
+                        timestamp,
+                    )
                 )
                 pending.pop(root_symbol)
                 continue
-            if timestamp < active_at or str(bar["contract_code"]) != str(
-                active_order.candidate["contract_code"]
-            ):
+            if decision.status == "WAITING":
                 continue
-            blocked = _entry_blocked_at_match(active_at, timestamp, config)
-            if blocked:
+            if decision.status == "BLOCKED":
                 order_rows.append(
-                    _order_row(active_order, "CANCELLED", blocked, timestamp)
+                    _order_row(
+                        active_order,
+                        "CANCELLED",
+                        decision.reason,
+                        timestamp,
+                    )
                 )
                 rejection_rows.append(
                     _rejection(
                         root_symbol,
                         active_order.candidate,
-                        blocked,
+                        decision.reason,
                         detail=f"stage=match;event_time={timestamp.isoformat()}",
                     )
                 )
                 pending.pop(root_symbol)
                 continue
-            equity = equity_tracker.marked_equity(cash, positions)
-            outcome = _match_entry(
-                active_order,
-                bar,
-                config=config,
-                equity=equity,
-            )
-            if outcome[0] == "CANCELLED":
+            if decision.status == "CANCELLED":
                 order_rows.append(
-                    _order_row(active_order, "CANCELLED", outcome[1], timestamp)
+                    _order_row(
+                        active_order,
+                        "CANCELLED",
+                        decision.reason,
+                        timestamp,
+                    )
                 )
                 pending.pop(root_symbol)
                 continue
-            if outcome[0] != "FILLED":
+            if decision.status != "FILLED":
                 continue
+            outcome = decision.match
+            if outcome is None:
+                raise RuntimeError("filled order decision requires match data")
             base_quantity = int(outcome[4])
             (
                 scaled_quantity,
@@ -2024,14 +2201,14 @@ def replay_trend_portfolio(
                     and pending_market_exit.get(root_symbol)
                     != "ROLL_MAPPING_CHANGED"
                 ):
-                    direction = int(position.pending.candidate["direction"])
-                    if daily_direction != direction:
-                        pending_market_exit[root_symbol] = (
-                            "DAILY_DIRECTION_INVALID"
-                        )
+                    position_reason = _advance_open_position_context(
+                        position,
+                        context_row,
+                        config=config,
+                    )
+                    if position_reason:
+                        pending_market_exit[root_symbol] = position_reason
                         pending_exit_quantity.pop(root_symbol, None)
-                    else:
-                        _advance_position_stop(position, context_row, config=config)
 
             for candidate in candidates_by_event.get((timestamp, root_symbol), ()):
                 reason = str(candidate.get("filtered_reason", "") or "").strip()
@@ -2093,31 +2270,22 @@ def replay_trend_portfolio(
                             )
                         )
                         continue
-                if reason:
-                    rejection_rows.append(_rejection(root_symbol, candidate, reason))
-                    continue
-                reason = _first_trend_entry_breakout_buffer_reason(
+                filter_decision = _apply_candidate_filters(
                     candidate,
-                    filled_bull_trend_ids[root_symbol],
-                    config,
+                    filled_bull_trend_ids=filled_bull_trend_ids[root_symbol],
+                    timestamp=timestamp,
+                    config=config,
+                    checks=("stored", "breakout", "cooldown"),
+                    stored_reason=reason,
+                    cooldown_state=symbol_loss_cooldowns[root_symbol],
                 )
-                if reason:
-                    rejection_rows.append(
-                        _rejection(root_symbol, candidate, reason)
-                    )
-                    continue
-                cooldown_detail = _symbol_loss_cooldown_detail(
-                    symbol_loss_cooldowns[root_symbol],
-                    timestamp,
-                    config,
-                )
-                if cooldown_detail:
+                if filter_decision.reason:
                     rejection_rows.append(
                         _rejection(
                             root_symbol,
                             candidate,
-                            "SYMBOL_LOSS_COOLDOWN",
-                            detail=cooldown_detail,
+                            filter_decision.reason,
+                            detail=filter_decision.detail,
                         )
                     )
                     continue
@@ -2135,18 +2303,20 @@ def replay_trend_portfolio(
                         )
                     )
                     continue
-                if is_entry_window_blocked(
-                    _minute_of_day(timestamp.timetz()),
-                    config.entry_blocked_session_windows,
-                ):
+                session_decision = _apply_candidate_filters(
+                    candidate,
+                    filled_bull_trend_ids=filled_bull_trend_ids[root_symbol],
+                    timestamp=timestamp,
+                    config=config,
+                    checks=("session",),
+                )
+                if session_decision.reason:
                     rejection_rows.append(
                         _rejection(
                             root_symbol,
                             candidate,
-                            "ENTRY_SESSION_WINDOW_BLOCKED",
-                            detail=(
-                                f"minute_of_day={_minute_of_day(timestamp.timetz())}"
-                            ),
+                            session_decision.reason,
+                            detail=session_decision.detail,
                         )
                     )
                     continue

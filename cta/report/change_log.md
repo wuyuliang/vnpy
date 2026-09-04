@@ -3150,6 +3150,13 @@ python3 -m pytest -q cta/feature/tests/test_feature_modules_smoke.py cta/feature
 - 金标准：`/tmp/golden/20260904_155606_506550_20260301_20260401_1d_5m_1m`；R-09 后 `trades.csv` SHA-256 均为 `6685b6b89476c22b2c8d1b070e8140c81d108edfb0b79b3e963e7e9fbf850f0d`，逐字节一致。
 - 验证：`python3 -m pytest cta/strategy/tests -q`，543 passed。
 
+## 2026-09-04 · refactor · R-06 统一回放事件组件
+
+- 抽取挂单推进、候选公共过滤、高周期持仓推进及保护/市价退出决策组件，单品种与组合回放复用同一实现。
+- 保留两个回放入口原有的过滤优先级和退出优先级，不改变成交、拒绝或账户状态推进语义。
+- 金标准：`/tmp/golden/20260904_155606_506550_20260301_20260401_1d_5m_1m`；R-06 后 `trades.csv` SHA-256 均为 `6685b6b89476c22b2c8d1b070e8140c81d108edfb0b79b3e963e7e9fbf850f0d`，`cmp` 逐字节一致。
+- 拒绝码分布与金标准完全一致；验证：`python3 -m pytest -q cta/strategy/tests`，546 passed。
+
 ---
 
 ## 2026-05-30 · current · OOT 日度仓位分布改为“当时资金占比(%)”
