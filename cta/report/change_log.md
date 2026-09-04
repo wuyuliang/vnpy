@@ -3126,6 +3126,14 @@ python3 -m pytest -q cta/feature/tests/test_feature_modules_smoke.py cta/feature
 - 单品种单月从初始 29.17 秒降至 14.24 秒，累计加速 2.05x，较 P-04 再快 1.21x；10 个验收 CSV 与金标准逐字节一致。
 - 验证：`python3 -m pytest cta/strategy/tests -q`，534 passed；scalp 数据/session 测试 34 passed。
 
+## 2026-09-04 · feature · P-03 消除重复聚合
+
+- signal/actual 复用同一份 daily 与 5 分钟 session/bucket 布局，缓存命中时不再计算布局。
+- hourly 改为 charts 按实际出图品种惰性聚合；`none` 零调用，`traded` 只处理成交品种。
+- 出图后的缓存统计回写 `summary.json`，保留 P-04 可观测性。
+- 单品种单月为 14.23 秒，相对初始累计加速 2.05x；10 个验收 CSV 及 `--chart-outcomes all` 图表目录逐字节一致。
+- 验证：`python3 -m pytest cta/strategy/tests -q`，537 passed。
+
 ---
 
 ## 2026-05-30 · current · OOT 日度仓位分布改为“当时资金占比(%)”
