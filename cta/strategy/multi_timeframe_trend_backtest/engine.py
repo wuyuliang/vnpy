@@ -335,11 +335,17 @@ def _chase_high_gate_open(
 ) -> tuple[bool, str]:
     """Return whether real chase-high entries are currently allowed, and why.
 
+    Two independent switches. ``chase_high_entry_enabled`` decides whether a real
+    chase-high entry is ever taken; ``chase_high_virtual_enabled`` only decides
+    whether the shadow record keeps being maintained. Keeping the shadow on while
+    entries are off is the intended default: the record shows whether chasing
+    would be paying, at no risk.
+
     With no virtual history yet the gate stays shut: the strategy has no evidence
     that chasing pays, and the range-position rule is the tested default.
     """
-    if not config.chase_high_virtual_enabled:
-        return False, "disabled"
+    if not config.chase_high_entry_enabled:
+        return False, "entry_disabled"
     window = state.window(config.chase_high_lookback)
     if not window:
         return False, "no_history"
@@ -1907,7 +1913,10 @@ def replay_trend_portfolio(
                 if (
                     reason == "ENTRY_RANGE_POSITION_TOO_HIGH"
                     and int(candidate.get("chase_high_candidate", 0) or 0) == 1
-                    and config.chase_high_virtual_enabled
+                    and (
+                        config.chase_high_virtual_enabled
+                        or config.chase_high_entry_enabled
+                    )
                 ):
                     allowed, detail = _chase_high_gate_open(chase_state, config)
                     if allowed:
@@ -1921,6 +1930,12 @@ def replay_trend_portfolio(
                         )
                         chase_gate_candidates.add(str(candidate["candidate_id"]))
                         reason = ""
+                    elif not config.chase_high_virtual_enabled:
+                        # 真实追高关闭且影子跟踪也关闭：按普通区间位置拒绝处理
+                        rejection_rows.append(
+                            _rejection(root_symbol, candidate, reason)
+                        )
+                        continue
                     else:
                         tick = _virtual_tick_size(
                             candidate,

@@ -79,6 +79,11 @@ class MultiTimeframeTrendConfig:
     min_entry_range_width_atr: float = 2.0
     # 追高影子单：被区间位置闸门拦下的候选继续做虚拟单，组合层最近 N 笔虚拟净 R
     # 超过阈值时重新放行真实追高单。0 笔回看或未启用时一律不放行。
+    # 是否允许开闸放行**真实**追高单。实测（r4_fixed vs 追高关闭）追高整体为负，
+    # 所以默认关闭；打开前先看影子单的滚动记录。
+    chase_high_entry_enabled: bool = False
+    # 是否继续跟踪影子单。与上面的开关独立：关掉真实追高的同时保留影子记录，
+    # 就能持续观察"现在追高到底灵不灵"而不用真金白银去试。
     chase_high_virtual_enabled: bool = True
     chase_high_lookback: int = 10
     chase_high_min_samples: int = 8
@@ -317,6 +322,8 @@ class MultiTimeframeTrendConfig:
             or self.entry_range_lookback_days <= 0
         ):
             raise ValueError("entry_range_lookback_days must be a positive int")
+        if type(self.chase_high_entry_enabled) is not bool:
+            raise ValueError("chase_high_entry_enabled must be bool")
         if type(self.chase_high_virtual_enabled) is not bool:
             raise ValueError("chase_high_virtual_enabled must be bool")
         if type(self.chase_high_lookback) is not int or self.chase_high_lookback <= 0:

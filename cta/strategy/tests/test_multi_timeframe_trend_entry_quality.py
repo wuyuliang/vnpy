@@ -407,7 +407,8 @@ def _bar(open_=100.0, high=101.0, low=99.0, close=100.0) -> pd.Series:
 
 def test_gate_stays_shut_without_any_virtual_history() -> None:
     allowed, detail = _chase_high_gate_open(
-        _ChaseHighState(), MultiTimeframeTrendConfig()
+        _ChaseHighState(),
+        MultiTimeframeTrendConfig(chase_high_entry_enabled=True),
     )
     assert not allowed
     assert detail == "no_history"
@@ -415,6 +416,7 @@ def test_gate_stays_shut_without_any_virtual_history() -> None:
 
 def test_gate_opens_once_recent_virtual_trades_are_profitable() -> None:
     cfg = MultiTimeframeTrendConfig(
+        chase_high_entry_enabled=True,
         chase_high_lookback=3, chase_high_min_samples=1, chase_high_min_prior_r=0.0
     )
     state = _ChaseHighState()
@@ -432,6 +434,7 @@ def test_gate_opens_once_recent_virtual_trades_are_profitable() -> None:
 
 def test_gate_only_looks_at_the_lookback_window() -> None:
     cfg = MultiTimeframeTrendConfig(
+        chase_high_entry_enabled=True,
         chase_high_lookback=2, chase_high_min_samples=1, chase_high_min_prior_r=0.0
     )
     state = _ChaseHighState()
@@ -447,24 +450,37 @@ def test_gate_respects_a_stricter_threshold() -> None:
     state.record(0.5)
     assert _chase_high_gate_open(
         state, MultiTimeframeTrendConfig(
+            chase_high_entry_enabled=True,
             chase_high_lookback=5, chase_high_min_samples=1, chase_high_min_prior_r=0.0
         )
     )[0]
     assert not _chase_high_gate_open(
         state, MultiTimeframeTrendConfig(
+            chase_high_entry_enabled=True,
             chase_high_lookback=5, chase_high_min_samples=1, chase_high_min_prior_r=1.0
         )
     )[0]
 
 
-def test_gate_is_shut_when_the_feature_is_disabled() -> None:
+def test_gate_is_shut_by_default() -> None:
+    """默认不追高：这是 r4_fixed 实测之后的选择，不是保守猜测。"""
     state = _ChaseHighState()
-    state.record(5.0)
-    allowed, detail = _chase_high_gate_open(
-        state, MultiTimeframeTrendConfig(chase_high_virtual_enabled=False)
-    )
+    for _ in range(10):
+        state.record(5.0)
+    allowed, detail = _chase_high_gate_open(state, MultiTimeframeTrendConfig())
     assert not allowed
-    assert detail == "disabled"
+    assert detail == "entry_disabled"
+
+
+def test_virtual_tracking_is_independent_of_real_entries() -> None:
+    """影子记录默认继续跑：不花钱也能持续观察追高灵不灵。"""
+    cfg = MultiTimeframeTrendConfig()
+    assert cfg.chase_high_virtual_enabled
+    assert not cfg.chase_high_entry_enabled
+    state = _ChaseHighState()
+    state.record(1.0)
+    assert state.outcomes == [1.0]
+    assert not _chase_high_gate_open(state, cfg)[0]
 
 
 def test_virtual_state_ignores_non_finite_outcomes() -> None:
@@ -522,7 +538,9 @@ def test_chase_high_candidate_flag_marks_only_otherwise_clean_signals() -> None:
 
 
 def test_gate_needs_a_minimum_number_of_virtual_samples() -> None:
-    cfg = MultiTimeframeTrendConfig(chase_high_lookback=10, chase_high_min_samples=5)
+    cfg = MultiTimeframeTrendConfig(
+        chase_high_entry_enabled=True, chase_high_lookback=10, chase_high_min_samples=5
+    )
     state = _ChaseHighState()
     for _ in range(4):
         state.record(2.0)          # 全赢，但只有 4 笔
@@ -545,7 +563,9 @@ def test_real_chase_trades_feed_back_so_the_gate_can_close_again() -> None:
 
     实跑里这正是回撤的来源——5 笔一月份的虚拟单把门槛焊死了 5 个月。
     """
-    cfg = MultiTimeframeTrendConfig(chase_high_lookback=10, chase_high_min_samples=5)
+    cfg = MultiTimeframeTrendConfig(
+        chase_high_entry_enabled=True, chase_high_lookback=10, chase_high_min_samples=5
+    )
     state = _ChaseHighState()
     for _ in range(5):
         state.record(1.0)
@@ -557,7 +577,7 @@ def test_real_chase_trades_feed_back_so_the_gate_can_close_again() -> None:
 
 
 def test_default_min_samples_requires_most_of_the_window() -> None:
-    cfg = MultiTimeframeTrendConfig()
+    cfg = MultiTimeframeTrendConfig(chase_high_entry_enabled=True)
     assert cfg.chase_high_min_samples == 8
     assert cfg.chase_high_lookback == 10
     state = _ChaseHighState()
