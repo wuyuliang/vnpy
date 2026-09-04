@@ -3157,6 +3157,14 @@ python3 -m pytest -q cta/feature/tests/test_feature_modules_smoke.py cta/feature
 - 金标准：`/tmp/golden/20260904_155606_506550_20260301_20260401_1d_5m_1m`；R-06 后 `trades.csv` SHA-256 均为 `6685b6b89476c22b2c8d1b070e8140c81d108edfb0b79b3e963e7e9fbf850f0d`，`cmp` 逐字节一致。
 - 拒绝码分布与金标准完全一致；验证：`python3 -m pytest -q cta/strategy/tests`，546 passed。
 
+## 2026-09-04 · refactor · R-07 单品种回放规则对齐
+
+- 将追高影子订单推进、追高候选处理和跨休市风险决策下沉为单品种/组合回放共用组件。
+- 单品种回放新增可选 `sessions` 与 `daily_context`，传入后执行跨休市保护；未传时保持原调用兼容。
+- 新增单品种浮亏跨休市平仓及追高影子仓结算测试；组合专属保证金、槽位、板块、成交额和日内熔断仍只在组合路径。
+- 金标准与 R-07 后 `trades.csv` SHA-256 均为 `6685b6b89476c22b2c8d1b070e8140c81d108edfb0b79b3e963e7e9fbf850f0d`，`cmp` 逐字节一致；拒绝码分布不变。
+- 验证：`python3 -m pytest -q cta/strategy/tests`，548 passed。
+
 ---
 
 ## 2026-05-30 · current · OOT 日度仓位分布改为“当时资金占比(%)”

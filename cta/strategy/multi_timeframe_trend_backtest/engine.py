@@ -1,4 +1,9 @@
-"""Causal actual-contract replay for the multi-timeframe trend strategy."""
+"""Causal actual-contract replay for the multi-timeframe trend strategy.
+
+Single-symbol and portfolio replay share signal, order, position, pre-break,
+and chase-high rules. Portfolio-only controls are account margin, position
+slots, sector concentration, turnover eligibility, and the daily circuit.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -804,6 +809,127 @@ class _ChaseHighState:
         return float(sum(self.window(lookback)))
 
 
+def _advance_virtual_book(
+    virtual_orders: dict[str, _VirtualOrder],
+    virtual_positions: dict[str, _VirtualPosition],
+    bars_at_event: dict[str, Any],
+    contexts: dict[str, dict[pd.Timestamp, dict[str, Any]]],
+    timestamp: pd.Timestamp,
+    chase_state: _ChaseHighState,
+    config: MultiTimeframeTrendConfig,
+    event_rows: list[dict[str, Any]],
+) -> None:
+    """Advance shared chase-high shadow orders and positions."""
+    _advance_virtual_positions(
+        virtual_positions,
+        bars_at_event,
+        contexts,
+        timestamp,
+        chase_state,
+        config,
+        event_rows,
+    )
+    for root_symbol in sorted(virtual_orders):
+        bar = bars_at_event.get(root_symbol)
+        order = virtual_orders[root_symbol]
+        if bar is None:
+            continue
+        if timestamp > order.expires_at:
+            virtual_orders.pop(root_symbol, None)
+            continue
+        if timestamp < order.active_at:
+            continue
+        fill = _virtual_entry_price(order, bar)
+        if not math.isfinite(fill):
+            continue
+        risk = abs(fill - order.stop_price)
+        virtual_orders.pop(root_symbol, None)
+        if risk <= 0:
+            continue
+        virtual_positions[root_symbol] = _VirtualPosition(
+            root_symbol=root_symbol,
+            candidate_id=order.candidate_id,
+            direction=order.direction,
+            entry_time=timestamp,
+            entry_price=fill,
+            stop_price=order.stop_price,
+            initial_risk=risk,
+            tick_size=order.tick_size,
+        )
+
+
+def _handle_chase_high_candidate(
+    candidate: dict[str, Any],
+    *,
+    root_symbol: str,
+    exchange: str,
+    metadata_store: Any,
+    chase_state: _ChaseHighState,
+    chase_gate_candidates: set[str],
+    virtual_orders: dict[str, _VirtualOrder],
+    virtual_positions: dict[str, _VirtualPosition],
+    config: MultiTimeframeTrendConfig,
+    event_rows: list[dict[str, Any]],
+) -> tuple[bool, str]:
+    """Handle one chase-high candidate; return handled and effective reason."""
+    reason = str(candidate.get("filtered_reason", "") or "").strip()
+    is_chase = (
+        reason == "ENTRY_RANGE_POSITION_TOO_HIGH"
+        and int(candidate.get("chase_high_candidate", 0) or 0) == 1
+        and (
+            config.chase_high_virtual_enabled
+            or config.chase_high_entry_enabled
+        )
+    )
+    if not is_chase:
+        return False, reason
+    allowed, detail = _chase_high_gate_open(chase_state, config)
+    if allowed:
+        event_rows.append(
+            _portfolio_risk_event(
+                pd.Timestamp(candidate["signal_time"]),
+                "CHASE_HIGH_GATE_OPEN",
+                detail=f"symbol={root_symbol};{detail}",
+            )
+        )
+        chase_gate_candidates.add(str(candidate["candidate_id"]))
+        return False, ""
+    if not config.chase_high_virtual_enabled:
+        event_rows.append(_rejection(root_symbol, candidate, reason))
+        return True, reason
+    tick = _virtual_tick_size(
+        candidate,
+        root_symbol=root_symbol,
+        exchange=exchange,
+        metadata_store=metadata_store,
+    )
+    if (
+        math.isfinite(tick)
+        and tick > 0
+        and root_symbol not in virtual_orders
+        and root_symbol not in virtual_positions
+    ):
+        virtual_orders[root_symbol] = _VirtualOrder(
+            root_symbol=root_symbol,
+            candidate_id=str(candidate["candidate_id"]),
+            direction=int(candidate["direction"]),
+            trigger=float(candidate["trigger"]),
+            stop_price=float(candidate["stop_price"]),
+            expires_at=pd.Timestamp(candidate["expires_at"]),
+            active_at=pd.Timestamp(candidate["active_time"]),
+            tick_size=tick,
+        )
+    event_rows.append(
+        _rejection(
+            root_symbol,
+            candidate,
+            reason,
+            detail=f"virtual=1;{detail}",
+        )
+    )
+    return True, reason
+
+
 def _chase_high_gate_open(
     state: _ChaseHighState,
     config: MultiTimeframeTrendConfig,
@@ -1350,6 +1476,9 @@ def replay_trend_strategy(
     start: date,
     end: date,
     initial_equity: float,
+    sessions: tuple[Any, ...] = (),
+    daily_context: pd.DataFrame | None = None,
+    gate_diagnostics: GateFailOpenDiagnostics | None = None,
 ) -> ReplayArtifacts:
     """Replay one root on minute events, with decisions frozen at 5-minute closes."""
     if end < start:
@@ -1378,6 +1507,7 @@ def replay_trend_strategy(
     position: _Position | None = None
     filled_bull_trend_ids: set[int] = set()
     pending_market_exit = ""
+    pending_exit_quantity: int | None = None
     active_contract = ""
     plan_rows: list[dict[str, Any]] = []
     order_rows: list[dict[str, Any]] = []
@@ -1387,6 +1517,20 @@ def replay_trend_strategy(
     rejection_rows: list[dict[str, Any]] = []
     scaling_event_rows: list[dict[str, Any]] = []
     daily_rows: dict[date, dict[str, Any]] = {}
+    pre_break_windows: set[date] = set()
+    chase_state = _ChaseHighState()
+    chase_gate_candidates: set[str] = set()
+    virtual_orders: dict[str, _VirtualOrder] = {}
+    virtual_positions: dict[str, _VirtualPosition] = {}
+    high_gap_by_date = (
+        _high_gap_flags_by_trade_date(
+            daily_context,
+            config,
+            diagnostics=gate_diagnostics,
+        )
+        if config.pre_break_protection_enabled and sessions
+        else {}
+    )
     last_bar: pd.Series | None = None
     last_position_bar: pd.Series | None = None
 
@@ -1401,8 +1545,21 @@ def replay_trend_strategy(
                 pending = None
             if position is not None:
                 pending_market_exit = "ROLL_MAPPING_CHANGED"
+                pending_exit_quantity = None
         active_contract = contract
         last_bar = bar
+
+        if config.chase_high_virtual_enabled:
+            _advance_virtual_book(
+                virtual_orders,
+                virtual_positions,
+                {root_symbol: bar},
+                {root_symbol: context},
+                timestamp,
+                chase_state,
+                config,
+                rejection_rows,
+            )
 
         if position is not None:
             position_contract = str(position.pending.candidate["contract_code"])
@@ -1427,8 +1584,14 @@ def replay_trend_strategy(
                 config=config,
             )
             if exit_decision.reason:
+                close_quantity = (
+                    pending_exit_quantity
+                    if exit_decision.reason == exit_decision.pending_reason
+                    else None
+                )
                 trade, fill, leg = _close_position(
                     position,
+                    quantity=close_quantity,
                     exit_metadata=exit_decision.metadata,
                     timestamp=timestamp,
                     price=exit_decision.price,
@@ -1458,6 +1621,19 @@ def replay_trend_strategy(
                     event_rows=scaling_event_rows,
                 )
                 if trade is not None:
+                    if position.opened_via_chase_gate:
+                        chase_state.record(float(trade["net_r"]))
+                        rejection_rows.append(
+                            _portfolio_risk_event(
+                                timestamp,
+                                "CHASE_HIGH_REAL_CLOSED",
+                                detail=(
+                                    f"symbol={root_symbol};"
+                                    f"realized_r={float(trade['net_r']):.6g};"
+                                    f"prior_r={chase_state.prior_r(config.chase_high_lookback):.6g}"
+                                ),
+                            )
+                        )
                     trade_rows.append(trade)
                     _update_symbol_scaling_after_trade(
                         symbol=root_symbol,
@@ -1470,6 +1646,7 @@ def replay_trend_strategy(
                     )
                     position = None
                 pending_market_exit = ""
+                pending_exit_quantity = None
 
         if pending is not None:
             active_order = pending
@@ -1572,6 +1749,10 @@ def replay_trend_strategy(
                         is_first_trade_in_trend_segment=(
                             is_first_trade_in_trend_segment
                         ),
+                        opened_via_chase_gate=(
+                            str(active_order.candidate["candidate_id"])
+                            in chase_gate_candidates
+                        ),
                         config=config,
                     )
                     _record_bull_trend_fill(
@@ -1608,14 +1789,71 @@ def replay_trend_strategy(
                 )
                 if position_reason:
                     pending_market_exit = position_reason
+                    pending_exit_quantity = None
+
+        if (
+            config.pre_break_protection_enabled
+            and sessions
+            and position is not None
+            and _is_pre_break_time(
+                timestamp,
+                sessions,
+                config.pre_break_lead_minutes,
+            )
+        ):
+            trade_date = pd.Timestamp(bar["exchange_trade_date"]).date()
+            if trade_date not in pre_break_windows:
+                pre_break_windows.add(trade_date)
+                pre_break = _pre_break_decision(
+                    position,
+                    mark=float(bar["close"]),
+                    trade_date=trade_date,
+                    high_gap_by_date=high_gap_by_date,
+                    config=config,
+                )
+                if pre_break.reason and pre_break.close_quantity > 0:
+                    pending_market_exit = pre_break.reason
+                    pending_exit_quantity = (
+                        None
+                        if pre_break.close_quantity >= int(position.quantity)
+                        else pre_break.close_quantity
+                    )
+                    rejection_rows.append(
+                        _portfolio_risk_event(
+                            timestamp,
+                            pre_break.reason,
+                            detail=(
+                                f"symbol={root_symbol};"
+                                f"unrealized_r={pre_break.open_r:.6g};"
+                                f"threshold={pre_break.threshold:.6g};"
+                                f"high_gap={int(pre_break.high_gap)};"
+                                f"close_quantity={pre_break.close_quantity}"
+                            ),
+                        )
+                    )
 
         for candidate in by_signal.get(timestamp, ()):  # Known only after this bar closes.
+            chase_handled, reason = _handle_chase_high_candidate(
+                candidate,
+                root_symbol=root_symbol,
+                exchange=exchange,
+                metadata_store=metadata_store,
+                chase_state=chase_state,
+                chase_gate_candidates=chase_gate_candidates,
+                virtual_orders=virtual_orders,
+                virtual_positions=virtual_positions,
+                config=config,
+                event_rows=rejection_rows,
+            )
+            if chase_handled:
+                continue
             filter_decision = _apply_candidate_filters(
                 candidate,
                 filled_bull_trend_ids=filled_bull_trend_ids,
                 timestamp=timestamp,
                 config=config,
                 checks=("stored", "breakout", "session"),
+                stored_reason=reason,
             )
             if filter_decision.reason:
                 rejection_rows.append(
@@ -1975,7 +2213,8 @@ def replay_trend_portfolio(
                 )
 
         if config.chase_high_virtual_enabled:
-            _advance_virtual_positions(
+            _advance_virtual_book(
+                virtual_orders,
                 virtual_positions,
                 bars_at_event,
                 contexts,
@@ -1984,33 +2223,6 @@ def replay_trend_portfolio(
                 config,
                 rejection_rows,
             )
-            for root_symbol in sorted(virtual_orders):
-                bar = bars_at_event.get(root_symbol)
-                order = virtual_orders[root_symbol]
-                if bar is None:
-                    continue
-                if timestamp > order.expires_at:
-                    virtual_orders.pop(root_symbol, None)
-                    continue
-                if timestamp < order.active_at:
-                    continue
-                fill = _virtual_entry_price(order, bar)
-                if not math.isfinite(fill):
-                    continue
-                risk = abs(fill - order.stop_price)
-                virtual_orders.pop(root_symbol, None)
-                if risk <= 0:
-                    continue
-                virtual_positions[root_symbol] = _VirtualPosition(
-                    root_symbol=root_symbol,
-                    candidate_id=order.candidate_id,
-                    direction=order.direction,
-                    entry_time=timestamp,
-                    entry_price=fill,
-                    stop_price=order.stop_price,
-                    initial_risk=risk,
-                    tick_size=order.tick_size,
-                )
 
         exit_roots = sorted(
             (root for root in position_bars if root in positions),
@@ -2237,30 +2449,17 @@ def replay_trend_portfolio(
                 mark = marks.get(root_symbol)
                 if mark is None:
                     continue
-                open_r = _unrealized_r(position, mark)
-                if not math.isfinite(open_r):
-                    continue
-                high_gap = bool(
-                    high_gap_by_root.get(root_symbol, {}).get(trade_date, False)
+                pre_break = _pre_break_decision(
+                    position,
+                    mark=mark,
+                    trade_date=trade_date,
+                    high_gap_by_date=high_gap_by_root.get(root_symbol, {}),
+                    config=config,
                 )
-                threshold = (
-                    float(config.pre_break_high_gap_min_unrealized_r)
-                    if high_gap
-                    else float(config.pre_break_min_unrealized_r)
-                )
-                if open_r < threshold:
-                    close_quantity = int(position.quantity)
-                    reason = "PRE_BREAK_NO_BUFFER"
-                elif high_gap and float(config.pre_break_gap_risk_scale) < 1.0:
-                    kept = int(
-                        math.floor(
-                            position.quantity * float(config.pre_break_gap_risk_scale)
-                        )
-                    )
-                    close_quantity = int(position.quantity) - max(kept, 1)
-                    reason = "PRE_BREAK_GAP_RISK_REDUCTION"
-                else:
+                if not pre_break.reason:
                     continue
+                close_quantity = pre_break.close_quantity
+                reason = pre_break.reason
                 if close_quantity < 1:
                     continue
                 existing_reason = pending_market_exit.get(root_symbol, "")
@@ -2280,8 +2479,10 @@ def replay_trend_portfolio(
                         timestamp,
                         reason,
                         detail=(
-                            f"symbol={root_symbol};unrealized_r={open_r:.6g};"
-                            f"threshold={threshold:.6g};high_gap={int(high_gap)};"
+                            f"symbol={root_symbol};"
+                            f"unrealized_r={pre_break.open_r:.6g};"
+                            f"threshold={pre_break.threshold:.6g};"
+                            f"high_gap={int(pre_break.high_gap)};"
                             f"close_quantity={close_quantity}"
                         ),
                     )
@@ -2477,65 +2678,20 @@ def replay_trend_portfolio(
                         pending_exit_quantity.pop(root_symbol, None)
 
             for candidate in candidates_by_event.get((timestamp, root_symbol), ()):
-                reason = str(candidate.get("filtered_reason", "") or "").strip()
-                if (
-                    reason == "ENTRY_RANGE_POSITION_TOO_HIGH"
-                    and int(candidate.get("chase_high_candidate", 0) or 0) == 1
-                    and (
-                        config.chase_high_virtual_enabled
-                        or config.chase_high_entry_enabled
-                    )
-                ):
-                    allowed, detail = _chase_high_gate_open(chase_state, config)
-                    if allowed:
-                        # 最近的虚拟追高单在赚钱，本笔按真实单继续走下面的流程
-                        rejection_rows.append(
-                            _portfolio_risk_event(
-                                timestamp,
-                                "CHASE_HIGH_GATE_OPEN",
-                                detail=f"symbol={root_symbol};{detail}",
-                            )
-                        )
-                        chase_gate_candidates.add(str(candidate["candidate_id"]))
-                        reason = ""
-                    elif not config.chase_high_virtual_enabled:
-                        # 真实追高关闭且影子跟踪也关闭：按普通区间位置拒绝处理
-                        rejection_rows.append(
-                            _rejection(root_symbol, candidate, reason)
-                        )
-                        continue
-                    else:
-                        tick = _virtual_tick_size(
-                            candidate,
-                            root_symbol=root_symbol,
-                            exchange=definitions[root_symbol].exchange,
-                            metadata_store=metadata_store,
-                        )
-                        if (
-                            math.isfinite(tick)
-                            and tick > 0
-                            and root_symbol not in virtual_orders
-                            and root_symbol not in virtual_positions
-                        ):
-                            virtual_orders[root_symbol] = _VirtualOrder(
-                                root_symbol=root_symbol,
-                                candidate_id=str(candidate["candidate_id"]),
-                                direction=int(candidate["direction"]),
-                                trigger=float(candidate["trigger"]),
-                                stop_price=float(candidate["stop_price"]),
-                                expires_at=pd.Timestamp(candidate["expires_at"]),
-                                active_at=pd.Timestamp(candidate["active_time"]),
-                                tick_size=tick,
-                            )
-                        rejection_rows.append(
-                            _rejection(
-                                root_symbol,
-                                candidate,
-                                reason,
-                                detail=f"virtual=1;{detail}",
-                            )
-                        )
-                        continue
+                chase_handled, reason = _handle_chase_high_candidate(
+                    candidate,
+                    root_symbol=root_symbol,
+                    exchange=definitions[root_symbol].exchange,
+                    metadata_store=metadata_store,
+                    chase_state=chase_state,
+                    chase_gate_candidates=chase_gate_candidates,
+                    virtual_orders=virtual_orders,
+                    virtual_positions=virtual_positions,
+                    config=config,
+                    event_rows=rejection_rows,
+                )
+                if chase_handled:
+                    continue
                 filter_decision = _apply_candidate_filters(
                     candidate,
                     filled_bull_trend_ids=filled_bull_trend_ids[root_symbol],
@@ -3030,6 +3186,61 @@ def _unrealized_r(position: "_Position", mark: float) -> float:
     multiplier = float(position.current_metadata.contract_size)
     move = direction * (float(mark) - float(position.entry_price))
     return move * position.quantity * multiplier / risk
+
+
+@dataclass(frozen=True)
+class _PreBreakDecision:
+    reason: str = ""
+    close_quantity: int = 0
+    open_r: float = math.nan
+    threshold: float = math.nan
+    high_gap: bool = False
+
+
+def _pre_break_decision(
+    position: _Position,
+    *,
+    mark: float,
+    trade_date: date,
+    high_gap_by_date: dict[date, bool],
+    config: MultiTimeframeTrendConfig,
+) -> _PreBreakDecision:
+    """Return the shared cross-break risk action for one open position."""
+    open_r = _unrealized_r(position, mark)
+    if not math.isfinite(open_r):
+        return _PreBreakDecision()
+    high_gap = bool(high_gap_by_date.get(trade_date, False))
+    threshold = (
+        float(config.pre_break_high_gap_min_unrealized_r)
+        if high_gap
+        else float(config.pre_break_min_unrealized_r)
+    )
+    if open_r < threshold:
+        return _PreBreakDecision(
+            "PRE_BREAK_NO_BUFFER",
+            int(position.quantity),
+            open_r,
+            threshold,
+            high_gap,
+        )
+    if high_gap and float(config.pre_break_gap_risk_scale) < 1.0:
+        kept = int(
+            math.floor(
+                position.quantity * float(config.pre_break_gap_risk_scale)
+            )
+        )
+        return _PreBreakDecision(
+            "PRE_BREAK_GAP_RISK_REDUCTION",
+            int(position.quantity) - max(kept, 1),
+            open_r,
+            threshold,
+            high_gap,
+        )
+    return _PreBreakDecision(
+        open_r=open_r,
+        threshold=threshold,
+        high_gap=high_gap,
+    )
 
 
 def _high_gap_flags_by_trade_date(

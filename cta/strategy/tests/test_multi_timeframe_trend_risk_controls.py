@@ -438,6 +438,29 @@ def _one_symbol_replay(
     )
 
 
+def _single_symbol_replay(
+    *,
+    bars: pd.DataFrame,
+    candidates: pd.DataFrame,
+    config: MultiTimeframeTrendConfig,
+):
+    return trend_engine.replay_trend_strategy(
+        root_symbol="AG",
+        exchange="SHFE",
+        minute_bars=bars,
+        five_minute_context=pd.DataFrame(
+            columns=["bar_end", "daily_direction"]
+        ),
+        candidates=candidates,
+        metadata_store=_store(),
+        config=config,
+        start=_date(2026, 1, 5),
+        end=_date(2026, 1, 5),
+        initial_equity=1_000_000.0,
+        sessions=_day_sessions(),
+    )
+
+
 def _bars_ending_at(last_close: float) -> pd.DataFrame:
     return _minutes(
         [
@@ -488,6 +511,67 @@ def test_replay_flattens_a_position_that_has_no_buffer_before_the_close() -> Non
         artifacts.trades["quantity"].iloc[0]
     )
     assert "PRE_BREAK_NO_BUFFER" in set(artifacts.rejections["reason_code"])
+
+
+def test_single_replay_flattens_a_position_without_pre_break_buffer() -> None:
+    artifacts = _single_symbol_replay(
+        bars=_bars_ending_at(99.8),
+        candidates=_candidate(
+            signal="2026-01-05 14:26",
+            active="2026-01-05 14:27",
+            expires="2026-01-05 14:45",
+            setup="always_in",
+            stop=99.0,
+            candidate_id="AG-000001",
+            symbol="AG",
+        ),
+        config=MultiTimeframeTrendConfig(
+            pre_break_protection_enabled=True,
+            pre_break_min_unrealized_r=0.0,
+            **_OPEN_WINDOWS,
+        ),
+    )
+
+    assert artifacts.trades["exit_reason"].tolist() == [
+        "PRE_BREAK_NO_BUFFER"
+    ]
+    assert "PRE_BREAK_NO_BUFFER" in set(artifacts.rejections["reason_code"])
+
+
+def test_single_replay_tracks_and_closes_chase_high_virtual_trade() -> None:
+    bars = _minutes(
+        [
+            ("2026-01-05 09:00", 99.0, 99.0, 99.0, 99.0, "AG2602.SHF"),
+            ("2026-01-05 09:01", 100.0, 101.0, 100.0, 100.0, "AG2602.SHF"),
+            ("2026-01-05 09:02", 98.5, 99.0, 98.0, 98.5, "AG2602.SHF"),
+        ]
+    )
+    candidate = _candidate(
+        signal="2026-01-05 09:00",
+        active="2026-01-05 09:01",
+        expires="2026-01-05 09:05",
+        setup="always_in",
+        stop=99.0,
+        candidate_id="AG-000001",
+        symbol="AG",
+    ).assign(
+        filtered_reason="ENTRY_RANGE_POSITION_TOO_HIGH",
+        chase_high_candidate=1,
+    )
+
+    artifacts = _single_symbol_replay(
+        bars=bars,
+        candidates=candidate,
+        config=MultiTimeframeTrendConfig(
+            pre_break_protection_enabled=False,
+            **_OPEN_WINDOWS,
+        ),
+    )
+
+    assert artifacts.trades.empty
+    assert "CHASE_HIGH_VIRTUAL_CLOSED" in set(
+        artifacts.rejections["reason_code"]
+    )
 
 
 def test_replay_keeps_a_position_that_already_has_buffer() -> None:
