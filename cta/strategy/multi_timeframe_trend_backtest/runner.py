@@ -9,6 +9,7 @@ import json
 import math
 from pathlib import Path
 import shlex
+import sys
 
 import numpy as np
 import pandas as pd
@@ -78,6 +79,7 @@ from .engine import (
 )
 from cta.data_code.build_symbol_turnover import (
     DEFAULT_OUTPUT as DEFAULT_TURNOVER_TABLE,
+    build_turnover_table,
     load_turnover_table,
 )
 from .aggregation_cache import (
@@ -164,6 +166,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Extend the metadata window this many trading days before --start, "
             "so the daily warmup has execution metadata. 0 disables the extension."
+        ),
+    )
+    parser.add_argument(
+        "--allow-missing-symbols",
+        action="store_true",
+        help=(
+            "Continue when some selected symbols end up with no minute data, "
+            "instead of aborting the whole run. The dropped symbols and the "
+            "reason are recorded in metadata_gaps.csv."
         ),
     )
     parser.add_argument(
@@ -305,6 +316,8 @@ def build_reproduction_command(args: argparse.Namespace) -> dict[str, object]:
         )
     if not bool(getattr(args, "auto_metadata", True)):
         argv.append("--no-auto-metadata")
+    if bool(getattr(args, "allow_missing_symbols", False)):
+        argv.append("--allow-missing-symbols")
     if str(getattr(args, "chart_outcomes", "traded")) != "traded":
         argv.extend(["--chart-outcomes", str(args.chart_outcomes)])
     if float(getattr(args, "include_top_turnover", 0.0) or 0.0) > 0:
@@ -371,6 +384,26 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
     gap_rows: list[dict[str, object]] = (
         [preparation_gap] if preparation_gap is not None else []
     )
+    for token in minute_update.get("turnover_topup_rejected", ()) or ():
+        gap_rows.append(
+            {
+                "root_symbol": str(token).split(".")[0],
+                "field": "minute_data",
+                "reason_code": "TURNOVER_TOPUP_UNRESOLVED",
+                "reason": "成交额补池选中该品种，但选池阶段无法解析它的交易所/合约",
+            }
+        )
+    for token in minute_update.get("missing_symbols", ()) or ():
+        gap_rows.append(
+            {
+                "root_symbol": str(token).split(".")[0],
+                "field": "minute_data",
+                "reason_code": "MISSING_MINUTE_DATA_AFTER_DOWNLOAD",
+                "reason": str(
+                    minute_update.get("missing_symbol_diagnosis", "")
+                ).strip()[:900],
+            }
+        )
     loaded_items: list[LoadedSymbol] = []
     if preparation_gap is None:
         for item in selected:
@@ -1391,7 +1424,7 @@ def _extend_symbols_with_top_turnover(
         return
     if not 0 < share <= 1:
         raise ValueError("include-top-turnover must be in (0, 1]")
-    table = load_turnover_table(args.turnover_table)
+    table = _turnover_table_for(args, required_through=start)
     if table.empty:
         # 静默跳过会让人以为补池生效了，实际什么都没发生
         raise ValueError(
@@ -1437,6 +1470,66 @@ def _extend_symbols_with_top_turnover(
             )
         args.symbols = list(getattr(args, "symbols", ()) or ()) + added
         args._turnover_topup_added = list(added)
+
+
+def _turnover_table_for(
+    args: argparse.Namespace,
+    *,
+    required_through: date,
+) -> pd.DataFrame:
+    """Load the turnover table, rebuilding it when it is missing or stale.
+
+    The table is a derived artifact of the minute partitions. A run that just
+    downloaded new symbols or new days would otherwise pick the universe from a
+    table that predates them, so rebuild rather than silently ranking on stale
+    data.
+    """
+    table = load_turnover_table(args.turnover_table)
+    fresh_enough = False
+    if not table.empty and "trade_date" in table.columns:
+        latest = pd.to_datetime(table["trade_date"], errors="coerce").max()
+        fresh_enough = pd.notna(latest) and latest.date() >= required_through
+    # 没有 data_root 就没有重建的原料（单测直接喂表时就是这种情况）
+    if fresh_enough or not getattr(args, "data_root", ""):
+        return table
+    # 选池只需要覆盖到 start，但逐日成交额门槛要覆盖到回测结束，
+    # 一次就重建到 end，避免同一跑里重建两遍。
+    try:
+        rebuild_through = _parse_date(args.end, "end")
+    except (AttributeError, ValueError):
+        rebuild_through = required_through
+    try:
+        rebuilt, audit = build_turnover_table(
+            start=date(rebuild_through.year - 3, 1, 1),
+            end=rebuild_through,
+            minute_root=args.data_root,
+            day_root=getattr(args, "day_root", DEFAULT_DAY_ROOT),
+        )
+    except (OSError, ValueError) as exc:
+        print(
+            json.dumps(
+                {"event": "turnover_table_rebuild_failed", "reason": str(exc)},
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
+        return table
+    if rebuilt.empty:
+        return table
+    target = Path(args.turnover_table)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        rebuilt.to_parquet(target, index=False)
+    except (OSError, ValueError, ImportError):
+        pass
+    print(
+        json.dumps(
+            {"event": "turnover_table_rebuilt", "output": str(target), **audit},
+            ensure_ascii=False,
+        )[:600],
+        file=sys.stderr,
+    )
+    return rebuilt
 
 
 def _trading_days_before(

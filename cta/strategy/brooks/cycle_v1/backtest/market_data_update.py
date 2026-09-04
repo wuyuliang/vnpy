@@ -153,13 +153,24 @@ def update_minute_data(
             mapping, mapping_exchange = downloader.fetch_fut_mapping(
                 f"{root_symbol}0", exchange
             )
-            selected_mapping = _select_mapping(mapping, start=start, end=end)
-            _validate_mapping_identity(
+            selected_mapping, ambiguous_dates = _select_mapping(
+                mapping, start=start, end=end
+            )
+            selected_mapping, rejected_rows = _validate_mapping_identity(
                 selected_mapping,
                 root_symbol=root_symbol,
                 exchange=exchange,
                 mapping_exchange=str(mapping_exchange),
             )
+            for reason in _mapping_degradations(ambiguous_dates, rejected_rows):
+                summary["download_errors"].append(
+                    {
+                        "root_symbol": root_symbol,
+                        "exchange": exchange,
+                        "stage": "mapping_partial",
+                        "reason": reason,
+                    }
+                )
         except (OSError, RuntimeError, ValueError) as exc:
             summary["download_errors"].append(
                 {
@@ -560,7 +571,39 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-def _select_mapping(mapping: pd.DataFrame, *, start: date, end: date) -> pd.DataFrame:
+def _mapping_degradations(
+    ambiguous_dates: Sequence[str],
+    rejected_rows: Sequence[str],
+) -> list[str]:
+    """Describe the mapping rows that were dropped, for the download audit."""
+    reasons: list[str] = []
+    if ambiguous_dates:
+        shown = ",".join(ambiguous_dates[:6])
+        more = "" if len(ambiguous_dates) <= 6 else f" (+{len(ambiguous_dates) - 6})"
+        reasons.append(
+            f"dropped {len(ambiguous_dates)} trade date(s) with more than one "
+            f"mapped contract: {shown}{more}"
+        )
+    for reason in rejected_rows[:4]:
+        reasons.append(f"dropped mapping row: {reason}")
+    return reasons
+
+
+def _select_mapping(
+    mapping: pd.DataFrame,
+    *,
+    start: date,
+    end: date,
+) -> tuple[pd.DataFrame, list[str]]:
+    """Select the in-window mapping, dropping rows we cannot trust.
+
+    A single unusable row used to abort the whole symbol: one trade date with
+    two mapped contracts (the vendor does emit these around rolls) discarded
+    every other date too, and the run then failed with a bare "missing selected
+    minute data". Dropping just the offending dates leaves a gap the downstream
+    replay already tolerates, and the dropped dates are returned so the caller
+    can record why.
+    """
     required = {"trade_date", "mapping_ts_code"}
     missing = sorted(required.difference(mapping.columns))
     if missing:
@@ -570,10 +613,14 @@ def _select_mapping(mapping: pd.DataFrame, *, start: date, end: date) -> pd.Data
     frame = frame.loc[
         frame["trade_date"].map(lambda value: value is not pd.NaT and start <= value <= end)
     ].copy()
-    if frame.duplicated("trade_date", keep=False).any():
-        raise ValueError("futures mapping requires one contract per trade date")
+    ambiguous = frame.loc[frame.duplicated("trade_date", keep=False)]
+    dropped: list[str] = []
+    if not ambiguous.empty:
+        dropped = sorted({str(value) for value in ambiguous["trade_date"]})
+        frame = frame.loc[~frame.duplicated("trade_date", keep=False)].copy()
     frame["trade_date"] = frame["trade_date"].map(date.isoformat)
-    return frame.sort_values("trade_date", kind="stable").reset_index(drop=True)
+    frame = frame.sort_values("trade_date", kind="stable").reset_index(drop=True)
+    return frame, dropped
 
 
 def _validate_mapping_identity(
@@ -582,23 +629,15 @@ def _validate_mapping_identity(
     root_symbol: str,
     exchange: str,
     mapping_exchange: str,
-) -> None:
-    for contract_code in mapping["mapping_ts_code"].astype(str).str.upper():
-        match = _CONTRACT_PATTERN.fullmatch(contract_code)
-        if match is None:
-            raise ValueError(f"invalid mapped contract code: {contract_code}")
-        observed_root = match.group("root")
-        if observed_root != root_symbol:
-            raise ValueError(
-                f"mapping contract root {observed_root} does not match {root_symbol}"
-            )
-        observed_exchange = _EXCHANGE_ALIASES.get(
-            match.group("exchange"), match.group("exchange")
-        )
-        if observed_exchange != exchange:
-            raise ValueError(
-                f"mapping contract exchange {observed_exchange} does not match {exchange}"
-            )
+) -> tuple[pd.DataFrame, list[str]]:
+    """Keep only rows that provably belong to ``root_symbol``/``exchange``.
+
+    A response-level exchange mismatch is still fatal: that means we asked for
+    one symbol and the vendor answered about another, and downloading it would
+    silently poison the local partitions. A single malformed or foreign row,
+    on the other hand, is dropped with its reason recorded rather than taking
+    the whole symbol down with it.
+    """
     if mapping_exchange:
         observed_mapping_exchange = _EXCHANGE_ALIASES.get(
             mapping_exchange.upper(), mapping_exchange.upper()
@@ -607,6 +646,34 @@ def _validate_mapping_identity(
             raise ValueError(
                 f"mapping response exchange {observed_mapping_exchange} does not match {exchange}"
             )
+    keep: list[bool] = []
+    rejected: list[str] = []
+    for contract_code in mapping["mapping_ts_code"].astype(str).str.upper():
+        match = _CONTRACT_PATTERN.fullmatch(contract_code)
+        if match is None:
+            rejected.append(f"invalid mapped contract code: {contract_code}")
+            keep.append(False)
+            continue
+        observed_root = match.group("root")
+        if observed_root != root_symbol:
+            rejected.append(
+                f"mapping contract root {observed_root} does not match {root_symbol}"
+            )
+            keep.append(False)
+            continue
+        observed_exchange = _EXCHANGE_ALIASES.get(
+            match.group("exchange"), match.group("exchange")
+        )
+        if observed_exchange != exchange:
+            rejected.append(
+                f"mapping contract exchange {observed_exchange} does not match {exchange}"
+            )
+            keep.append(False)
+            continue
+        keep.append(True)
+    if rejected:
+        mapping = mapping.loc[keep].reset_index(drop=True)
+    return mapping, sorted(set(rejected))
 
 
 def _normalize_download(

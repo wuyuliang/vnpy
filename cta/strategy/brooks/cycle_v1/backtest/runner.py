@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta
 import json
 import math
@@ -260,11 +260,24 @@ def prepare_backtest_symbols(
     )
     selected_rows = download_summary["selection"]["selected"]
     selected_roots = {str(row["root_symbol"]) for row in selected_rows}
-    rejected_explicit = [
-        str(root)
-        for root in download_summary["selection"].get("explicit", ())
-        if str(root) not in selected_roots
-    ]
+    # --include-top-turnover 补进来的品种走的是 explicit 通道，但那是本程序
+    # 自己加的，不是用户点名要的：补池里有一个解析不了就整跑失败没有道理。
+    auto_added = {
+        str(root).upper().split(".")[0]
+        for root in getattr(args, "_turnover_topup_added", ()) or ()
+    }
+    rejected_explicit: list[str] = []
+    rejected_auto: list[str] = []
+    for root in download_summary["selection"].get("explicit", ()):
+        token = str(root)
+        if token in selected_roots:
+            continue
+        if token.upper().split(".")[0] in auto_added:
+            rejected_auto.append(token)
+        else:
+            rejected_explicit.append(token)
+    if rejected_auto:
+        download_summary["turnover_topup_rejected"] = rejected_auto
     if rejected_explicit:
         raise ValueError(
             "explicit minute symbols were rejected: "
@@ -287,10 +300,59 @@ def prepare_backtest_symbols(
             continue
         selected.append(item)
     if missing:
-        raise ValueError(
-            "missing selected minute data after download: " + ",".join(missing)
-        )
+        diagnosis = _missing_symbol_diagnosis(missing, download_summary)
+        if not bool(getattr(args, "allow_missing_symbols", False)):
+            raise ValueError(
+                "missing selected minute data after download: "
+                + ",".join(missing)
+                + "\n"
+                + diagnosis
+                + "\n重跑时加 --allow-missing-symbols 可以跳过这些品种继续，"
+                  "缺口会写进 metadata_gaps.csv。"
+            )
+        if not selected:
+            raise ValueError(
+                "every selected symbol is missing minute data:\n" + diagnosis
+            )
+        download_summary["missing_symbols"] = list(missing)
+        download_summary["missing_symbol_diagnosis"] = diagnosis
     return discovered, tuple(selected), {"enabled": True, **download_summary}
+
+
+def _missing_symbol_diagnosis(
+    missing: Sequence[str],
+    download_summary: Mapping[str, Any],
+) -> str:
+    """Explain why each selected symbol has no usable minute data.
+
+    ``update_minute_data`` already records per-symbol counters and every
+    download error, but the caller used to raise a bare "missing ..." that threw
+    all of it away — leaving no way to tell "the vendor has no main-contract
+    mapping for this root" apart from "the network dropped".
+    """
+    errors = download_summary.get("download_errors") or []
+    lines: list[str] = []
+    for token in missing:
+        root = str(token).split(".")[0]
+        counters = " ".join(
+            f"{name}={(download_summary.get(name) or {}).get(root, 0)}"
+            for name in ("requested_dates", "downloaded", "skipped", "empty")
+        )
+        lines.append(f"  {token}: {counters}")
+        reasons: dict[str, int] = {}
+        for item in errors:
+            if str(item.get("root_symbol", "")) != root:
+                continue
+            key = f"{item.get('stage', '?')}: {item.get('reason', '')}"
+            reasons[key] = reasons.get(key, 0) + 1
+        if not reasons:
+            lines.append(
+                "    没有记录到下载错误——供应商在该区间内对这个品种就没有数据，"
+                "或者主力合约映射为空。"
+            )
+        for key, count in sorted(reasons.items(), key=lambda kv: -kv[1])[:4]:
+            lines.append(f"    ×{count} {key[:160]}")
+    return "\n".join(lines)
 
 
 def prepare_backtest_metadata(
