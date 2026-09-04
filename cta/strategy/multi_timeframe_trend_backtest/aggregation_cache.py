@@ -13,7 +13,7 @@ from typing import Any
 import pandas as pd
 
 
-AGGREGATION_CACHE_VERSION = 1
+AGGREGATION_CACHE_VERSION = 2
 DEFAULT_AGGREGATION_CACHE_ROOT = Path("cta/data/origin/aggregated_cache")
 
 _CONTENT_COLUMNS = (
