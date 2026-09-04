@@ -694,6 +694,22 @@ def _render_report(summary: Mapping[str, Any]) -> str:
             f"{row.get('field', '')} -> {row.get('fallback', '')}"
             for row in assumptions
         )
+    fail_open = summary.get("gate_fail_open", {})
+    evaluations = summary.get("gate_evaluations", {})
+    warnings = []
+    if isinstance(fail_open, Mapping) and isinstance(evaluations, Mapping):
+        for gate, count in sorted(fail_open.items()):
+            total = int(evaluations.get(gate, 0) or 0)
+            failures = int(count or 0)
+            rate = failures / total if total > 0 else 0.0
+            if rate > 0.95:
+                warnings.append((str(gate), failures, total, rate))
+    if warnings:
+        lines.extend(["", "## 闸门降级警告", ""])
+        lines.extend(
+            f"- `{gate}`：fail-open {failures}/{total}（{rate:.2%}），疑似未生效"
+            for gate, failures, total, rate in warnings
+        )
     portfolio = summary.get("portfolio_risk", {})
     if isinstance(portfolio, Mapping):
         lines.extend(

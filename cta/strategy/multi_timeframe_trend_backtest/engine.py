@@ -22,6 +22,7 @@ from cta.strategy.multi_timeframe_trend_rules import (
     size_for_risk,
     two_r_target,
 )
+from .diagnostics import GateFailOpenDiagnostics, observe_gate
 
 
 PLAN_COLUMNS = (
@@ -1327,6 +1328,7 @@ def replay_trend_portfolio(
     end: date,
     initial_equity: float,
     turnover_table: pd.DataFrame | None = None,
+    gate_diagnostics: GateFailOpenDiagnostics | None = None,
 ) -> ReplayArtifacts:
     """Replay multiple roots on one deterministic shared account."""
     if not inputs:
@@ -1434,9 +1436,14 @@ def replay_trend_portfolio(
         turnover_table,
         share=config.turnover_share_threshold,
         lookback_days=config.turnover_lookback_days,
+        diagnostics=gate_diagnostics,
     )
     high_gap_by_root = {
-        item.root_symbol: _high_gap_flags_by_trade_date(item.daily_context, config)
+        item.root_symbol: _high_gap_flags_by_trade_date(
+            item.daily_context,
+            config,
+            diagnostics=gate_diagnostics,
+        )
         for item in ordered_inputs
     }
     event_columns = tuple(events.columns)
@@ -2179,6 +2186,7 @@ def replay_trend_portfolio(
                     root_symbol,
                     bar["exchange_trade_date"],
                     turnover_eligible,
+                    diagnostics=gate_diagnostics,
                 )
                 if turnover_detail:
                     rejection_rows.append(
@@ -2450,6 +2458,7 @@ def turnover_eligible_by_date(
     *,
     share: float,
     lookback_days: int,
+    diagnostics: GateFailOpenDiagnostics | None = None,
 ) -> dict[date, frozenset[str]]:
     """Map each trade date to the roots covering ``share`` of recent turnover.
 
@@ -2460,16 +2469,22 @@ def turnover_eligible_by_date(
     mapping, and callers treat that as "cannot judge" rather than "nobody
     qualifies".
     """
-    if table is None or table.empty or share <= 0:
+    if share <= 0:
+        return {}
+    if table is None or table.empty:
+        observe_gate(diagnostics, "turnover_table_unavailable", fail_open=True)
         return {}
     required = {"root_symbol", "trade_date", "turnover"}
     if not required.issubset(table.columns):
+        observe_gate(diagnostics, "turnover_table_unavailable", fail_open=True)
         return {}
     frame = table.copy()
     frame["trade_date"] = pd.to_datetime(frame["trade_date"], errors="coerce")
     frame = frame.dropna(subset=["trade_date"])
     if frame.empty:
+        observe_gate(diagnostics, "turnover_table_unavailable", fail_open=True)
         return {}
+    observe_gate(diagnostics, "turnover_table_unavailable")
     frame["root_symbol"] = frame["root_symbol"].astype(str).str.upper()
     frame["turnover"] = pd.to_numeric(frame["turnover"], errors="coerce").fillna(0.0)
     pivot = (
@@ -2501,13 +2516,19 @@ def _turnover_share_blocked(
     root_symbol: str,
     trade_date: Any,
     eligible_by_date: dict[date, frozenset[str]],
+    *,
+    diagnostics: GateFailOpenDiagnostics | None = None,
 ) -> str:
     """Return a rejection detail when the root is outside the turnover cohort."""
     if not eligible_by_date:
         return ""
     cohort = eligible_by_date.get(pd.Timestamp(trade_date).date())
     if cohort is None:
+        observe_gate(
+            diagnostics, "turnover_cohort_missing_date", fail_open=True
+        )
         return ""
+    observe_gate(diagnostics, "turnover_cohort_missing_date")
     if str(root_symbol).upper() in cohort:
         return ""
     return f"cohort_size={len(cohort)}"
@@ -2569,6 +2590,8 @@ def _unrealized_r(position: "_Position", mark: float) -> float:
 def _high_gap_flags_by_trade_date(
     daily_context: pd.DataFrame | None,
     config: MultiTimeframeTrendConfig,
+    *,
+    diagnostics: GateFailOpenDiagnostics | None = None,
 ) -> dict[date, bool]:
     """Classify each trade date as high-gap using only prior completed days.
 
@@ -2577,7 +2600,9 @@ def _high_gap_flags_by_trade_date(
     gap, keeping the flag causal.
     """
     if daily_context is None or daily_context.empty:
+        observe_gate(diagnostics, "high_gap_classification", fail_open=True)
         return {}
+    observe_gate(diagnostics, "high_gap_classification")
     frame = daily_context
     required = {"open", "close", "daily_atr14"}
     missing = sorted(required.difference(frame.columns))

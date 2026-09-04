@@ -32,6 +32,10 @@ from cta.strategy.multi_timeframe_trend_rules import (
     size_for_risk,
     two_r_target,
 )
+from cta.strategy.multi_timeframe_trend_backtest.diagnostics import (
+    GateFailOpenDiagnostics,
+    observe_gate,
+)
 
 
 CANDIDATE_COLUMNS = (
@@ -133,6 +137,7 @@ def generate_multi_timeframe_candidates(
     instrument: InstrumentSpec,
     config: MultiTimeframeTrendConfig | None = None,
     equity: float = 1_000_000.0,
+    diagnostics: GateFailOpenDiagnostics | None = None,
 ) -> pd.DataFrame:
     """Generate causal eligible and filtered plans without simulating future fills."""
     cfg = config or MultiTimeframeTrendConfig()
@@ -199,6 +204,7 @@ def generate_multi_timeframe_candidates(
                     config=cfg,
                     equity=equity,
                     forced_reason=forced_reason,
+                    diagnostics=diagnostics,
                 )
             )
 
@@ -218,6 +224,7 @@ def _entry_quality_reason(
     row: pd.Series,
     daily_atr14: float,
     config: MultiTimeframeTrendConfig,
+    diagnostics: GateFailOpenDiagnostics | None = None,
 ) -> str:
     """Reject entries that chase exhausted volume, sit too far from their stop,
     or buy the top of a still-contracted range.
@@ -226,7 +233,13 @@ def _entry_quality_reason(
     alone rather than silently filtering it.
     """
     trigger = float(candidate.trigger)
-    if not np.isfinite(trigger):
+    trigger_missing = not np.isfinite(trigger)
+    observe_gate(
+        diagnostics,
+        "entry_quality_trigger_missing",
+        fail_open=trigger_missing,
+    )
+    if trigger_missing:
         return ""
 
     limit = float(config.max_entry_volume_ratio)
@@ -235,14 +248,32 @@ def _entry_quality_reason(
         threshold = float(
             pd.to_numeric(row.get("volume_threshold", np.nan), errors="coerce")
         )
-        if np.isfinite(volume) and np.isfinite(threshold) and threshold > 0:
+        missing_volume_input = not (
+            np.isfinite(volume) and np.isfinite(threshold) and threshold > 0
+        )
+        observe_gate(
+            diagnostics,
+            "entry_volume_ratio_missing_input",
+            fail_open=missing_volume_input,
+        )
+        if not missing_volume_input:
             if volume / threshold > limit:
                 return "ENTRY_VOLUME_RATIO_TOO_HIGH"
 
     limit = float(config.max_entry_stop_distance_atr)
-    if limit > 0 and np.isfinite(daily_atr14) and daily_atr14 > 0:
+    if limit > 0:
         stop = float(candidate.stop_price)
-        if np.isfinite(stop):
+        missing_stop_input = not (
+            np.isfinite(daily_atr14)
+            and daily_atr14 > 0
+            and np.isfinite(stop)
+        )
+        observe_gate(
+            diagnostics,
+            "entry_stop_distance_missing_input",
+            fail_open=missing_stop_input,
+        )
+        if not missing_stop_input:
             if abs(trigger - stop) / daily_atr14 > limit:
                 return "ENTRY_STOP_DISTANCE_TOO_WIDE"
 
@@ -253,15 +284,23 @@ def _entry_quality_reason(
         pd.to_numeric(row.get("range_window_low", np.nan), errors="coerce")
     )
     limit = float(config.min_entry_range_width_atr)
-    if (
-        limit > 0
-        and np.isfinite(daily_atr14)
-        and daily_atr14 > 0
-        and np.isfinite(range_high)
-        and np.isfinite(range_low)
-        and range_high > range_low
-    ):
-        if (range_high - range_low) / daily_atr14 < limit:
+    if limit > 0:
+        missing_range_input = not (
+            np.isfinite(daily_atr14)
+            and daily_atr14 > 0
+            and np.isfinite(range_high)
+            and np.isfinite(range_low)
+            and range_high > range_low
+        )
+        observe_gate(
+            diagnostics,
+            "entry_range_width_missing_input",
+            fail_open=missing_range_input,
+        )
+        if (
+            not missing_range_input
+            and (range_high - range_low) / daily_atr14 < limit
+        ):
             return "ENTRY_RANGE_TOO_NARROW"
 
     return ""
@@ -272,6 +311,7 @@ def _entry_range_position_reason(
     candidate: SignalCandidate,
     row: pd.Series,
     config: MultiTimeframeTrendConfig,
+    diagnostics: GateFailOpenDiagnostics | None = None,
 ) -> str:
     """Reject an entry sitting in the top of its recent range.
 
@@ -291,7 +331,11 @@ def _entry_range_position_reason(
     )
     position = entry_range_position(trigger, range_high, range_low)
     if not np.isfinite(position):
+        observe_gate(
+            diagnostics, "entry_range_position_no_window", fail_open=True
+        )
         return ""
+    observe_gate(diagnostics, "entry_range_position_no_window")
     if candidate.direction < 0:
         position = 1.0 - position
     return "ENTRY_RANGE_POSITION_TOO_HIGH" if position > limit else ""
@@ -306,6 +350,7 @@ def _candidate_row(
     config: MultiTimeframeTrendConfig,
     equity: float,
     forced_reason: str,
+    diagnostics: GateFailOpenDiagnostics | None = None,
 ) -> dict[str, object]:
     signal_time = pd.Timestamp(candidate.signal_time)
     obstacle = assess_obstacle(candidate, daily_context, config)
@@ -367,6 +412,7 @@ def _candidate_row(
             pd.to_numeric(row.get("daily_atr14", np.nan), errors="coerce")
         ),
         config=config,
+        diagnostics=diagnostics,
     )
     base_reason = (
         forced_reason
@@ -378,7 +424,10 @@ def _candidate_row(
         or risk.reason
     )
     range_position_reason = _entry_range_position_reason(
-        candidate=candidate, row=row, config=config
+        candidate=candidate,
+        row=row,
+        config=config,
+        diagnostics=diagnostics,
     )
     # 只被区间位置拦下、其余全部通过的候选，才是可以做虚拟单的追高信号
     chase_high_candidate = int(bool(range_position_reason) and not base_reason)

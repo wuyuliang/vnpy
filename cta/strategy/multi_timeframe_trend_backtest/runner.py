@@ -62,6 +62,7 @@ from cta.strategy.multi_timeframe_trend_strategy import (
 )
 
 from .charts import render_opportunity_charts
+from .diagnostics import GateFailOpenDiagnostics
 from .engine import (
     DAILY_EQUITY_COLUMNS,
     EXIT_LEG_COLUMNS,
@@ -327,6 +328,7 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
     aggregation_cache = AggregationCache(
         getattr(args, "aggregation_cache_root", DEFAULT_AGGREGATION_CACHE_ROOT)
     )
+    gate_diagnostics = GateFailOpenDiagnostics()
     if not math.isfinite(args.initial_equity) or args.initial_equity <= 0:
         raise ValueError("initial-equity must be finite and positive")
     config = MultiTimeframeTrendConfig(
@@ -487,6 +489,7 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
                 end=end,
                 initial_equity=float(args.initial_equity),
                 aggregation_cache=aggregation_cache,
+                gate_diagnostics=gate_diagnostics,
             )
             candidate_frames.append(symbol_candidates)
             daily_frames.append(symbol_daily.assign(symbol=loaded.root_symbol))
@@ -519,6 +522,7 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
                     end=end,
                     initial_equity=float(args.initial_equity),
                     turnover_table=load_turnover_table(args.turnover_table),
+                    gate_diagnostics=gate_diagnostics,
                 )
             except BlockedMetadataError as exc:
                 artifacts = _blocked_replay(candidates, detail=str(exc))
@@ -590,6 +594,8 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
             getattr(args, "_turnover_universe_added", ())
         ),
         "aggregation_cache": aggregation_cache.stats,
+        "gate_fail_open": gate_diagnostics.fail_open_counts(),
+        "gate_evaluations": gate_diagnostics.evaluation_counts(),
         "minute_data_update": minute_update,
         "execution_metadata_update": metadata_update,
     }
@@ -705,6 +711,7 @@ def _prepare_strategy_data(
     end: date,
     initial_equity: float,
     aggregation_cache: AggregationCache | None = None,
+    gate_diagnostics: GateFailOpenDiagnostics | None = None,
 ) -> tuple[
     pd.DataFrame,
     pd.DataFrame,
@@ -837,6 +844,7 @@ def _prepare_strategy_data(
         instrument=instrument,
         config=config,
         equity=initial_equity,
+        diagnostics=gate_diagnostics,
     )
     candidates = _execution_candidates(
         raw_candidates,

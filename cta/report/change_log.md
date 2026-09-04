@@ -3143,6 +3143,13 @@ python3 -m pytest -q cta/feature/tests/test_feature_modules_smoke.py cta/feature
 - 最初金标准的 `rejections.csv` 与直接父提交已有差异，来源是先于 P-05 的 `737ec35bf` 追高开关语义提交；其余 9 个 CSV 与最初金标准一致。
 - 验证：`python3 -m pytest cta/strategy/tests -q`，541 passed。
 
+## 2026-09-04 · feature · R-09 fail-open 可观测性
+
+- 新增每次运行独立的 `GateFailOpenDiagnostics`，记录候选质量、成交额队列和高跳空分类的评估次数及缺失输入降级次数。
+- `summary.json` 新增 `gate_fail_open` 与 `gate_evaluations`；`report.md` 对降级率超过 95% 的闸门输出“疑似未生效”警告。
+- 金标准：`/tmp/golden/20260904_155606_506550_20260301_20260401_1d_5m_1m`；R-09 后 `trades.csv` SHA-256 均为 `6685b6b89476c22b2c8d1b070e8140c81d108edfb0b79b3e963e7e9fbf850f0d`，逐字节一致。
+- 验证：`python3 -m pytest cta/strategy/tests -q`，543 passed。
+
 ---
 
 ## 2026-05-30 · current · OOT 日度仓位分布改为“当时资金占比(%)”
