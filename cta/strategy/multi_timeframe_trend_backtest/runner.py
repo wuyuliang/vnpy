@@ -78,6 +78,12 @@ from cta.data_code.build_symbol_turnover import (
     DEFAULT_OUTPUT as DEFAULT_TURNOVER_TABLE,
     load_turnover_table,
 )
+from .aggregation_cache import (
+    DEFAULT_AGGREGATION_CACHE_ROOT,
+    AggregationCache,
+    cached_aggregate_completed_bars,
+    cached_aggregate_completed_daily_bars,
+)
 from .report import publish_backtest_report
 
 
@@ -126,6 +132,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Directory holding the durable per-fetch vendor metadata cache. "
             "Pass an empty string to disable caching and always hit the vendor."
+        ),
+    )
+    parser.add_argument(
+        "--aggregation-cache-root",
+        default=str(DEFAULT_AGGREGATION_CACHE_ROOT),
+        help=(
+            "Directory holding deterministic bar aggregations. Pass an empty "
+            "string to disable the aggregation cache."
         ),
     )
     parser.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
@@ -247,6 +261,11 @@ def build_reproduction_command(args: argparse.Namespace) -> dict[str, object]:
         ),
         ("data_root", str(DEFAULT_DATA_ROOT), "--data-root"),
         ("vendor_cache_root", str(DEFAULT_VENDOR_CACHE_ROOT), "--vendor-cache-root"),
+        (
+            "aggregation_cache_root",
+            str(DEFAULT_AGGREGATION_CACHE_ROOT),
+            "--aggregation-cache-root",
+        ),
         ("turnover_table", str(DEFAULT_TURNOVER_TABLE), "--turnover-table"),
         ("output_root", str(DEFAULT_OUTPUT_ROOT), "--output-root"),
     ):
@@ -291,6 +310,9 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
     end = _parse_date(args.end, "end")
     if end < start:
         raise ValueError("end precedes start")
+    aggregation_cache = AggregationCache(
+        getattr(args, "aggregation_cache_root", DEFAULT_AGGREGATION_CACHE_ROOT)
+    )
     if not math.isfinite(args.initial_equity) or args.initial_equity <= 0:
         raise ValueError("initial-equity must be finite and positive")
     config = MultiTimeframeTrendConfig(
@@ -450,15 +472,18 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
                 start=start,
                 end=end,
                 initial_equity=float(args.initial_equity),
+                aggregation_cache=aggregation_cache,
             )
             candidate_frames.append(symbol_candidates)
             daily_frames.append(symbol_daily.assign(symbol=loaded.root_symbol))
             hourly_frames.append(
                 _sort_aggregated_bars(
-                    aggregate_completed_bars(
+                    cached_aggregate_completed_bars(
+                        aggregation_cache,
                         symbol_minute,
                         minutes=60,
                         sessions=loaded.sessions,
+                        compute=aggregate_completed_bars,
                     )
                 ).assign(symbol=loaded.root_symbol)
             )
@@ -560,6 +585,7 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
         "turnover_universe_added": list(
             getattr(args, "_turnover_universe_added", ())
         ),
+        "aggregation_cache": aggregation_cache.stats,
         "minute_data_update": minute_update,
         "execution_metadata_update": metadata_update,
     }
@@ -631,8 +657,16 @@ def _aggregate_trading_day_daily_bars(
     minute_bars: pd.DataFrame,
     *,
     sessions: tuple[SessionSpec, ...],
+    aggregation_cache: AggregationCache | None = None,
 ) -> pd.DataFrame:
     """Build one completed daily bar per exchange trading day."""
+    if aggregation_cache is not None:
+        return cached_aggregate_completed_daily_bars(
+            aggregation_cache,
+            minute_bars,
+            sessions=sessions,
+            compute=aggregate_completed_daily_bars,
+        )
     return aggregate_completed_daily_bars(minute_bars, sessions=sessions)
 
 
@@ -644,6 +678,7 @@ def _prepare_strategy_data(
     start: date,
     end: date,
     initial_equity: float,
+    aggregation_cache: AggregationCache | None = None,
 ) -> tuple[
     pd.DataFrame,
     pd.DataFrame,
@@ -659,29 +694,54 @@ def _prepare_strategy_data(
         if signal_column not in signal_minute:
             raise ValueError(f"normalized signal data is missing {signal_column}")
         signal_minute[column] = signal_minute[signal_column]
-    daily_signal = _sort_aggregated_bars(
-        _aggregate_trading_day_daily_bars(
+    if aggregation_cache is None:
+        daily_signal_raw = _aggregate_trading_day_daily_bars(
             signal_minute,
             sessions=loaded.sessions,
         )
-    )
-    five_signal = _sort_aggregated_bars(
-        aggregate_completed_bars(
+        five_signal_raw = aggregate_completed_bars(
             signal_minute,
             minutes=5,
             sessions=loaded.sessions,
         )
-    )
-    daily_actual = _sort_aggregated_bars(
-        _aggregate_trading_day_daily_bars(minute, sessions=loaded.sessions)
-    )
-    five_actual = _sort_aggregated_bars(
-        aggregate_completed_bars(
+        daily_actual_raw = _aggregate_trading_day_daily_bars(
+            minute,
+            sessions=loaded.sessions,
+        )
+        five_actual_raw = aggregate_completed_bars(
             minute,
             minutes=5,
             sessions=loaded.sessions,
         )
-    )
+    else:
+        daily_signal_raw = _aggregate_trading_day_daily_bars(
+            signal_minute,
+            sessions=loaded.sessions,
+            aggregation_cache=aggregation_cache,
+        )
+        five_signal_raw = cached_aggregate_completed_bars(
+            aggregation_cache,
+            signal_minute,
+            minutes=5,
+            sessions=loaded.sessions,
+            compute=aggregate_completed_bars,
+        )
+        daily_actual_raw = _aggregate_trading_day_daily_bars(
+            minute,
+            sessions=loaded.sessions,
+            aggregation_cache=aggregation_cache,
+        )
+        five_actual_raw = cached_aggregate_completed_bars(
+            aggregation_cache,
+            minute,
+            minutes=5,
+            sessions=loaded.sessions,
+            compute=aggregate_completed_bars,
+        )
+    daily_signal = _sort_aggregated_bars(daily_signal_raw)
+    five_signal = _sort_aggregated_bars(five_signal_raw)
+    daily_actual = _sort_aggregated_bars(daily_actual_raw)
+    five_actual = _sort_aggregated_bars(five_actual_raw)
     daily_context = (
         build_daily_context(daily_signal, config)
         if not daily_signal.empty
