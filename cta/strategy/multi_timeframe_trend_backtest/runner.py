@@ -156,8 +156,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.0,
         help=(
             "Union into the selected universe every root covering this share of "
-            "recent turnover, so a liquid symbol the research ranking places "
-            "below --top-n is still traded. 0 disables. Needs --turnover-table."
+            "turnover over the last 20 completed exchange trade dates strictly "
+            "before --start, so a liquid symbol the research ranking places below "
+            "--top-n is still traded. 0 disables. Needs --turnover-table."
         ),
     )
     parser.add_argument(
@@ -307,7 +308,7 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
     if Path(run_id).name != run_id or run_id in {"", ".", ".."}:
         raise ValueError("run-id must be one plain directory name")
     warmup_start = start - timedelta(days=WARMUP_CALENDAR_DAYS)
-    _extend_symbols_with_top_turnover(args, end=end)
+    _extend_symbols_with_top_turnover(args, start=start)
     discovered, selected, minute_update = prepare_backtest_symbols(
         args,
         start=start,
@@ -553,6 +554,12 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
             "cooldown_hours": config.symbol_loss_cooldown_hours,
             "release_time": "09:00",
         },
+        "turnover_universe_asof": getattr(
+            args, "_turnover_universe_asof", None
+        ),
+        "turnover_universe_added": list(
+            getattr(args, "_turnover_universe_added", ())
+        ),
         "minute_data_update": minute_update,
         "execution_metadata_update": metadata_update,
     }
@@ -1230,7 +1237,7 @@ def _parse_config_overrides(items: Sequence[str]) -> dict[str, object]:
 def _extend_symbols_with_top_turnover(
     args: argparse.Namespace,
     *,
-    end: date,
+    start: date,
 ) -> None:
     """Add liquid roots the research ranking ranks below ``--top-n``.
 
@@ -1241,6 +1248,8 @@ def _extend_symbols_with_top_turnover(
     and traded like any other requested symbol.
     """
     share = float(getattr(args, "include_top_turnover", 0.0) or 0.0)
+    args._turnover_universe_asof = start.isoformat() if share > 0 else None
+    args._turnover_universe_added = []
     if share <= 0:
         return
     if not 0 < share <= 1:
@@ -1258,11 +1267,11 @@ def _extend_symbols_with_top_turnover(
     frame = table.copy()
     frame["trade_date"] = pd.to_datetime(frame["trade_date"], errors="coerce")
     frame = frame.dropna(subset=["trade_date"])
-    frame = frame[frame["trade_date"].dt.date <= end]
+    frame = frame[frame["trade_date"].dt.date < start]
     if frame.empty:
         raise ValueError(
-            f"turnover table {args.turnover_table!r} has no rows on or before "
-            f"{end.isoformat()}; rebuild it to cover the backtest window"
+            f"turnover table {args.turnover_table!r} has no rows before "
+            f"{start.isoformat()}; rebuild it to cover the pre-backtest window"
         )
     recent = sorted(frame["trade_date"].unique())[-20:]
     weights = (
@@ -1281,6 +1290,7 @@ def _extend_symbols_with_top_turnover(
         for token in getattr(args, "symbols", ()) or ()
     }
     added = [root for root in weights.index[:keep] if root not in existing]
+    args._turnover_universe_added = list(added)
     if added:
         # 命令重建要用原始值：把补进来的品种 materialize 进 --symbols 会让
         # RUN_COMMAND.sh 既看不出用过补池，重跑时也未必得到同一个池子

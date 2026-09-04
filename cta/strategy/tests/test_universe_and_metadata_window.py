@@ -54,7 +54,7 @@ def test_top_turnover_adds_liquid_roots_missing_from_the_list(tmp_path) -> None:
         include_top_turnover=0.8,
         turnover_table=str(table),
     )
-    _extend_symbols_with_top_turnover(args, end=date(2026, 2, 1))
+    _extend_symbols_with_top_turnover(args, start=date(2026, 2, 1))
     # AU 50% 不够 80%，加 SN 到 80% —— SN 不在原列表里，应补入
     assert "SN" in args.symbols
     # RB 已在列表里，不应重复
@@ -65,7 +65,7 @@ def test_top_turnover_adds_liquid_roots_missing_from_the_list(tmp_path) -> None:
 def test_top_turnover_is_a_noop_when_disabled(tmp_path) -> None:
     table = _turnover_file(tmp_path, {"AU": 50.0, "SN": 50.0})
     args = _args(symbols=["AU"], include_top_turnover=0.0, turnover_table=str(table))
-    _extend_symbols_with_top_turnover(args, end=date(2026, 2, 1))
+    _extend_symbols_with_top_turnover(args, start=date(2026, 2, 1))
     assert args.symbols == ["AU"]
 
 
@@ -76,7 +76,7 @@ def test_missing_turnover_table_fails_loudly(tmp_path) -> None:
         turnover_table=str(tmp_path / "nope.parquet"),
     )
     with pytest.raises(ValueError, match="build_symbol_turnover"):
-        _extend_symbols_with_top_turnover(args, end=date(2026, 2, 1))
+        _extend_symbols_with_top_turnover(args, start=date(2026, 2, 1))
 
 
 def test_turnover_table_not_covering_the_window_fails_loudly(tmp_path) -> None:
@@ -87,22 +87,26 @@ def test_turnover_table_not_covering_the_window_fails_loudly(tmp_path) -> None:
     ).to_parquet(target, index=False)
     args = _args(symbols=["AU"], include_top_turnover=0.9, turnover_table=str(target))
     with pytest.raises(ValueError, match="rebuild it"):
-        _extend_symbols_with_top_turnover(args, end=date(2026, 2, 1))
+        _extend_symbols_with_top_turnover(args, start=date(2026, 2, 1))
 
 
-def test_top_turnover_never_looks_past_the_backtest_end(tmp_path) -> None:
+def test_top_turnover_uses_only_dates_before_the_backtest_start(tmp_path) -> None:
     rows = [
-        {"root_symbol": "AU", "trade_date": date(2026, 1, 5), "turnover": 10.0,
+        {"root_symbol": "AU", "trade_date": date(2025, 12, 31), "turnover": 10.0,
          "date_semantics": DATE_SEMANTICS},
-        # SN 只在回测结束之后放量，不能因此被补进来
+        {"root_symbol": "SN", "trade_date": date(2025, 12, 31), "turnover": 1.0,
+         "date_semantics": DATE_SEMANTICS},
+        # SN 只在回测开始后放量，不能因此被补进来
         {"root_symbol": "SN", "trade_date": date(2026, 6, 1), "turnover": 1e9,
          "date_semantics": DATE_SEMANTICS},
     ]
     target = tmp_path / "t.parquet"
     pd.DataFrame(rows).to_parquet(target, index=False)
     args = _args(symbols=["AU"], include_top_turnover=0.9, turnover_table=str(target))
-    _extend_symbols_with_top_turnover(args, end=date(2026, 2, 1))
+    _extend_symbols_with_top_turnover(args, start=date(2026, 1, 1))
     assert "SN" not in args.symbols
+    assert args._turnover_universe_asof == "2026-01-01"
+    assert args._turnover_universe_added == []
 
 
 def test_top_turnover_matches_roots_regardless_of_suffix(tmp_path) -> None:
@@ -110,7 +114,7 @@ def test_top_turnover_matches_roots_regardless_of_suffix(tmp_path) -> None:
     args = _args(
         symbols=["AU0.SHFE"], include_top_turnover=0.5, turnover_table=str(table)
     )
-    _extend_symbols_with_top_turnover(args, end=date(2026, 2, 1))
+    _extend_symbols_with_top_turnover(args, start=date(2026, 2, 1))
     assert args.symbols == ["AU0.SHFE"]
 
 
@@ -119,10 +123,10 @@ def test_invalid_turnover_share_is_rejected(tmp_path, share: float) -> None:
     table = _turnover_file(tmp_path, {"AU": 1.0})
     args = _args(include_top_turnover=share, turnover_table=str(table))
     if share < 0:
-        _extend_symbols_with_top_turnover(args, end=date(2026, 2, 1))
+        _extend_symbols_with_top_turnover(args, start=date(2026, 2, 1))
         return
     with pytest.raises(ValueError):
-        _extend_symbols_with_top_turnover(args, end=date(2026, 2, 1))
+        _extend_symbols_with_top_turnover(args, start=date(2026, 2, 1))
 
 
 # --------------------------------------------------------------------------
