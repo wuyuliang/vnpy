@@ -180,8 +180,10 @@ cta/strategy/tests/test_replay_config_base.py   新增：§2.2a 的重构守卫
 开始生效。任何用到 t 之后信息的写法都是穿越。
 
 记号：`body(i) = close(i) - open(i)`，阴线即 `body < 0`。
-`ATR(i)` = 1 分钟 ATR14（`cta/feature/volatility.atr`），**必须 `shift(1)`**，
-即第 i 根用的是截至 i-1 的 ATR。
+`ATR(i)` = 1 分钟 ATR，**默认 60 根简单平均**（`atr_period=60`、`atr_method="sma"`，
+见 `cta/strategy/common/bar_shapes.causal_atr`），**必须 `shift(1)`**，即第 i 根用
+的是截至 i-1 的 ATR。用简单平均而不是 Wilder：Wilder 的 `ewm(alpha=1/period)` 把
+权重压在最近几分钟，一根暴力 K 线会把要衡量它自己的阈值抬起来。
 
 ### 4.1 趋势过滤
 
@@ -202,12 +204,26 @@ ema5(t) < ema10(t) < ema20(t)
 `abs(body(M)) <= small_body_atr_mult * ATR(M)`（默认 0.5）
 **且** `high(M) <= high(F)`（不许向上突破，否则不是回踩而是反转）。
 
-两种形态共同要求：
+两种形态共同要求（`body_mode` 二选一，**默认 `leg`**）：
 
 ```
-abs(body(F)) >= big_body_atr_mult * ATR(F)      # N，默认 3.0
+# body_mode = "leg"（默认）——整条腿的净跌幅达标，单根只要求一半
+open(F) - close(L) >= leg_body_atr_mult * ATR(L)                    # N，默认 4.0
+abs(body(F)) >= leg_body_atr_mult * leg_per_bar_fraction * ATR(L)   # 0.5 → 2.0×ATR
+abs(body(L)) >= leg_body_atr_mult * leg_per_bar_fraction * ATR(L)
+
+# body_mode = "per_bar"（原始口径，保留做对比）
+abs(body(F)) >= big_body_atr_mult * ATR(F)
 abs(body(L)) >= big_body_atr_mult * ATR(L)
 ```
+
+`leg` 量的是**这一腿**够不够强，而不是两根长得一不一样——三根形态的腿自然横跨
+t-2 到 t，中间的十字星不会把它切断。两处都用**最后一根的 ATR**：整条腿一把尺子
+量，否则腿越长两端刻度差越大。单根下限挡住"一根暴力 + 一根几乎不动"的假腿。
+
+per_bar 要求相邻两根各自是 3-sigma 事件，在 1 分钟上是十万分之一量级的巧合——
+半年 40 品种只有 9 笔就是这么来的。详见
+[candidate-scarcity-analysis](2026-09-05-candidate-scarcity-analysis.md)。
 
 **影线约束**（"最高价跟开盘价挨得很近" / "最低价与收盘价很近"）：
 
@@ -436,14 +452,18 @@ class SecondLegDownConfig(BaseReplayConfig):
     ema_mid: int = 10
     ema_slow: int = 20
     # 4.2 形态
-    atr_period: int = 14
-    big_body_atr_mult: float = 3.0          # N
+    atr_period: int = 60
+    atr_method: str = "sma"                 # sma | wilder
+    body_mode: str = "leg"                  # leg | per_bar
+    leg_body_atr_mult: float = 4.0          # N（整条腿）
+    leg_per_bar_fraction: float = 0.5       # 单根下限 = N × 这个比例
+    big_body_atr_mult: float = 2.0          # per_bar 口径下的 N
     small_body_atr_mult: float = 0.5
     wick_body_ratio: float = 0.15
     allow_three_bar_pattern: bool = True
     # 4.3 放量
     volume_surge_mult: float = 2.0          # M
-    volume_baseline_bars: int = 20
+    volume_baseline_bars: int = 60
     volume_baseline_min_samples: int = 15
     # 4.4 时间窗
     entry_block_minutes_after_open: int = 10
@@ -483,6 +503,7 @@ class SecondLegDownConfig(BaseReplayConfig):
 pattern_type              two_bar | three_bar
 first_body_atr            abs(body(F)) / ATR(F)
 last_body_atr             abs(body(L)) / ATR(L)
+leg_drop_atr              (open(F) - close(L)) / ATR(L)   整条腿
 first_upper_wick_ratio
 last_lower_wick_ratio
 first_volume_ratio        volume(F) / baseline(F)

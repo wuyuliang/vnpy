@@ -74,7 +74,7 @@ def test_candidate_filter_component_preserves_requested_order() -> None:
     }
     decision = engine._apply_candidate_filters(
         candidate,
-        filled_bull_trend_ids=set(),
+        filled_trend_segment_ids=set(),
         timestamp=pd.Timestamp("2026-03-02 09:00", tz="Asia/Shanghai"),
         config=MultiTimeframeTrendConfig(entry_blocked_session_windows=()),
         checks=("stored", "breakout", "session"),

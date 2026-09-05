@@ -75,6 +75,8 @@ class _Position:
     trigger_to_prior_5d_high_ratio: float
     opened_via_chase_gate: bool = False
     profit_floor_price: float = math.nan
+    follow_through_seen: bool = False
+    no_follow_through_target_active: bool = False
     exit_legs: list[dict[str, Any]] = field(default_factory=list)
 
 

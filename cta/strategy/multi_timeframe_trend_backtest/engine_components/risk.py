@@ -7,7 +7,7 @@ from typing import Any
 
 import pandas as pd
 
-from cta.config.multi_timeframe_trend_config import MultiTimeframeTrendConfig
+from cta.config.replay_common import BaseReplayConfig
 
 from .models import _Position
 
@@ -48,7 +48,7 @@ def _advance_daily_circuit(
     trade_date: Any,
     net_pnl: float,
     equity: float,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
 ) -> None:
     """Fold one closed trade into the exchange-trade-date circuit breaker."""
     if not config.daily_circuit_breaker_enabled:
@@ -83,7 +83,7 @@ def _advance_daily_circuit(
 def _daily_circuit_blocked(
     state: _DailyCircuitState,
     trade_date: Any,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
 ) -> str:
     """Return a rejection detail when the circuit breaker blocks new entries."""
     if not config.daily_circuit_breaker_enabled or not state.tripped:
@@ -101,7 +101,7 @@ def _sector_exposure_blocked(
     sector_by_root: dict[str, str],
     positions: dict[str, "_Position"],
     pending: dict[str, Any],
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
 ) -> str:
     """Return a rejection detail when the root's sector is already at its cap."""
     limit = int(config.max_positions_per_sector)
@@ -123,7 +123,7 @@ def _advance_symbol_loss_cooldown(
     state: _SymbolLossCooldownState,
     *,
     trade: dict[str, Any],
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
 ) -> _SymbolLossCooldownState:
     if not config.symbol_loss_cooldown_enabled:
         return state
@@ -159,7 +159,7 @@ def _advance_symbol_loss_cooldown(
 def _symbol_loss_cooldown_detail(
     state: _SymbolLossCooldownState,
     timestamp: pd.Timestamp,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
 ) -> str:
     if not config.symbol_loss_cooldown_enabled:
         return ""

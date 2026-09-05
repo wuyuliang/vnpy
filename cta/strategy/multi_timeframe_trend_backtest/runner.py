@@ -438,7 +438,15 @@ def _preflight_required_data(args: argparse.Namespace) -> None:
         )
 
 
-def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
+def run_from_args(
+    args: argparse.Namespace,
+    *,
+    config: object | None = None,
+    strategy_data_builder: object | None = None,
+    reproduction_builder: object | None = None,
+    context_builder: object | None = None,
+    config_finalizer: object | None = None,
+) -> tuple[dict[str, object], Path]:
     start = _parse_date(args.start, "start")
     end = _parse_date(args.end, "end")
     if end < start:
@@ -449,17 +457,22 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
     gate_diagnostics = GateFailOpenDiagnostics()
     if not math.isfinite(args.initial_equity) or args.initial_equity <= 0:
         raise ValueError("initial-equity must be finite and positive")
-    config = MultiTimeframeTrendConfig(
-        risk_per_trade=args.risk_per_trade,
-        max_concurrent_positions=args.max_concurrent_positions,
-        intraday_margin_utilization=args.intraday_margin_utilization,
-        overnight_margin_utilization=args.overnight_margin_utilization,
-        max_symbol_margin_utilization=args.max_symbol_margin_utilization,
-        overnight_reduction_minutes=args.overnight_reduction_minutes,
-    )
-    config_overrides = _parse_config_overrides(args.config_override)
+    if config is None:
+        config = MultiTimeframeTrendConfig(
+            risk_per_trade=args.risk_per_trade,
+            max_concurrent_positions=args.max_concurrent_positions,
+            intraday_margin_utilization=args.intraday_margin_utilization,
+            overnight_margin_utilization=args.overnight_margin_utilization,
+            max_symbol_margin_utilization=args.max_symbol_margin_utilization,
+            overnight_reduction_minutes=args.overnight_reduction_minutes,
+        )
+    config_overrides = _parse_config_overrides(args.config_override, config)
     if config_overrides:
         config = replace(config, **config_overrides)
+    if config_finalizer is not None:
+        # 覆盖参数之后才收尾：派生字段（例如按信号周期折算的以"根"计窗口）
+        # 必须看到用户最终给定的值，否则 --config-override 会绕过折算
+        config = config_finalizer(config)
     run_id = args.run_id or _default_run_id(start, end)
     if Path(run_id).name != run_id or run_id in {"", ".", ".."}:
         raise ValueError("run-id must be one plain directory name")
@@ -630,7 +643,7 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
                 symbol_minute,
                 symbol_context,
                 symbol_daily_context,
-            ) = _prepare_strategy_data(
+            ) = (strategy_data_builder or _prepare_strategy_data)(
                 loaded,
                 metadata_store=execution_store,
                 config=config,
@@ -649,7 +662,7 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
                 PortfolioReplayInput(
                     root_symbol=loaded.root_symbol,
                     exchange=loaded.exchange,
-                    minute_bars=loaded.minute_bars,
+                    minute_bars=symbol_minute,
                     roll_execution_bars=roll_execution_bars[loaded.root_symbol],
                     five_minute_context=symbol_context,
                     candidates=symbol_candidates,
@@ -685,7 +698,7 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
                     }
                 )
 
-    reproduction = build_reproduction_command(args)
+    reproduction = (reproduction_builder or build_reproduction_command)(args)
     context = {
         "strategy": "multi_timeframe_trend",
         "strategy_version": "daily-ema5-10-20_5m-v1",
@@ -705,12 +718,14 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
         },
         "risk_per_trade": config.risk_per_trade,
         "candidate_blacklist": {
-            "setup_types": list(config.candidate_setup_blacklist),
-            "directions": list(config.candidate_direction_blacklist),
+            "setup_types": list(getattr(config, "candidate_setup_blacklist", ())),
+            "directions": list(
+                getattr(config, "candidate_direction_blacklist", ())
+            ),
         },
         "daily_filters": {
             "always_in_long_daily_ema_gap_min_ratio": (
-                config.always_in_long_daily_ema_gap_min_ratio
+                getattr(config, "always_in_long_daily_ema_gap_min_ratio", math.nan)
             ),
             "first_trend_entry_daily_breakout_buffer_ratio": (
                 config.first_trend_entry_daily_breakout_buffer_ratio
@@ -755,6 +770,23 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
         "minute_data_update": minute_update,
         "execution_metadata_update": metadata_update,
     }
+    if context_builder is not None:
+        context = context_builder(
+            args=args,
+            config=config,
+            start=start,
+            end=end,
+            warmup_start=warmup_start,
+            effective_starts=effective_starts,
+            discovered=discovered,
+            selected=selected,
+            loaded_items=loaded_items,
+            candidates=candidates,
+            aggregation_cache=aggregation_cache,
+            gate_diagnostics=gate_diagnostics,
+            minute_update=minute_update,
+            metadata_update=metadata_update,
+        )
     entry_trade_dates = _entry_trade_dates(
         artifacts.trades,
         minute_bars_by_symbol={
@@ -1174,6 +1206,7 @@ def _attach_signal_bar_instruments(
     multipliers: list[float] = []
     costs: list[float] = []
     metadata_asof: list[object] = []
+    margin_rates_short: list[float] = []
     for row in result.itertuples(index=False):
         decision_asof = pd.Timestamp(row.bar_end).to_pydatetime()
         snapshot = metadata_store.execution_snapshot(
@@ -1197,10 +1230,12 @@ def _attach_signal_bar_instruments(
             * contract_size
         )
         metadata_asof.append(snapshot.instrument.known_at)
+        margin_rates_short.append(float(snapshot.daily.margin_rate_short))
     result["instrument_tick_size"] = tick_sizes
     result["instrument_multiplier"] = multipliers
     result["instrument_stressed_round_trip_cost"] = costs
     result["instrument_metadata_asof"] = metadata_asof
+    result["instrument_margin_rate_short"] = margin_rates_short
     return result
 
 
@@ -1498,7 +1533,10 @@ def _sort_aggregated_bars(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.sort_values("bar_end", kind="stable").reset_index(drop=True)
 
 
-def _parse_config_overrides(items: Sequence[str]) -> dict[str, object]:
+def _parse_config_overrides(
+    items: Sequence[str],
+    config: object | None = None,
+) -> dict[str, object]:
     """Parse ``NAME=VALUE`` overrides against the config dataclass fields.
 
     Only declared fields are accepted and each value is coerced to the field's
@@ -1507,7 +1545,10 @@ def _parse_config_overrides(items: Sequence[str]) -> dict[str, object]:
     """
     if not items:
         return {}
-    declared = {field.name: field for field in fields(MultiTimeframeTrendConfig)}
+    # 按**本次运行实际使用的**配置类解析：并行策略有自己的字段，
+    # 写死成 MultiTimeframeTrendConfig 会让它们全部报 "unknown config field"
+    target = type(config) if config is not None else MultiTimeframeTrendConfig
+    declared = {field.name: field for field in fields(target)}
     parsed: dict[str, object] = {}
     for item in items:
         text = str(item)
@@ -1533,10 +1574,13 @@ def _parse_config_overrides(items: Sequence[str]) -> dict[str, object]:
             parsed[name] = int(raw)
         elif "float" in annotation:
             parsed[name] = float(raw)
+        elif "str" in annotation:
+            # 取值合法性交给配置类的 __post_init__，这里只负责别把类型弄错
+            parsed[name] = raw
         else:
             raise ValueError(
                 f"{name} is not overridable from the command line "
-                "(only bool, int and float fields are)"
+                "(only bool, int, float and str fields are)"
             )
     return parsed
 

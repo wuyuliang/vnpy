@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from cta.config.multi_timeframe_trend_config import MultiTimeframeTrendConfig
+from cta.config.replay_common import BaseReplayConfig
 
 from .models import _Position
 
@@ -45,7 +45,7 @@ def _peak_unrealized_r(position: _Position) -> float:
 
 def _refresh_profit_floor(
     position: _Position,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
 ) -> None:
     """按当前峰值浮盈重算止盈地板，供**下一根** K 线使用。
 
@@ -95,7 +95,7 @@ class _DrawdownScalingState:
             return 0.0
         return max(0.0, (self.high_water - cash) / self.high_water)
 
-    def advance(self, cash: float, config: MultiTimeframeTrendConfig) -> bool:
+    def advance(self, cash: float, config: BaseReplayConfig) -> bool:
         """Fold realized equity in; return True when the active flag changed."""
         self.high_water = max(self.high_water, float(cash))
         threshold = float(config.drawdown_scale_threshold)
@@ -117,7 +117,7 @@ def _record_drawdown_scaling(
     timestamp: pd.Timestamp,
     candidate_id: str,
     net_pnl: float,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
     event_rows: list[dict[str, Any]],
 ) -> None:
     """Advance the drawdown band and audit any state change."""

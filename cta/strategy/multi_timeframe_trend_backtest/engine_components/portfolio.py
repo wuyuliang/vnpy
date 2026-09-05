@@ -6,7 +6,7 @@ from datetime import date
 import math
 from typing import Any
 
-from cta.config.multi_timeframe_trend_config import MultiTimeframeTrendConfig
+from cta.config.replay_common import BaseReplayConfig
 
 from .models import _PendingOrder, _Position
 
@@ -99,7 +99,7 @@ def _portfolio_entry_quantity(
     equity: float,
     positions: dict[str, _Position],
     marks: dict[str, float],
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
     portfolio_margin_utilization: float,
 ) -> tuple[int, str]:
     if len(positions) >= config.max_concurrent_positions:

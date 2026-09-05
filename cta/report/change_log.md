@@ -12,6 +12,39 @@
 
 ---
 
+## 2026-09-05 (六) · 服务器历史手续费快照部署修复
+
+### 任务
+- 修复 clean checkout 的服务器运行 `multi_timeframe_trend_backtest` 时找不到
+  `dce_fb_fee_20260617.csv` / `dce_pg_fee_20260323.csv`，导致全组合被标记为
+  `BLOCKED_METADATA` 的问题。
+
+### 改动
+- 在 `source_snapshots/.gitignore` 中仅放行两份必需的历史手续费输入 CSV，避免
+  仓库根目录面向回测产物的 `*.csv` 忽略规则误伤运行时输入。
+- 将本机原有的 FB/PG 快照纳入版本控制；内容与既有元数据缓存引用的 SHA-256
+  完全一致，不改变手续费、保证金或回测成交口径。
+
+### 验证
+```bash
+python3 -m pytest -q \
+  cta/strategy/brooks/cycle_v1/tests/test_vendor_metadata_builder.py \
+  -k 'historical_fee_snapshot or historical_fee_notice or exact_pg2607_snapshot'
+python3 -m pytest -q \
+  cta/strategy/brooks/cycle_v1/tests/test_vendor_metadata_builder.py \
+  -k prepare_execution_metadata
+python3 -m pytest -q \
+  cta/strategy/brooks/cycle_v1/tests/test_vendor_metadata_builder.py \
+  cta/strategy/brooks/cycle_v1/tests/test_execution_metadata_adapter.py
+python3 -m pytest -q \
+  cta/strategy/tests/test_missing_symbol_diagnosis.py -k preflight
+```
+
+结果：定向快照 `5 passed`；缓存构建 `3 passed`；完整元数据回归
+`131 passed`；runner 预检 `5 passed`。
+
+---
+
 ## 2026-09-05 (六) · N-01/N-03/N-04/N-05 定向修复
 
 ### 任务

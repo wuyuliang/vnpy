@@ -1,0 +1,4 @@
+# The repository-level rule ignores CSV outputs. These two files are versioned
+# metadata inputs required to rebuild execution metadata on a clean checkout.
+!dce_fb_fee_20260617.csv
+!dce_pg_fee_20260323.csv

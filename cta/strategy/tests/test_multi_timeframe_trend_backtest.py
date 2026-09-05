@@ -386,7 +386,15 @@ def _replay(
             0.001,
             "FIRST_TREND_ENTRY_DAILY_BREAKOUT_BUFFER_NOT_MET",
         ),
-        ("short_unchanged", -1, 100.0, 1, set(), 0.001, ""),
+        (
+            "direction_neutral_segment_gate",
+            -1,
+            100.0,
+            1,
+            set(),
+            0.001,
+            "FIRST_TREND_ENTRY_DAILY_BREAKOUT_BUFFER_NOT_MET",
+        ),
     ],
 )
 def test_first_trend_entry_breakout_buffer_reason(
@@ -501,17 +509,14 @@ def test_replay_zero_breakout_buffer_accepts_legacy_candidate_schema() -> None:
     assert pd.isna(trade["trigger_to_prior_5d_high_ratio"])
 
 
-@pytest.mark.parametrize("missing_column", ["daily_bull_trend_id", "prior_5d_high"])
-def test_replay_positive_breakout_buffer_fails_closed_without_trend_context(
-    missing_column: str,
-) -> None:
+def test_replay_positive_breakout_buffer_fails_closed_without_prior_high() -> None:
     bars = _minutes(
         [
             ("2026-01-05 09:05", 99.0, 99.0, 99.0, 99.0, "AG2602.SHF"),
             ("2026-01-05 09:06", 100.0, 101.0, 100.0, 100.0, "AG2602.SHF"),
         ]
     )
-    candidate = _candidate().drop(columns=missing_column)
+    candidate = _candidate().drop(columns="prior_5d_high")
 
     artifacts = _replay(
         bars,
@@ -527,6 +532,31 @@ def test_replay_positive_breakout_buffer_fails_closed_without_trend_context(
     assert artifacts.fills.loc[
         artifacts.fills["fill_kind"].eq("ENTRY")
     ].empty
+
+
+def test_replay_without_trend_segment_column_skips_first_entry_gate() -> None:
+    bars = _minutes(
+        [
+            ("2026-01-05 09:05", 99.0, 99.0, 99.0, 99.0, "AG2602.SHF"),
+            ("2026-01-05 09:06", 100.0, 101.0, 100.0, 100.0, "AG2602.SHF"),
+        ]
+    )
+    candidate = _candidate().drop(columns="daily_bull_trend_id")
+
+    artifacts = _replay(
+        bars,
+        candidates=candidate,
+        config=MultiTimeframeTrendConfig(
+            first_trend_entry_daily_breakout_buffer_ratio=0.001
+        ),
+    )
+
+    assert "FIRST_TREND_ENTRY_DAILY_BREAKOUT_BUFFER_NOT_MET" not in set(
+        artifacts.rejections["reason_code"]
+    )
+    assert artifacts.fills.loc[
+        artifacts.fills["fill_kind"].eq("ENTRY"), "candidate_id"
+    ].tolist() == ["AG-000001"]
 
 
 def test_replay_same_timestamp_candidate_observes_prior_entry_fill() -> None:

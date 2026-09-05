@@ -1,0 +1,4 @@
+root_symbol,exchange,contract_code,effective_from,effective_to,known_at,open_fee_cash,close_fee_cash,close_today_fee_cash,source_url,corroborating_url,visibility_url,validation_reference
+PG,DCE,PG2605.DCE,2026-03-24,2026-03-24,2026-03-23T19:09:00+08:00,6,6,6,http://www.dce.com.cn/dce/content/2026/ywggytz/18628155.html,https://www.ccbfutures.com/main/a/20260323/77432.shtml,https://news.10jqka.com.cn/20260323/c675485937.shtml,
+PG,DCE,PG2605.DCE,2026-03-25,,2026-03-23T19:09:00+08:00,12,6,12,http://www.dce.com.cn/dce/content/2026/ywggytz/18628155.html,https://www.ccbfutures.com/main/a/20260323/77432.shtml,https://news.10jqka.com.cn/20260323/c675485937.shtml,
+PG,DCE,PG2607.DCE,2026-03-25,,2026-03-23T19:09:00+08:00,6,6,6,http://www.dce.com.cn/dce/content/2026/ywggytz/18628155.html,https://www.ccbfutures.com/main/a/20260323/77432.shtml,https://news.10jqka.com.cn/20260323/c675485937.shtml,jin10:futures_comm:20260415:late_contract_validation:PG2607

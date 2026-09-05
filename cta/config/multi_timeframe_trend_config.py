@@ -6,19 +6,20 @@ import re
 from dataclasses import dataclass
 from datetime import time
 
+from cta.config.replay_common import BaseReplayConfig
+
 
 _ENTRY_WINDOW_PATTERN = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 
 
 @dataclass(frozen=True)
-class MultiTimeframeTrendConfig:
+class MultiTimeframeTrendConfig(BaseReplayConfig):
     """Shared research parameters from the approved strategy specification."""
 
     daily_ema_fast: int = 5
     daily_ema_mid: int = 10
     daily_ema_slow: int = 20
     always_in_long_daily_ema_gap_min_ratio: float = 0.02
-    first_trend_entry_daily_breakout_buffer_ratio: float = 0.002
     atr_period: int = 14
     daily_obstacle_lookback: int = 20
     daily_pivot_left: int = 2
@@ -28,7 +29,6 @@ class MultiTimeframeTrendConfig:
     always_in_min_progress: int = 4
     intraday_pivot_left: int = 2
     intraday_pivot_right: int = 2
-    trailing_buffer_atr: float = 0.2
     pullback_min_bars: int = 3
     pullback_max_bars: int = 12
     volume_lookback: int = 20
@@ -37,86 +37,33 @@ class MultiTimeframeTrendConfig:
     order_expiry_bars: int = 3
     candidate_setup_blacklist: tuple[str, ...] = ("pullback_breakout",)
     candidate_direction_blacklist: tuple[int, ...] = (-1,)
-    risk_per_trade: float = 0.01
-    max_risk_per_trade: float = 0.02
-    pullback_target_r: float = 2.0
-    max_concurrent_positions: int = 5
-    intraday_margin_utilization: float = 0.60
-    overnight_margin_utilization: float = 0.20
-    max_symbol_margin_utilization: float = 0.40
-    overnight_reduction_minutes: int = 10
-    symbol_loss_streak: int = 2
-    symbol_loss_cooldown_enabled: bool = True
-    symbol_loss_pair_window_hours: int = 48
-    symbol_loss_cooldown_hours: int = 24
     # 组合回撤分档减仓（无"必须全额赚回"的释放条件，改用迟滞带）：
     # 回撤 > drawdown_scale_threshold 进入减仓，回落到 < drawdown_scale_release 恢复满仓。
     # drawdown_scale_threshold = 0 表示关闭。
-    drawdown_scale_threshold: float = 0.02
-    drawdown_scale_release: float = 0.01
-    drawdown_scale_factor: float = 0.5
     # 任何来源的缩放（品种/组合/回撤）把手数压到不足 1 手时，向上取整到 1 手而不是拒单。
     # 不开这个的话，AG/AU/SC 这类高价值合约本来就常常只有 1 手，
     # 一减仓就变 0 手被拒——等于在回撤里优先淘汰最赚钱的品种。
-    position_scale_min_one_lot: bool = True
-    symbol_position_scale: float = 1.0
-    portfolio_drawdown_threshold: float = 0.01
-    portfolio_position_scale: float = 1.0
     # P0-1 入场时段窗口：落在任一窗口内的候选拒绝开新仓
-    entry_blocked_session_windows: tuple[tuple[str, str], ...] = (
-        ("13:00", "15:00"),
-        ("22:00", "02:30"),
-    )
     # P0-2 组合级日内亏损熔断
-    daily_circuit_breaker_enabled: bool = True
-    daily_circuit_breaker_loss_r: float = 2.0
-    daily_circuit_breaker_loss_streak: int = 2
     # P0-3 跨休市持仓保护
-    pre_break_protection_enabled: bool = True
-    pre_break_min_unrealized_r: float = 0.0
-    pre_break_high_gap_min_unrealized_r: float = 0.5
-    pre_break_gap_risk_scale: float = 0.5
-    pre_break_lead_minutes: int = 10
     # P1-2 板块集中度
-    max_positions_per_sector: int = 2
     # R1 挂单不得跨越长于该分钟数的休市（0 表示关闭）
-    order_max_recess_minutes: int = 90
     # R2 入场质量：量比上限与结构止损距离上限（0 表示关闭）
-    max_entry_volume_ratio: float = 2.0
-    max_entry_stop_distance_atr: float = 0.8
     # R3 区间位置：不在近 N 个交易日 5 分钟区间的高端开新仓（0 表示关闭）
-    entry_range_lookback_days: int = 2
-    max_entry_range_position: float = 0.85
-    min_entry_range_width_atr: float = 2.0
     # 跟踪止盈地板：峰值浮盈按 1 分钟 K 线极值确认，地板自下一分钟起生效。
     # floor_R = max(0, peak_R - max(profit_floor_giveback_r,
     #                               profit_floor_giveback_pct * peak_R))
     # 峰值未达 profit_floor_arm_r 之前不启用——否则 peak<giveback_r 时地板恒为 0，
     # 退化成保本止损，实测会把大量小幅浮盈的仓位过早扫出去。
-    profit_floor_enabled: bool = True
-    profit_floor_arm_r: float = 0.5
-    profit_floor_giveback_r: float = 1.0
-    profit_floor_giveback_pct: float = 0.25
-    profit_floor_extra_slippage_ticks: int = 1
     # 追高影子单：被区间位置闸门拦下的候选继续做虚拟单，组合层最近 N 笔虚拟净 R
     # 超过阈值时重新放行真实追高单。0 笔回看或未启用时一律不放行。
     # 是否允许开闸放行**真实**追高单。实测（r4_fixed vs 追高关闭）追高整体为负，
     # 所以默认关闭；打开前先看影子单的滚动记录。
-    chase_high_entry_enabled: bool = False
     # 是否继续跟踪影子单。与上面的开关独立：关掉真实追高的同时保留影子记录，
     # 就能持续观察"现在追高到底灵不灵"而不用真金白银去试。
-    chase_high_virtual_enabled: bool = True
-    chase_high_lookback: int = 10
-    chase_high_min_samples: int = 8
-    chase_high_min_prior_r: float = 0.0
     # 成交额占比选池：按前 N 个交易日的全合约成交额排序，只在覆盖该占比的头部
     # 队列里开新仓。0 表示关闭（默认关闭，打开会大幅改变品种池）。
-    turnover_share_threshold: float = 0.0
-    turnover_lookback_days: int = 5
     # P1-3 高跳空品种自适应分级
-    high_gap_lookback_days: int = 60
-    high_gap_quantile: float = 0.90
-    high_gap_ratio_threshold: float = 1.0
 
     def __post_init__(self) -> None:
         if not (

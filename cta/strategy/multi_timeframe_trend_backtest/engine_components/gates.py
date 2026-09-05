@@ -9,8 +9,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from cta.config.replay_common import BaseReplayConfig
 from cta.config.multi_timeframe_trend_config import (
-    MultiTimeframeTrendConfig,
     is_entry_window_blocked,
     minute_of_day_from_time,
 )
@@ -156,7 +156,7 @@ def _order_crossed_recess(
 def _entry_blocked_at_match(
     active_at: pd.Timestamp,
     timestamp: pd.Timestamp,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
 ) -> str:
     """Re-check the entry gates that must hold at match time, not only at signal time.
 
@@ -202,7 +202,7 @@ def _pre_break_decision(
     mark: float,
     trade_date: date,
     high_gap_by_date: dict[date, bool],
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
 ) -> _PreBreakDecision:
     """Return the shared cross-break risk action for one open position."""
     open_r = _unrealized_r(position, mark)
@@ -244,7 +244,7 @@ def _pre_break_decision(
 
 def _high_gap_flags_by_trade_date(
     daily_context: pd.DataFrame | None,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
     *,
     diagnostics: GateFailOpenDiagnostics | None = None,
 ) -> dict[date, bool]:

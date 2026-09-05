@@ -34,7 +34,10 @@ TRACE_COLUMNS = (
     "target_price",
     "maximum_favorable_price",
     "peak_r",
+    "bars_since_entry",
     "profit_floor_price",
+    "follow_through_seen",
+    "no_follow_through_target_active",
     "floor_touched",
     "protective_touched",
     "pending_reason_in",
@@ -115,6 +118,10 @@ def wrap_manage_open_position(
             and protective_touched(position, bar)
         )
         decision = impl(position, bar, **kwargs)
+        bars_since_entry = (
+            int(bar.get("_bar_index", position.entry_bar_index))
+            - position.entry_bar_index
+        )
         active.record(
             candidate_id=candidate_id,
             root_symbol=str(kwargs.get("root_symbol", "")),
@@ -131,6 +138,11 @@ def wrap_manage_open_position(
             entry_price=float(position.entry_price),
             stop_price=float(position.stop),
             target_price=float(position.target),
+            bars_since_entry=bars_since_entry,
+            follow_through_seen=position.follow_through_seen,
+            no_follow_through_target_active=(
+                position.no_follow_through_target_active
+            ),
             floor_touched=touched,
             protective_touched=protective,
             pending_reason_in=pending_reason,

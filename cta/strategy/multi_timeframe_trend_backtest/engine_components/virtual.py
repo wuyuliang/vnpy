@@ -7,7 +7,7 @@ from typing import Any
 
 import pandas as pd
 
-from cta.config.multi_timeframe_trend_config import MultiTimeframeTrendConfig
+from cta.config.replay_common import BaseReplayConfig
 from cta.strategy.brooks.cycle_v1.backtest.execution_metadata import BACKTEST_GATEWAY
 from cta.strategy.brooks.cycle_v1.instruments.metadata import BlockedMetadataError
 from cta.strategy.multi_timeframe_trend_rules import advance_trailing_stop
@@ -87,7 +87,7 @@ def _advance_virtual_book(
     contexts: dict[str, dict[pd.Timestamp, dict[str, Any]]],
     timestamp: pd.Timestamp,
     chase_state: _ChaseHighState,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
     event_rows: list[dict[str, Any]],
 ) -> None:
     """Advance shared chase-high shadow orders and positions."""
@@ -140,7 +140,7 @@ def _handle_chase_high_candidate(
     chase_gate_candidates: set[str],
     virtual_orders: dict[str, _VirtualOrder],
     virtual_positions: dict[str, _VirtualPosition],
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
     event_rows: list[dict[str, Any]],
 ) -> tuple[bool, str]:
     """Handle one chase-high candidate; return handled and effective reason."""
@@ -205,7 +205,7 @@ def _handle_chase_high_candidate(
 
 def _chase_high_gate_open(
     state: _ChaseHighState,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
 ) -> tuple[bool, str]:
     """Return whether real chase-high entries are currently allowed, and why.
 
@@ -287,7 +287,7 @@ def _advance_virtual_positions(
     contexts: dict[str, dict[pd.Timestamp, dict[str, Any]]],
     timestamp: pd.Timestamp,
     chase_state: _ChaseHighState,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
     event_rows: list[dict[str, Any]],
 ) -> None:
     """Mark virtual chase-high positions to market and close the stopped ones."""

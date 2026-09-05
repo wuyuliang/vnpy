@@ -15,8 +15,8 @@ import numpy as np
 import pandas as pd
 
 from cta.config.futures_sector_map import sector_for_root
+from cta.config.replay_common import BaseReplayConfig
 from cta.config.multi_timeframe_trend_config import (
-    MultiTimeframeTrendConfig,
     is_entry_window_blocked,
     minute_of_day_from_time,
 )
@@ -24,7 +24,6 @@ from cta.strategy.brooks.cycle_v1.backtest.execution_metadata import BACKTEST_GA
 from cta.strategy.brooks.cycle_v1.instruments.metadata import BlockedMetadataError
 from cta.strategy.multi_timeframe_trend_rules import (
     advance_trailing_stop,
-    size_for_risk,
     two_r_target,
 )
 from .diagnostics import GateFailOpenDiagnostics
@@ -40,6 +39,7 @@ from .engine_components.tracing import (
     POSITION_TRACER,
     wrap_manage_open_position,
 )
+from .engine_components.timed_exits import timed_exit_reason
 from .engine_components.gates import (
     _entry_blocked_at_match,
     _high_gap_flags_by_trade_date,
@@ -83,6 +83,7 @@ from .engine_components.risk import (
     _SymbolLossCooldownState,
     _symbol_loss_cooldown_detail,
 )
+from .engine_components.sizing import size_replay_order
 from .engine_components.virtual import (
     _advance_virtual_book,
     _cancel_virtual_on_roll,
@@ -277,7 +278,7 @@ def _process_pending_order(
     bar: Any,
     timestamp: pd.Timestamp,
     *,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
     equity: float,
 ) -> _PendingOrderDecision:
     """Evaluate one resting order without mutating account state."""
@@ -301,9 +302,9 @@ def _process_pending_order(
 def _apply_candidate_filters(
     candidate: dict[str, Any],
     *,
-    filled_bull_trend_ids: set[int],
+    filled_trend_segment_ids: set[int],
     timestamp: pd.Timestamp,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
     checks: tuple[str, ...],
     stored_reason: str | None = None,
     cooldown_state: _SymbolLossCooldownState | None = None,
@@ -321,7 +322,7 @@ def _apply_candidate_filters(
         elif check == "breakout":
             reason = _first_trend_entry_breakout_buffer_reason(
                 candidate,
-                filled_bull_trend_ids,
+                filled_trend_segment_ids,
                 config,
             )
             if reason:
@@ -357,13 +358,14 @@ def _advance_open_position_context(
     position: _Position,
     context_row: dict[str, Any],
     *,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
 ) -> str:
     """Advance a position from shared higher-timeframe context."""
-    daily_direction = int(context_row.get("daily_direction", 0) or 0)
     direction = int(position.pending.candidate["direction"])
-    if daily_direction != direction:
-        return "DAILY_DIRECTION_INVALID"
+    raw_daily_direction = context_row.get("daily_direction")
+    if raw_daily_direction is not None and not pd.isna(raw_daily_direction):
+        if int(raw_daily_direction) != direction:
+            return "DAILY_DIRECTION_INVALID"
     _advance_position_stop(position, context_row, config=config)
     return ""
 
@@ -386,7 +388,7 @@ def _profit_floor_exit(
     bar: Any,
     *,
     metadata: Any,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
 ) -> tuple[str, float, float]:
     """按下一根开盘市价成交，并追加止盈地板专用的不利滑点。
 
@@ -417,7 +419,7 @@ def _manage_open_position_impl(
     exchange: str,
     pending_reason: str,
     protective_first: bool,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
 ) -> _PositionExitDecision:
     """Resolve pending and protective exits without mutating account state.
 
@@ -454,12 +456,19 @@ def _manage_open_position_impl(
     )
     _update_excursions(position, bar)
     _refresh_profit_floor(position, config)
+    timed_reason = (
+        timed_exit_reason(position, bar, config) if not pending_reason else ""
+    )
     protective_touched = (
         pending_reason != "ROLL_MAPPING_CHANGED"
         and _protective_exit_touched(position, bar)
     )
+    if timed_reason == "NO_PROGRESS_TIME_STOP" and not protective_touched:
+        return _PositionExitDecision(pending_reason=timed_reason)
     if floor_touched and not protective_touched:
         return _PositionExitDecision(pending_reason="PROFIT_FLOOR")
+    if timed_reason and not protective_touched:
+        return _PositionExitDecision(pending_reason=timed_reason)
     if not pending_reason and not protective_touched:
         return _PositionExitDecision(pending_reason=pending_reason)
     metadata = _exit_metadata_snapshot(
@@ -539,7 +548,7 @@ def _manage_open_position_impl(
 def _advance_symbol_scaling(
     state: _SymbolScalingState,
     net_pnl: float,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
 ) -> _SymbolScalingState:
     if state.active:
         state.recovery_deficit -= float(net_pnl)
@@ -567,7 +576,7 @@ def _advance_portfolio_scaling(
     *,
     cash: float,
     net_pnl: float,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
 ) -> _PortfolioScalingState:
     if state.active:
         state.recovery_deficit -= float(net_pnl)
@@ -607,7 +616,7 @@ def _update_symbol_scaling_after_trade(
     timestamp: pd.Timestamp,
     cash: float,
     symbol_state: _SymbolScalingState,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
     event_rows: list[dict[str, Any]],
 ) -> None:
     net_pnl = float(trade["net_pnl"])
@@ -647,7 +656,7 @@ def _update_portfolio_scaling_after_exit(
     timestamp: pd.Timestamp,
     cash: float,
     portfolio_state: _PortfolioScalingState,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
     event_rows: list[dict[str, Any]],
 ) -> None:
     portfolio_was_active = portfolio_state.active
@@ -695,7 +704,7 @@ def _position_scaling_snapshot(
     base_quantity: int,
     symbol_state: _SymbolScalingState,
     portfolio_state: _PortfolioScalingState,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
     drawdown_state: "_DrawdownScalingState | None" = None,
 ) -> tuple[int, float, float, float, str]:
     symbol_factor = config.symbol_position_scale if symbol_state.active else 1.0
@@ -740,7 +749,7 @@ def replay_trend_strategy(
     five_minute_context: pd.DataFrame,
     candidates: pd.DataFrame,
     metadata_store: Any,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
     start: date,
     end: date,
     initial_equity: float,
@@ -773,7 +782,7 @@ def replay_trend_strategy(
     drawdown_scaling = _DrawdownScalingState(high_water=cash)
     pending: _PendingOrder | None = None
     position: _Position | None = None
-    filled_bull_trend_ids: set[int] = set()
+    filled_trend_segment_ids: set[int] = set()
     pending_market_exit = ""
     pending_exit_quantity: int | None = None
     active_contract = ""
@@ -1002,7 +1011,7 @@ def replay_trend_strategy(
                     is_first_trade_in_trend_segment = (
                         _is_first_trade_in_trend_segment(
                             active_order.candidate,
-                            filled_bull_trend_ids,
+                            filled_trend_segment_ids,
                         )
                     )
                     position, fill = _open_position(
@@ -1032,9 +1041,9 @@ def replay_trend_strategy(
                         ),
                         config=config,
                     )
-                    _record_bull_trend_fill(
+                    _record_trend_segment_fill(
                         active_order.candidate,
-                        filled_bull_trend_ids,
+                        filled_trend_segment_ids,
                     )
                     fill_rows.append(fill)
                     last_position_bar = bar
@@ -1126,7 +1135,7 @@ def replay_trend_strategy(
                 continue
             filter_decision = _apply_candidate_filters(
                 candidate,
-                filled_bull_trend_ids=filled_bull_trend_ids,
+                filled_trend_segment_ids=filled_trend_segment_ids,
                 timestamp=timestamp,
                 config=config,
                 checks=("stored", "breakout", "session"),
@@ -1289,7 +1298,7 @@ def replay_trend_portfolio(
     *,
     inputs: tuple[PortfolioReplayInput, ...],
     metadata_store: Any,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
     start: date,
     end: date,
     initial_equity: float,
@@ -1366,7 +1375,7 @@ def replay_trend_portfolio(
     drawdown_scaling = _DrawdownScalingState(high_water=cash)
     pending: dict[str, _PendingOrder] = {}
     positions: dict[str, _Position] = {}
-    filled_bull_trend_ids: dict[str, set[int]] = {
+    filled_trend_segment_ids: dict[str, set[int]] = {
         root: set() for root in roots
     }
     pending_market_exit: dict[str, str] = {}
@@ -1886,7 +1895,7 @@ def replay_trend_portfolio(
                 continue
             is_first_trade_in_trend_segment = _is_first_trade_in_trend_segment(
                 active_order.candidate,
-                filled_bull_trend_ids[root_symbol],
+                filled_trend_segment_ids[root_symbol],
             )
             position, fill = _open_position(
                 active_order,
@@ -1915,9 +1924,9 @@ def replay_trend_portfolio(
                 ),
                 config=config,
             )
-            _record_bull_trend_fill(
+            _record_trend_segment_fill(
                 active_order.candidate,
-                filled_bull_trend_ids[root_symbol],
+                filled_trend_segment_ids[root_symbol],
             )
             positions[root_symbol] = position
             equity_tracker.update_position(
@@ -1981,7 +1990,7 @@ def replay_trend_portfolio(
                     continue
                 filter_decision = _apply_candidate_filters(
                     candidate,
-                    filled_bull_trend_ids=filled_bull_trend_ids[root_symbol],
+                    filled_trend_segment_ids=filled_trend_segment_ids[root_symbol],
                     timestamp=timestamp,
                     config=config,
                     checks=("stored", "breakout", "cooldown"),
@@ -2014,7 +2023,7 @@ def replay_trend_portfolio(
                     continue
                 session_decision = _apply_candidate_filters(
                     candidate,
-                    filled_bull_trend_ids=filled_bull_trend_ids[root_symbol],
+                    filled_trend_segment_ids=filled_trend_segment_ids[root_symbol],
                     timestamp=timestamp,
                     config=config,
                     checks=("session",),
@@ -2343,20 +2352,22 @@ def _blocked_roll_execution_bar(
 
 def _first_trend_entry_breakout_buffer_reason(
     candidate: dict[str, Any],
-    filled_bull_trend_ids: set[int],
-    config: MultiTimeframeTrendConfig,
+    filled_trend_segment_ids: set[int],
+    config: BaseReplayConfig,
 ) -> str:
     ratio = config.first_trend_entry_daily_breakout_buffer_ratio
     if ratio <= 0:
         return ""
+    raw_trend_id = candidate.get("daily_bull_trend_id")
+    if raw_trend_id is None or pd.isna(raw_trend_id):
+        return ""
     try:
-        direction = int(candidate["direction"])
-        trend_id = int(candidate["daily_bull_trend_id"])
+        trend_id = int(raw_trend_id)
         trigger = float(candidate["trigger"])
         prior_5d_high = float(candidate["prior_5d_high"])
     except (KeyError, OverflowError, TypeError, ValueError):
         return "FIRST_TREND_ENTRY_DAILY_BREAKOUT_BUFFER_NOT_MET"
-    if direction <= 0 or trend_id in filled_bull_trend_ids:
+    if trend_id in filled_trend_segment_ids:
         return ""
     if (
         not math.isfinite(trigger)
@@ -2369,27 +2380,30 @@ def _first_trend_entry_breakout_buffer_reason(
 
 def _is_first_trade_in_trend_segment(
     candidate: dict[str, Any],
-    filled_bull_trend_ids: set[int],
+    filled_trend_segment_ids: set[int],
 ) -> int:
-    try:
-        direction = int(candidate["direction"])
-        trend_id = int(candidate["daily_bull_trend_id"])
-    except (KeyError, OverflowError, TypeError, ValueError):
+    raw_trend_id = candidate.get("daily_bull_trend_id")
+    if raw_trend_id is None or pd.isna(raw_trend_id):
         return 0
-    return int(direction > 0 and trend_id not in filled_bull_trend_ids)
-
-
-def _record_bull_trend_fill(
-    candidate: dict[str, Any],
-    filled_bull_trend_ids: set[int],
-) -> None:
     try:
-        direction = int(candidate["direction"])
-        trend_id = int(candidate["daily_bull_trend_id"])
-    except (KeyError, OverflowError, TypeError, ValueError):
+        trend_id = int(raw_trend_id)
+    except (OverflowError, TypeError, ValueError):
+        return 0
+    return int(trend_id not in filled_trend_segment_ids)
+
+
+def _record_trend_segment_fill(
+    candidate: dict[str, Any],
+    filled_trend_segment_ids: set[int],
+) -> None:
+    raw_trend_id = candidate.get("daily_bull_trend_id")
+    if raw_trend_id is None or pd.isna(raw_trend_id):
         return
-    if direction > 0:
-        filled_bull_trend_ids.add(trend_id)
+    try:
+        trend_id = int(raw_trend_id)
+    except (OverflowError, TypeError, ValueError):
+        return
+    filled_trend_segment_ids.add(trend_id)
 
 
 def _validated_candidates(frame: pd.DataFrame) -> pd.DataFrame:
@@ -2403,7 +2417,7 @@ def _validated_candidates(frame: pd.DataFrame) -> pd.DataFrame:
     result = frame.copy()
     for column in ("signal_time", "active_time", "expires_at"):
         result[column] = pd.to_datetime(result[column], errors="raise")
-        if result[column].dt.tz is None:
+        if not result.empty and result[column].dt.tz is None:
             raise ValueError(f"candidate {column} must be timezone-aware")
     if result["candidate_id"].astype(str).duplicated().any():
         raise ValueError("candidate_id must be unique")
@@ -2413,8 +2427,8 @@ def _validated_candidates(frame: pd.DataFrame) -> pd.DataFrame:
 def _context_lookup(frame: pd.DataFrame) -> dict[pd.Timestamp, dict[str, Any]]:
     if frame.empty:
         return {}
-    if not {"bar_end", "daily_direction"}.issubset(frame):
-        raise ValueError("five-minute context requires bar_end and daily_direction")
+    if "bar_end" not in frame:
+        raise ValueError("replay context requires bar_end")
     result = frame.copy()
     result["bar_end"] = pd.to_datetime(result["bar_end"], errors="raise")
     if result["bar_end"].dt.tz is None:
@@ -2431,7 +2445,7 @@ def _submit_candidate(
     root_symbol: str,
     exchange: str,
     metadata_store: Any,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
     equity: float,
 ) -> _PendingOrder:
     signal_time = pd.Timestamp(candidate["signal_time"])
@@ -2451,16 +2465,18 @@ def _submit_candidate(
     entry = float(candidate["trigger"])
     stop = float(candidate["stop_price"])
     cost = _round_trip_cost_cash(metadata)
-    risk = size_for_risk(
+    direction = int(candidate["direction"])
+    risk = size_replay_order(
         equity=equity,
         entry=entry,
         stop=stop,
-        multiplier=float(metadata.contract_size),
+        direction=direction,
+        metadata=metadata,
         stressed_round_trip_cost=cost,
-        risk_per_trade=config.risk_per_trade,
+        config=config,
     )
     if risk.quantity < 1:
-        raise _PlanRejected("RISK_BELOW_ONE_LOT")
+        raise _PlanRejected(getattr(risk, "reason", "") or "RISK_BELOW_ONE_LOT")
     margin_rate = max(
         float(metadata.daily.margin_rate_long),
         float(metadata.daily.margin_rate_short),
@@ -2485,7 +2501,7 @@ def _match_entry(
     pending: _PendingOrder,
     bar: pd.Series,
     *,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
     equity: float,
 ) -> tuple[str, str, float, float, int]:
     candidate = pending.candidate
@@ -2524,13 +2540,14 @@ def _match_entry(
     if direction * (fill - stop) <= 0:
         return "CANCELLED", "GAP_INVALID_STRUCTURAL_STOP", math.nan, math.nan, 0
     cost = _round_trip_cost_cash(pending.metadata)
-    risk = size_for_risk(
+    risk = size_replay_order(
         equity=equity,
         entry=fill,
         stop=stop,
-        multiplier=float(pending.metadata.contract_size),
+        direction=direction,
+        metadata=pending.metadata,
         stressed_round_trip_cost=cost,
-        risk_per_trade=config.risk_per_trade,
+        config=config,
     )
     quantity = min(pending.quantity, risk.quantity)
     if quantity < 1:
@@ -2554,7 +2571,7 @@ def _open_position(
     symbol_recovery_deficit: float,
     portfolio_recovery_deficit: float,
     is_first_trade_in_trend_segment: int,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
     opened_via_chase_gate: bool = False,
 ) -> tuple[_Position, dict[str, Any]]:
     direction = int(pending.candidate["direction"])
@@ -2872,7 +2889,7 @@ def _advance_position_stop(
     position: _Position,
     context: dict[str, Any],
     *,
-    config: MultiTimeframeTrendConfig,
+    config: BaseReplayConfig,
 ) -> None:
     direction = int(position.pending.candidate["direction"])
     kind = "low" if direction > 0 else "high"
