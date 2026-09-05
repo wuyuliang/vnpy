@@ -64,6 +64,7 @@ from cta.strategy.multi_timeframe_trend_strategy import (
 )
 
 from .charts import render_opportunity_charts
+from .engine_components.tracing import POSITION_TRACER
 from .diagnostics import GateFailOpenDiagnostics
 from .engine import (
     DAILY_EQUITY_COLUMNS,
@@ -214,6 +215,18 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--trace-candidate",
+        action="append",
+        default=[],
+        metavar="CANDIDATE_ID",
+        help=(
+            "Record one row per minute bar this candidate's open position sees "
+            "into position_trace.csv: the confirmed profit floor, the peak it "
+            "came from, which contract's bar was used and the pending state "
+            "carried forward. Repeatable. Off by default."
+        ),
+    )
+    parser.add_argument(
         "--turnover-meta-cache-root",
         default=str(DEFAULT_TURNOVER_META_CACHE),
         help=(
@@ -338,6 +351,8 @@ def build_reproduction_command(args: argparse.Namespace) -> dict[str, object]:
         argv.append("--no-auto-metadata")
     if bool(getattr(args, "allow_missing_symbols", False)):
         argv.append("--allow-missing-symbols")
+    for item in getattr(args, "trace_candidate", ()) or ():
+        argv.extend(["--trace-candidate", str(item)])
     if str(getattr(args, "chart_outcomes", "traded")) != "traded":
         argv.extend(["--chart-outcomes", str(args.chart_outcomes)])
     if float(getattr(args, "include_top_turnover", 0.0) or 0.0) > 0:
@@ -648,6 +663,7 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
         artifacts = _empty_replay(candidates)
         if not gap_rows:
             try:
+                POSITION_TRACER.select(getattr(args, "trace_candidate", ()) or ())
                 artifacts = replay_trend_portfolio(
                     inputs=tuple(portfolio_inputs),
                     metadata_store=execution_store,
@@ -790,6 +806,25 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
         columns=["root_symbol", "vt_symbol", "source_file"],
     )
     source_files.to_csv(output / "source_files.csv", index=False)
+    if POSITION_TRACER.enabled:
+        trace = POSITION_TRACER.frame()
+        trace.to_csv(output / "position_trace.csv", index=False)
+        print(
+            json.dumps(
+                {
+                    "event": "position_trace_written",
+                    "rows": int(len(trace)),
+                    "candidates": sorted(
+                        set(trace["candidate_id"].astype(str))
+                    )
+                    if not trace.empty
+                    else [],
+                    "output": str(output / "position_trace.csv"),
+                },
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
     render_opportunity_charts(
         output,
         candidates=candidates,
@@ -799,6 +834,7 @@ def run_from_args(args: argparse.Namespace) -> tuple[dict[str, object], Path]:
         orders=artifacts.orders,
         rejections=artifacts.rejections,
         render_outcomes=str(args.chart_outcomes),
+        daily_equity=artifacts.daily_equity,
         minute_bars_by_symbol=chart_minute_bars,
         sessions_by_symbol=chart_sessions,
         aggregation_cache=aggregation_cache,

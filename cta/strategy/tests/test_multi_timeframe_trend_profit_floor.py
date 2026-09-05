@@ -133,6 +133,18 @@ def test_floor_never_moves_down() -> None:
     assert p.profit_floor_price == pytest.approx(first)
 
 
+def test_partial_reduction_scales_giveback_by_remaining_quantity() -> None:
+    cfg = MultiTimeframeTrendConfig()
+    p = _position(quantity=10)
+    p.quantity = 5
+    p.maximum_favorable_price = 102.0
+
+    assert _peak_unrealized_r(p) == pytest.approx(2.0)
+    _refresh_profit_floor(p, cfg)
+    # 半仓把默认 1R 回吐缩为 0.5R，2R 峰值对应 1.5R 地板。
+    assert p.profit_floor_price == pytest.approx(101.5)
+
+
 def test_disabled_config_never_arms_the_floor() -> None:
     cfg = MultiTimeframeTrendConfig(profit_floor_enabled=False)
     p = _position()
@@ -211,6 +223,7 @@ def _runup_then_fade():
             ("2026-01-05 09:07", 100.4, 106.0, 100.4, 105.8, "AG2602.SHF"),  # 峰值 6R
             ("2026-01-05 09:08", 105.8, 105.9, 104.6, 104.8, "AG2602.SHF"),  # 地板 5R=105
             ("2026-01-05 09:09", 104.8, 104.9, 100.5, 100.6, "AG2602.SHF"),
+            ("2026-01-05 09:10", 100.2, 100.3, 100.0, 100.1, "AG2602.SHF"),
         ]
     )
 
@@ -218,10 +231,28 @@ def _runup_then_fade():
 def test_replay_exits_on_the_profit_floor() -> None:
     artifacts = _replay(_runup_then_fade(), MultiTimeframeTrendConfig(**_NEUTRAL))
     assert artifacts.trades["exit_reason"].tolist() == ["PROFIT_FLOOR"]
-    # 地板 5R = 105.0，成交价必须差于地板（市价单 + 滑点），且好于当根最低价
-    price = artifacts.trades["exit_price"].iloc[0]
-    assert price < 105.0
-    assert price > 104.0
+    trade = artifacts.trades.iloc[0]
+    # 09:09 击穿上一根已确认的地板，09:10 开盘才发出对手价平仓。
+    assert trade["exit_time"] == pd.Timestamp("2026-01-05 09:10", tz=TZ)
+    assert trade["exit_price"] == pytest.approx(100.1)
+
+
+def test_trigger_bar_new_peak_cannot_improve_the_next_open_exit() -> None:
+    bars = _minutes(
+        [
+            ("2026-01-05 09:05", 99.5, 99.5, 99.5, 99.5, "AG2602.SHF"),
+            ("2026-01-05 09:06", 100.0, 100.5, 99.9, 100.4, "AG2602.SHF"),
+            ("2026-01-05 09:07", 100.4, 104.0, 100.4, 103.8, "AG2602.SHF"),
+            # 旧地板 103 被击穿，同时又创出 10R 新峰值。
+            ("2026-01-05 09:08", 105.0, 110.0, 102.0, 103.0, "AG2602.SHF"),
+            ("2026-01-05 09:09", 101.0, 101.2, 100.8, 101.0, "AG2602.SHF"),
+        ]
+    )
+
+    trade = _replay(bars, MultiTimeframeTrendConfig(**_NEUTRAL)).trades.iloc[0]
+
+    assert trade["exit_time"] == pd.Timestamp("2026-01-05 09:09", tz=TZ)
+    assert trade["exit_price"] == pytest.approx(100.9)
 
 
 def test_extra_slippage_tick_makes_the_fill_exactly_one_tick_worse() -> None:

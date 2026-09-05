@@ -5,6 +5,7 @@ from collections.abc import Mapping, Sequence
 from datetime import date
 import json
 import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
 
+from cta.config.futures_display_names import chinese_name_for_root
 from cta.strategy.brooks.cycle_v1.backtest.reporter import (
     build_funnel,
     build_group_report,
@@ -78,6 +80,73 @@ SYMBOL_PERFORMANCE_COLUMNS = (
     "slippage",
     "turnover",
 )
+
+
+_TZ_OFFSET_SUFFIX = re.compile(r"[+-]\d{2}:?\d{2}$")
+
+
+def _decimals_for(column: str) -> int | None:
+    """How many decimals ``column`` is written with in ``trades.csv``.
+
+    Fixed widths so a 60-column log stays scannable: returns keep four
+    decimals, lot counts none, and money/R columns two.
+    """
+    name = str(column)
+    if name.startswith("return"):
+        return 4
+    if name.endswith("volume"):
+        return 0
+    if name.endswith("fees") or name == "net_pnl" or name.endswith("_r"):
+        return 2
+    return None
+
+
+def _formatted_trades(trades: pd.DataFrame) -> pd.DataFrame:
+    """Round and de-offset ``trades.csv`` columns for human reading.
+
+    Values become strings, which ``read_csv`` parses straight back to numbers
+    and timestamps, so this is presentation only — nothing downstream changes.
+    Timestamps drop the ``+08:00`` suffix because every bar in this backtest is
+    already Asia/Shanghai wall time.
+    """
+    if trades.empty:
+        return trades
+    result = trades.copy()
+    for column in result.columns:
+        values = result[column]
+        if pd.api.types.is_datetime64_any_dtype(values):
+            result[column] = values.dt.strftime("%Y-%m-%d %H:%M:%S").fillna("")
+            continue
+        decimals = _decimals_for(column)
+        if decimals is not None and pd.api.types.is_numeric_dtype(values):
+            numeric = pd.to_numeric(values, errors="coerce")
+            result[column] = numeric.map(
+                lambda value: "" if pd.isna(value) else f"{value:.{decimals}f}"
+            )
+            continue
+        if values.dtype == object:
+            text = values.astype(str)
+            if text.str.contains(_TZ_OFFSET_SUFFIX, regex=True, na=False).any():
+                result[column] = text.str.replace(
+                    _TZ_OFFSET_SUFFIX, "", regex=True
+                ).where(values.notna(), "")
+    return result
+
+
+def _with_symbol_name(trades: pd.DataFrame) -> pd.DataFrame:
+    """Insert the root's Chinese name as the second column of ``trades.csv``.
+
+    Reading a 60-column trade log by root code alone is slow going; the name
+    sits next to ``candidate_id`` so the symbol is legible in the first glance
+    at any row. An unknown root gets an empty cell rather than a placeholder,
+    so a missing ranking entry stays visible.
+    """
+    if "symbol" not in trades.columns:
+        return trades
+    result = trades.copy()
+    names = result["symbol"].astype(str).map(chinese_name_for_root)
+    result.insert(min(1, len(result.columns)), "symbol_name", names)
+    return result
 
 
 def _with_market_liquidity(
@@ -407,14 +476,22 @@ def publish_backtest_report(
     """Create one non-overwriting report directory and return its summary."""
     target = Path(output_dir)
     target.mkdir(parents=True, exist_ok=False)
-    reported_trades = _with_market_liquidity(
-        artifacts.trades,
-        daily_market_bars=(
-            daily_market_bars if daily_market_bars is not None else pd.DataFrame()
-        ),
-        entry_trade_dates=(
-            entry_trade_dates if entry_trade_dates is not None else pd.DataFrame()
-        ),
+    reported_trades = _formatted_trades(
+        _with_symbol_name(
+            _with_market_liquidity(
+                artifacts.trades,
+                daily_market_bars=(
+                    daily_market_bars
+                    if daily_market_bars is not None
+                    else pd.DataFrame()
+                ),
+                entry_trade_dates=(
+                    entry_trade_dates
+                    if entry_trade_dates is not None
+                    else pd.DataFrame()
+                ),
+            )
+        )
     )
     performance: dict[str, Any] | None = None
     primary_curve: list[dict[str, Any]] | None = None

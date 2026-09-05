@@ -13,8 +13,8 @@ from cta.config.multi_timeframe_trend_config import MultiTimeframeTrendConfig
 from .models import _Position
 
 def _position_point_value(position: _Position) -> float:
-    """每一个价格点对应的现金金额。"""
-    return float(position.quantity) * float(
+    """按建仓初始手数计算每个价格点对应的现金金额。"""
+    return float(position.initial_quantity) * float(
         position.current_metadata.contract_size
     )
 
@@ -61,6 +61,8 @@ def _refresh_profit_floor(
         float(config.profit_floor_giveback_r),
         float(config.profit_floor_giveback_pct) * peak_r,
     )
+    remaining_fraction = float(position.quantity) / float(position.initial_quantity)
+    giveback *= remaining_fraction
     floor_r = max(0.0, peak_r - giveback)
     price = _price_for_unrealized_r(position, floor_r)
     if not np.isfinite(price):

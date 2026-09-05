@@ -36,6 +36,10 @@ from .engine_components.drawdown import (
     _record_drawdown_scaling,
     _refresh_profit_floor,
 )
+from .engine_components.tracing import (
+    POSITION_TRACER,
+    wrap_manage_open_position,
+)
 from .engine_components.gates import (
     _entry_blocked_at_match,
     _high_gap_flags_by_trade_date,
@@ -384,22 +388,16 @@ def _profit_floor_exit(
     metadata: Any,
     config: MultiTimeframeTrendConfig,
 ) -> tuple[str, float, float]:
-    """按市价单成交，在既有滑点模型之上再加 ``profit_floor_extra_slippage_ticks`` 档。
+    """按下一根开盘市价成交，并追加止盈地板专用的不利滑点。
 
-    地板被击穿时价格通常正在快速回落，按地板价原价成交是偏乐观的，
-    额外一档滑点是刻意的保守处理。
+    地板触发只能在前一根分钟线结束后确认，不能回填到触发根内成交。
     """
     if _protective_limit_locked(
         bar, metadata, int(position.pending.candidate["direction"])
     ):
         return "", math.nan, math.nan
     direction = int(position.pending.candidate["direction"])
-    floor = float(position.profit_floor_price)
-    reference = (
-        min(float(bar["open"]), floor)
-        if direction > 0
-        else max(float(bar["open"]), floor)
-    )
+    reference = float(bar["open"])
     price = _market_exit_price(position, reference, metadata)
     tick = float(metadata.price_tick)
     extra = int(config.profit_floor_extra_slippage_ticks)
@@ -410,7 +408,7 @@ def _profit_floor_exit(
     return "PROFIT_FLOOR", price, reference
 
 
-def _manage_open_position(
+def _manage_open_position_impl(
     position: _Position,
     bar: Any,
     *,
@@ -423,12 +421,35 @@ def _manage_open_position(
 ) -> _PositionExitDecision:
     """Resolve pending and protective exits without mutating account state.
 
-    止盈地板先于极值更新判定：地板来自**上一根** K 线收盘后确认的峰值，
-    所以最早只能在设定峰值的下一分钟触发，不会用当根自己的最高价反过来平自己。
+    止盈地板使用上一根确认的价位检测；击穿后仅挂起退出，下一根分钟线
+    才按开盘对手价成交。
     """
+    if pending_reason == "PROFIT_FLOOR":
+        metadata = _exit_metadata_snapshot(
+            metadata_store,
+            root_symbol=root_symbol,
+            exchange=exchange,
+            position=position,
+            bar=bar,
+        )
+        reason, price, reference = _profit_floor_exit(
+            position, bar, metadata=metadata, config=config
+        )
+        if reason:
+            return _PositionExitDecision(
+                reason, price, reference, metadata, pending_reason
+            )
+        _update_excursions(position, bar)
+        _refresh_profit_floor(position, config)
+        return _PositionExitDecision(
+            metadata=metadata,
+            pending_reason=pending_reason,
+            limit_locked=True,
+        )
+
     floor_touched = (
         config.profit_floor_enabled
-        and pending_reason != "ROLL_MAPPING_CHANGED"
+        and not pending_reason
         and _profit_floor_touched(position, bar)
     )
     _update_excursions(position, bar)
@@ -437,36 +458,8 @@ def _manage_open_position(
         pending_reason != "ROLL_MAPPING_CHANGED"
         and _protective_exit_touched(position, bar)
     )
-    if floor_touched:
-        direction = int(position.pending.candidate["direction"])
-        floor = float(position.profit_floor_price)
-        stop = float(position.stop)
-        # 两个价位同根都被触及时，先被打到的那个成交。多头地板在止损之上，
-        # 价格是先穿地板再穿止损，按地板成交才是时序正确的。
-        floor_first = (
-            floor >= stop if direction > 0 else floor <= stop
-        )
-        if floor_first or not protective_touched:
-            metadata = _exit_metadata_snapshot(
-                metadata_store,
-                root_symbol=root_symbol,
-                exchange=exchange,
-                position=position,
-                bar=bar,
-            )
-            reason, price, reference = _profit_floor_exit(
-                position, bar, metadata=metadata, config=config
-            )
-            if reason:
-                return _PositionExitDecision(
-                    reason, price, reference, metadata, pending_reason
-                )
-            # 涨跌停锁板：退化成待执行的市价平仓，下一根再试
-            return _PositionExitDecision(
-                metadata=metadata,
-                pending_reason=pending_reason or "PROFIT_FLOOR",
-                limit_locked=True,
-            )
+    if floor_touched and not protective_touched:
+        return _PositionExitDecision(pending_reason="PROFIT_FLOOR")
     if not pending_reason and not protective_touched:
         return _PositionExitDecision(pending_reason=pending_reason)
     metadata = _exit_metadata_snapshot(
@@ -538,6 +531,7 @@ def _manage_open_position(
         metadata=metadata,
         pending_reason=effective_pending,
     )
+
 
 
 
@@ -863,6 +857,9 @@ def replay_trend_strategy(
                 protective_first=False,
                 config=config,
             )
+            if exit_decision.pending_reason != pending_market_exit:
+                pending_market_exit = exit_decision.pending_reason
+                pending_exit_quantity = None
             if exit_decision.reason:
                 close_quantity = (
                     pending_exit_quantity
@@ -3129,3 +3126,11 @@ __all__ = [
     "replay_trend_portfolio",
     "replay_trend_strategy",
 ]
+# 装配成赋值而不是再写一个包装函数：engine.py 的顶层定义数量是被测试
+# 守住的，纯埋点不该占用那个预算。
+_manage_open_position = wrap_manage_open_position(
+    _manage_open_position_impl,
+    floor_touched=_profit_floor_touched,
+    protective_touched=_protective_exit_touched,
+    peak_r=_peak_unrealized_r,
+)

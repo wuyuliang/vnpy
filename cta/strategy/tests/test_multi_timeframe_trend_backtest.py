@@ -3214,11 +3214,23 @@ def test_report_contains_metrics_command_and_audit_tables(tmp_path) -> None:
     exit_legs = pd.read_csv(output / "exit_legs.csv")
     trades = pd.read_csv(output / "trades.csv")
     symbol_performance = pd.read_csv(output / "performance_by_symbol.csv")
-    assert trades.columns.tolist() == artifacts.trades.columns.tolist()
-    assert trades.columns.tolist() == list(trend_engine.TRADE_COLUMNS)
-    assert trades.loc[0, "prior_5d_avg_market_volume"] == pytest.approx(18.0)
-    assert trades.loc[0, "prior_10d_avg_market_volume"] == pytest.approx(15.5)
-    assert trades.loc[0, "prior_20d_avg_market_volume"] == pytest.approx(10.5)
+    # trades.csv 比引擎产物多一列：第二列插入品种中文名，方便肉眼看这个 60 列的表
+    assert trades.columns.tolist()[1] == "symbol_name"
+    assert [name for name in trades.columns if name != "symbol_name"] == (
+        artifacts.trades.columns.tolist()
+    )
+    assert [name for name in trades.columns if name != "symbol_name"] == list(
+        trend_engine.TRADE_COLUMNS
+    )
+    assert trades["symbol_name"].tolist() == ["白银"]
+    # volume 列在 CSV 里按整数写（真实数据是 2 万~300 万手，小数位是噪声）；
+    # 精确值仍然留在引擎产物里，格式化只影响呈现
+    assert trades["prior_5d_avg_market_volume"].dtype.kind in "iu"
+    assert trades.loc[0, "prior_5d_avg_market_volume"] == 18
+    assert trades["prior_10d_avg_market_volume"].dtype.kind in "iu"
+    assert trades["prior_20d_avg_market_volume"].dtype.kind in "iu"
+    # 时间列不再带 +08:00
+    assert not str(trades.loc[0, "entry_time"]).endswith("+08:00")
     assert symbol_performance.columns.tolist() == list(
         trend_report.SYMBOL_PERFORMANCE_COLUMNS
     )

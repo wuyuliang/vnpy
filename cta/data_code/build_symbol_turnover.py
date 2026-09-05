@@ -75,8 +75,7 @@ def _load_contract_size_history(meta_cache_root: str | Path) -> pd.DataFrame:
         if not required.issubset(frame.columns):
             continue
         if "known_at" not in frame.columns and "effective_from" not in frame.columns:
-            known_date = pd.Series(date.min, index=frame.index)
-            effective_date = known_date
+            continue
         else:
             known = pd.to_datetime(
                 frame.get("known_at", frame.get("effective_from")),

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from functools import lru_cache
 import math
 from pathlib import Path
 from typing import Any
@@ -20,10 +21,33 @@ from cta.strategy.brooks.scalp.report import (
     CHART_MUTED,
     _draw_candlestick_panel,
 )
+from cta.config.futures_display_names import labelled_symbol
 from .aggregation_cache import AggregationCache, cached_aggregate_completed_bars
 
 
 _CARD_SIZE = (1680, 1240)
+# 三行表头按要求比原来的 PIL 位图默认字体放大一倍
+_HEADER_FONT_SIZE = 22
+_HEADER_LINE_HEIGHT = 32
+_PANEL_LABEL_FONT_SIZE = 14
+# 图上叫得出名字的形态，比 always_in LONG 直观
+_SETUP_LABELS = {
+    ("ALWAYS_IN", 1): "趋势回调",
+    ("ALWAYS_IN", -1): "趋势反弹",
+}
+# 中文名要有能画汉字的字体，否则只会画出一排豆腐块；找不到就退回纯代码
+_CJK_FONT_CANDIDATES = (
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    "/usr/share/fonts/truetype/arphic/uming.ttc",
+    "/System/Library/Fonts/PingFang.ttc",
+    "/System/Library/Fonts/Hiragino Sans GB.ttc",
+    "/Library/Fonts/Arial Unicode.ttf",
+    "C:/Windows/Fonts/msyh.ttc",
+    "C:/Windows/Fonts/simhei.ttf",
+)
 _PANEL_RECTS = (
     (42, 124, 1638, 452),
     (42, 472, 1638, 800),
@@ -41,6 +65,7 @@ def render_opportunity_charts(
     orders: pd.DataFrame,
     rejections: pd.DataFrame,
     render_outcomes: str = "traded",
+    daily_equity: pd.DataFrame | None = None,
     hourly_bars: pd.DataFrame | None = None,
     minute_bars_by_symbol: Mapping[str, pd.DataFrame] | None = None,
     sessions_by_symbol: Mapping[str, tuple[SessionSpec, ...]] | None = None,
@@ -88,6 +113,7 @@ def render_opportunity_charts(
         rejections=rejections,
     )
     traded_exit_prices = _traded_exit_prices(trades)
+    trade_facts = _traded_trade_facts(trades, daily_equity=daily_equity)
     rows: list[dict[str, Any]] = []
     ordered = candidates.copy()
     ordered["signal_time"] = pd.to_datetime(ordered["signal_time"], errors="raise")
@@ -150,6 +176,7 @@ def render_opportunity_charts(
         )
         if candidate_id in traded_exit_prices:
             chart_candidate["target"] = traded_exit_prices[candidate_id]
+        chart_candidate.update(trade_facts.get(candidate_id, {}))
         chart_path = ""
         if should_render:
             outcome_dir = output / outcome
@@ -194,63 +221,71 @@ def _render_card(
             "Daily actual-contract OHLC",
             _event_window(contexts["daily"], signal, radius=20),
             False,
+            "%m%d",
         ),
         (
             "Completed 1-hour actual-contract OHLC",
             _event_window(contexts["hourly"], signal, radius=24),
             True,
+            "%m-%d %H",
         ),
         (
             "Completed 5-minute actual-contract OHLC",
             _event_window(contexts["five"], signal, radius=80),
             True,
+            "%m-%d %H:%M",
         ),
     )
-    if any(frame.empty for _, frame, _ in panels):
+    if any(frame.empty for _, frame, _, _ in panels):
         raise ValueError("opportunity chart requires non-empty daily, 1h, and 5m data")
     image = Image.new("RGBA", _CARD_SIZE, CHART_BACKGROUND)
     draw = ImageDraw.Draw(image)
-    font = ImageFont.load_default()
-    direction = "LONG" if int(candidate["direction"]) > 0 else "SHORT"
-    draw.text(
-        (42, 18),
+    font = _font(_HEADER_FONT_SIZE)
+    entry_time = str(candidate.get("trade_entry_time", "") or "")
+    exit_time = str(candidate.get("trade_exit_time", "") or "")
+    # 成交了就报真实成交时间：信号 10:45 触发、10:48 才成交是常态，
+    # 把信号时间挂上"买入"两个字会读错一刻钟
+    second_line = f"candidate_id={candidate['candidate_id']}"
+    second_line += (
+        f" | 买入={entry_time}" if entry_time else f" | signal={signal.isoformat()}"
+    )
+    if exit_time:
+        second_line += f" | 卖出={exit_time}"
+    third_line = (
+        f"entry={_level(candidate, 'entry', 'trigger')} | "
+        f"stop={_level(candidate, 'stop', 'stop_price')} | "
+        f"target={_level(candidate, 'target', 'target_price')}"
+    )
+    trade_summary = _trade_summary(candidate)
+    if trade_summary:
+        third_line += f" | {trade_summary}"
+    header = (
         (
-            f"Opportunity {sequence:04d} | {candidate.get('symbol', '')} "
+            f"Opportunity {sequence:04d} | "
+            f"{_symbol_label(candidate.get('symbol', ''))} "
             f"{candidate.get('contract_code', '')} | "
-            f"{candidate['setup_type']} {direction}"
+            f"{_setup_label(candidate['setup_type'], candidate['direction'])}",
+            CHART_INK,
         ),
-        fill=CHART_INK,
-        font=font,
+        (second_line, CHART_MUTED),
+        (third_line, "#9f2d24"),
     )
-    draw.text(
-        (42, 42),
-        f"candidate_id={candidate['candidate_id']} | signal={signal.isoformat()}",
-        fill=CHART_MUTED,
-        font=font,
-    )
-    draw.text(
-        (42, 64),
-        (
-            f"entry={_level(candidate, 'entry', 'trigger')} | "
-            f"stop={_level(candidate, 'stop', 'stop_price')} | "
-            f"target={_level(candidate, 'target', 'target_price')} | "
-            f"outcome={candidate.get('outcome_code', 'UNKNOWN')}"
-        ),
-        fill="#9f2d24",
-        font=font,
-    )
-    draw.text(
-        (42, 86),
-        "Bars right of SIGNAL are post-event review only.",
-        fill="#8a5a12",
-        font=font,
-    )
+    for offset, (text, colour) in enumerate(header):
+        draw.text(
+            (42, 14 + offset * _HEADER_LINE_HEIGHT),
+            text,
+            fill=colour,
+            font=font,
+        )
     levels = (
         _numeric_level(candidate, "entry", "trigger"),
         _numeric_level(candidate, "stop", "stop_price"),
         _numeric_level(candidate, "target", "target_price"),
     )
-    for rect, (label, frame, show_time) in zip(_PANEL_RECTS, panels, strict=True):
+    exit_moment = _aware_timestamp(exit_time) if exit_time else None
+    for rect, (label, frame, show_time, time_format) in zip(
+        _PANEL_RECTS, panels, strict=True
+    ):
         _draw_candlestick_panel(
             draw,
             rect,
@@ -261,7 +296,15 @@ def _render_card(
             plot_slot_count=int(frame.attrs["plot_slot_count"]),
             price_levels=levels,
         )
-        _draw_overlay(image, rect, frame, signal=signal, candidate=candidate)
+        _draw_overlay(
+            image,
+            rect,
+            frame,
+            signal=signal,
+            candidate=candidate,
+            exit_moment=exit_moment,
+            time_format=time_format,
+        )
         draw = ImageDraw.Draw(image)
     return image.convert("RGB")
 
@@ -273,6 +316,8 @@ def _draw_overlay(
     *,
     signal: pd.Timestamp,
     candidate: Mapping[str, Any],
+    exit_moment: pd.Timestamp | None = None,
+    time_format: str = "%m-%d %H:%M",
 ) -> None:
     left, top, right, bottom = rect
     chart = (left + 68, top + 30, right - 18, bottom - 28)
@@ -288,7 +333,36 @@ def _draw_overlay(
     draw = ImageDraw.Draw(image)
     for y in range(chart[1], chart[3], 10):
         draw.line((signal_x, y, signal_x, min(y + 5, chart[3])), fill="#2563eb", width=2)
-    draw.text((signal_x + 5, chart[1] + 4), "SIGNAL", fill="#2563eb")
+    label_font = _font(_PANEL_LABEL_FONT_SIZE)
+    # SIGNAL 的名字和时刻贴在竖线**左**侧，EXIT 的贴在**右**侧：这样两条线即使
+    # 落在同一根 K 上，两组标签也各据一边，不需要再纵向错行去躲。
+    _draw_marker_label(
+        draw,
+        x=signal_x,
+        top=chart[1],
+        lines=("SIGNAL", f"{signal:{time_format}}"),
+        colour="#2563eb",
+        font=label_font,
+        to_the_left=True,
+    )
+    if exit_moment is not None:
+        exit_x = _slot_x(frame, exit_moment, chart)
+        if exit_x is not None:
+            for y in range(chart[1], chart[3], 10):
+                draw.line(
+                    (exit_x, y, exit_x, min(y + 5, chart[3])),
+                    fill="#7c3aed",
+                    width=2,
+                )
+            _draw_marker_label(
+                draw,
+                x=exit_x,
+                top=chart[1],
+                lines=("EXIT", f"{exit_moment:{time_format}}"),
+                colour="#7c3aed",
+                font=label_font,
+                to_the_left=False,
+            )
 
     levels = (
         (_numeric_level(candidate, "entry", "trigger"), "ENTRY", "#2563eb"),
@@ -305,6 +379,99 @@ def _draw_overlay(
         y = chart[3] - (value - low) / (high - low) * (chart[3] - chart[1])
         draw.line((chart[0], y, chart[2], y), fill=color, width=1)
         draw.text((chart[2] - 100, y - 10), label, fill=color)
+
+
+@lru_cache(maxsize=1)
+def _cjk_font_path() -> str:
+    """First installed CJK font, or ``""`` when this machine has none."""
+    for path in _CJK_FONT_CANDIDATES:
+        if Path(path).is_file():
+            return path
+    return ""
+
+
+@lru_cache(maxsize=8)
+def _font(size: int) -> ImageFont.ImageFont:
+    path = _cjk_font_path()
+    if path:
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            pass
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:  # Pillow < 10.1 只有固定大小的位图字体
+        return ImageFont.load_default()
+
+
+def _symbol_label(symbol: str) -> str:
+    """``AG`` -> ``白银 AG``，没有中文字体时退回 ``AG``。"""
+    return labelled_symbol(symbol) if _cjk_font_path() else str(symbol)
+
+
+def _trade_summary(candidate: Mapping[str, Any]) -> str:
+    """The traded leg's size, money and account impact, for the header."""
+    quantity = _numeric_level(candidate, "trade_quantity")
+    net_pnl = _numeric_level(candidate, "trade_net_pnl")
+    if not (math_isfinite(quantity) and math_isfinite(net_pnl)):
+        return ""
+    parts = [f"手数={quantity:,.0f}", f"净盈亏={net_pnl:+,.2f}"]
+    notional_pct = _numeric_level(candidate, "trade_notional_return_pct")
+    if math_isfinite(notional_pct):
+        parts[-1] += f" ({notional_pct:+.2f}% 名义)"
+    equity_pct = _numeric_level(candidate, "trade_prior_equity_return_pct")
+    if math_isfinite(equity_pct):
+        parts.append(f"占前一日权益={equity_pct:+.3f}%")
+    else:
+        parts.append("占前一日权益=N/A")
+    return " | ".join(parts)
+
+
+def _setup_label(setup_type: object, direction: int) -> str:
+    """``always_in`` + LONG -> ``趋势回调``; unknown setups keep the raw code."""
+    side = 1 if int(direction) > 0 else -1
+    label = _SETUP_LABELS.get((str(setup_type).strip().upper(), side), "")
+    if label and _cjk_font_path():
+        return label
+    return f"{setup_type} {'LONG' if side > 0 else 'SHORT'}"
+
+
+def _draw_marker_label(
+    draw: ImageDraw.ImageDraw,
+    *,
+    x: float,
+    top: float,
+    lines: tuple[str, ...],
+    colour: str,
+    font: Any,
+    to_the_left: bool,
+) -> None:
+    """Stack a marker name over its timestamp, hugging one side of its line."""
+    row = _PANEL_LABEL_FONT_SIZE + 2
+    for offset, line in enumerate(lines):
+        width = float(draw.textlength(line, font=font))
+        anchor_x = x - width - 5 if to_the_left else x + 5
+        draw.text(
+            (anchor_x, top + 4 + offset * row),
+            line,
+            fill=colour,
+            font=font,
+        )
+
+
+def _slot_x(
+    frame: pd.DataFrame,
+    moment: pd.Timestamp,
+    chart: tuple[float, float, float, float],
+) -> float | None:
+    """X pixel for ``moment`` inside this panel, or None when off-window."""
+    index = frame.index
+    position = int(index.searchsorted(moment, side="left"))
+    if position >= len(index):
+        return None
+    slot = float(frame["_plot_slot"].to_numpy()[position])
+    slot_count = int(frame.attrs["plot_slot_count"])
+    return chart[0] + (slot + 0.5) / slot_count * (chart[2] - chart[0])
 
 
 def _chart_frame(frame: pd.DataFrame) -> pd.DataFrame:
@@ -411,6 +578,74 @@ def _traded_exit_prices(trades: pd.DataFrame) -> dict[str, float]:
     return prices
 
 
+def _prior_equity_by_date(daily_equity: pd.DataFrame | None) -> pd.Series:
+    """``date -> equity`` for the previous row, used as the header denominator.
+
+    Indexed by the date whose *prior* session the equity belongs to, so a trade
+    on 2026-01-26 reads the close of the session before it. Yesterday's equity
+    is the only denominator that exists for every trade: ``margin_used`` is 0
+    whenever nothing was held overnight.
+    """
+    if daily_equity is None or daily_equity.empty:
+        return pd.Series(dtype=float)
+    required = {"date", "equity"}
+    if not required.issubset(daily_equity.columns):
+        return pd.Series(dtype=float)
+    frame = daily_equity.loc[:, ["date", "equity"]].copy()
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+    frame["equity"] = pd.to_numeric(frame["equity"], errors="coerce")
+    frame = frame.dropna().sort_values("date", kind="stable")
+    if frame.empty:
+        return pd.Series(dtype=float)
+    return pd.Series(
+        frame["equity"].shift(1).to_numpy(),
+        index=frame["date"].dt.date.to_numpy(),
+    )
+
+
+def _traded_trade_facts(
+    trades: pd.DataFrame,
+    *,
+    daily_equity: pd.DataFrame | None,
+) -> dict[str, dict[str, Any]]:
+    """Per-candidate exit time, size and P&L for the chart header."""
+    if trades.empty:
+        return {}
+    prior_equity = _prior_equity_by_date(daily_equity)
+    facts: dict[str, dict[str, Any]] = {}
+    for row in trades.to_dict("records"):
+        candidate_id = str(row.get("candidate_id", ""))
+        if not candidate_id:
+            continue
+        entry = pd.to_datetime(row.get("entry_time"), errors="coerce")
+        net_pnl = pd.to_numeric(row.get("net_pnl"), errors="coerce")
+        quantity = pd.to_numeric(row.get("quantity"), errors="coerce")
+        entry_price = pd.to_numeric(row.get("entry_price"), errors="coerce")
+        multiplier = pd.to_numeric(row.get("contract_multiplier"), errors="coerce")
+        exit_time = pd.to_datetime(row.get("exit_time"), errors="coerce")
+        notional_pct = math.nan
+        notional = float(entry_price or 0) * float(multiplier or 0) * float(
+            quantity or 0
+        )
+        if pd.notna(net_pnl) and math_isfinite(notional) and notional > 0:
+            notional_pct = float(net_pnl) / notional * 100.0
+        equity_pct = math.nan
+        if pd.notna(net_pnl) and pd.notna(entry) and not prior_equity.empty:
+            base = prior_equity.get(entry.date(), math.nan)
+            base = float(base) if pd.notna(base) else math.nan
+            if math_isfinite(base) and base > 0:
+                equity_pct = float(net_pnl) / base * 100.0
+        facts[candidate_id] = {
+            "trade_entry_time": "" if pd.isna(entry) else str(entry),
+            "trade_exit_time": "" if pd.isna(exit_time) else str(exit_time),
+            "trade_quantity": float(quantity) if pd.notna(quantity) else math.nan,
+            "trade_net_pnl": float(net_pnl) if pd.notna(net_pnl) else math.nan,
+            "trade_notional_return_pct": notional_pct,
+            "trade_prior_equity_return_pct": equity_pct,
+        }
+    return facts
+
+
 def _safe_component(value: str) -> str:
     cleaned = "".join(
         character if character.isalnum() or character in {"-", "_"} else "_"
@@ -463,7 +698,7 @@ def _panel_price_bounds(
 
 def _level(candidate: Mapping[str, Any], *names: str) -> str:
     value = _numeric_level(candidate, *names)
-    return f"{value:,.4f}" if math_isfinite(value) else "N/A"
+    return f"{value:,.2f}" if math_isfinite(value) else "N/A"
 
 
 def _numeric_level(

@@ -482,10 +482,10 @@ def test_the_day_root_ledger_files_are_not_treated_as_symbols(tmp_path) -> None:
     assert audit["roots_missing_multiplier"] == ["RB"]
 
 
-def test_contract_sizes_load_from_a_flat_bundle(tmp_path) -> None:
-    """scalp 的 meta 目录是扁平的，以前只 glob 了 <root>/<hash>/ 一层。"""
+def test_undated_contract_sizes_are_not_backfilled_into_history(tmp_path) -> None:
+    """扁平目录可以读取，但没有生效日期的当前值不能伪装成历史值。"""
     pd.DataFrame(
         [{"root_symbol": "RB", "contract_size": 10.0},
          {"root_symbol": "CU", "contract_size": 5.0}]
     ).to_csv(tmp_path / "contract_specs.csv", index=False)
-    assert load_contract_sizes(tmp_path) == {"RB": 10.0, "CU": 5.0}
+    assert load_contract_sizes(tmp_path) == {}

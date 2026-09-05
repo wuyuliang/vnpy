@@ -727,7 +727,11 @@ def _draw_candlestick_panel(
     if slot_count <= 0 or np.any(slots < 0) or np.any(slots >= slot_count):
         raise ValueError("plot slots must fit inside plot_slot_count")
     span = chart[2] - chart[0]
-    width = max(1.0, min(8.0, span / slot_count * 0.70))
+    # 实体宽度跟着槽距走。原来硬顶 8px：日线一格有 25px 时实体也只有 8px，
+    # 一排 K 线看上去就是一串等宽小方块，读不出开收盘的相对位置。
+    pitch = span / slot_count
+    width = max(1.0, min(pitch - 1.0, pitch * 0.70))
+    wick_width = 1 if width < 5.0 else 2
 
     def y_at(value: float) -> float:
         return chart[3] - (value - low) / (high - low) * (chart[3] - chart[1])
@@ -739,10 +743,15 @@ def _draw_candlestick_panel(
         high_y = y_at(float(candle.high))
         low_y = y_at(float(candle.low))
         color = "#c53d2f" if candle.close >= candle.open else "#16876f"
-        draw.line((x, high_y, x, low_y), fill=color, width=1)
+        draw.line((x, high_y, x, low_y), fill=color, width=wick_width)
         body_top, body_bottom = sorted((open_y, close_y))
         if body_bottom - body_top < 1.0:
-            draw.line((x - width / 2, body_top, x + width / 2, body_top), fill=color)
+            # 十字星：实体压成一条横线，但仍然画在开收盘所在的价位上
+            draw.line(
+                (x - width / 2, body_top, x + width / 2, body_top),
+                fill=color,
+                width=wick_width,
+            )
         else:
             draw.rectangle(
                 (x - width / 2, body_top, x + width / 2, body_bottom),

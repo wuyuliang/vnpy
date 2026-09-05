@@ -230,7 +230,7 @@ def _pre_break_decision(
         )
         return _PreBreakDecision(
             "PRE_BREAK_GAP_RISK_REDUCTION",
-            int(position.quantity) - max(kept, 1),
+            int(position.quantity) - kept,
             open_r,
             threshold,
             high_gap,

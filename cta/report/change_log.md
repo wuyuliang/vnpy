@@ -12,6 +12,57 @@
 
 ---
 
+## 2026-09-05 (六) · N-01/N-03/N-04/N-05 定向修复
+
+### 任务
+- 止盈地板触发后改为下一根 1 分钟开盘对手价成交；N-02 保持 fail-open。
+- 排除无日期乘数的历史回填，按剩余仓位比例收紧部分减仓后的止盈回吐，并让一手仓位在后续减仓时清零。
+
+### 改动
+- `engine.py`：把 `PROFIT_FLOOR` 变为跨分钟待执行状态，并补齐单品种回放的状态持久化。
+- `drawdown.py`、`gates.py`：分别固定初始 R 标尺、按剩余手数缩放回吐量，以及实现一手清仓规则。
+- `build_symbol_turnover.py`：无日期乘数不再进入因果历史。
+- 补充四项回归测试，并同步评审与策略设计文档。
+
+### 验证
+```bash
+python3 -m pytest -q \
+  cta/strategy/tests/test_multi_timeframe_trend_profit_floor.py \
+  cta/strategy/tests/test_symbol_turnover_universe.py \
+  cta/strategy/tests/test_multi_timeframe_trend_risk_controls.py
+```
+
+结果：`110 passed in 1.19s`。完整策略测试为 `622 passed, 1 failed`；唯一失败来自
+未跟踪的 `test_chart_and_trade_formatting.py` 与已有 `report.py` 工作区改动，本次未修改。
+N-04 剩余手数口径修正后，排除该节点重跑结果为
+`622 passed, 1 deselected in 114.53s`。
+
+BR/EB 冒烟回测状态为 `COMPLETE`，输出目录：
+`/tmp/mtt_n04_remaining_scale/20260905_075400_242891_20260301_20260401_1d_5m_1m`。
+该样本未出现会触发新 N-04 口径的持仓序列，因此 `trades.csv` 与上一版逐字节一致。
+
+---
+
+## 2026-09-05 (六) · multi_timeframe_trend 最新代码评审
+
+### 任务
+- 评审 `feature` 分支最新 `multi_timeframe_trend` 策略、回放、元数据、成交额和报告链路，包含当前未提交的图表展示改动。
+- 生成可直接执行的分级问题清单与建议修复顺序，不修改策略行为。
+
+### 产出
+- 新增 `cta/strategy/docs/2026-09-05-multi-timeframe-trend-code-review.md`。
+- 确认 8 项问题：止盈地板同根分钟线读取新峰值、成交额覆盖静默失效、无日期乘数回填、部分减仓改变 R 单位、缩放统计失真、报告非原子发布、`trades.csv` 契约漂移及图表文案错误。
+- 同时确认执行元数据默认值会把结果降级为 `NON_CAUSAL_SCENARIO`，未混入正式绩效。
+
+### 验证
+```bash
+python3 -m pytest -q cta/strategy/tests
+```
+
+结果：`597 passed in 120.85s`。本次未运行完整多品种回测，不产生新的绩效结论。
+
+---
+
 ## 2026-09-03 (四) · 趋势首笔日线实体突破缓冲
 
 ### 任务

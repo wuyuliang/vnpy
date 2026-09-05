@@ -592,7 +592,12 @@ profit_floor_giveback_pct: float = 0.25      # 回吐上限的比例部分
 profit_floor_extra_slippage_ticks: int = 1   # 在既有滑点模型之上再加一档
 ```
 
-`floor_R = max(0, peak_R − max(giveback_r, giveback_pct × peak_R))`
+`remaining_fraction = remaining_quantity / initial_quantity`
+
+`floor_R = max(0, peak_R − max(giveback_r, giveback_pct × peak_R) × remaining_fraction)`
+
+峰值和价格仍以建仓初始手数定义 R；部分减仓只按剩余手数比例收紧允许回吐量。
+例如减至半仓后，默认 1R 回吐缩为 0.5R。
 
 ### 13.2 三处按要求落实的细节
 
@@ -600,23 +605,23 @@ profit_floor_extra_slippage_ticks: int = 1   # 在既有滑点模型之上再加
 它本来就按 bar 的最高价（多头）/最低价（空头）维护 `maximum_favorable_price`，
 而回放的 bar 就是 1 分钟线。空头对称。
 
-**地板自下一分钟起生效。** 在 `_manage_open_position` 里，
+**地板触发后在下一分钟执行。** 在 `_manage_open_position` 里，
 地板判定放在 `_update_excursions` **之前**，用的是上一根 K 线收盘后算出的地板；
-更新完极值再 `_refresh_profit_floor` 供下一根使用。
-这样冲高与回落发生在同一根 K 线时，不会用这根自己的最高价反过来把自己平掉。
+触发根只登记 `PROFIT_FLOOR` 待退出，下一根 1 分钟 K 线开盘才成交。
+这样既不会用触发根自己的最高价反过来改善成交，也不会把收盘后才能确认的信号
+回填到同一分钟。
 对应单测 `test_floor_cannot_fire_on_the_bar_that_set_the_peak`。
 
-**市价单加一档滑点。** 参考价取 `min(开盘价, 地板价)`（多头），
+**市价单加一档滑点。** 参考价取下一根 1 分钟 K 线的开盘价，
 先走既有的 `_market_exit_price`（与 STOP 出场同一套滑点模型），
 再按 `profit_floor_extra_slippage_ticks` 追加一档并向不利方向取整。
 出场原因码 `PROFIT_FLOOR`。
 
 ### 13.3 与既有出场的优先级
 
-同一根 K 线里地板和结构性止损都被触及时，按**时序**判定：
-多头地板在止损之上，价格是先穿地板再穿止损，因此按地板成交。
-地板在止损之下（移动止损已抬过地板）时让位给止损。
-涨跌停锁板时退化为待执行的市价平仓，下一根重试，复用既有的 `_protective_limit_locked`。
+同一根 K 线里地板和结构性止损都被触及时，结构性止损仍按当根保护价执行；
+地板不能抢占并回填当根成交。下一根开盘若涨跌停锁板，则保留待执行状态并继续重试，
+复用既有的 `_protective_limit_locked`。
 
 实现放在 Codex 重构出来的共享函数 `_manage_open_position` 里，
 **单品种和组合两条回放路径同时生效**，没有加剧 R-07 的分叉。

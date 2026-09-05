@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, time
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -16,10 +17,15 @@ from cta.config.multi_timeframe_trend_config import (
 )
 from cta.strategy.multi_timeframe_trend_backtest.engine import (
     _DailyCircuitState,
+    _DrawdownScalingState,
+    _PortfolioScalingState,
+    _SymbolScalingState,
     _advance_daily_circuit,
     _daily_circuit_blocked,
     _high_gap_flags_by_trade_date,
     _is_pre_break_time,
+    _position_scaling_snapshot,
+    _pre_break_decision,
     _sector_exposure_blocked,
 )
 
@@ -597,6 +603,42 @@ def test_replay_keeps_a_position_that_already_has_buffer() -> None:
         ),
     )
     assert "PRE_BREAK_NO_BUFFER" not in set(artifacts.trades["exit_reason"])
+
+
+def test_one_lot_can_enter_under_scaling_then_is_fully_reduced() -> None:
+    config = MultiTimeframeTrendConfig(
+        drawdown_scale_factor=0.5,
+        pre_break_gap_risk_scale=0.5,
+    )
+    quantity, *_ = _position_scaling_snapshot(
+        base_quantity=1,
+        symbol_state=_SymbolScalingState(),
+        portfolio_state=_PortfolioScalingState(high_water=1_000_000.0),
+        drawdown_state=_DrawdownScalingState(
+            high_water=1_000_000.0,
+            active=True,
+        ),
+        config=config,
+    )
+    assert quantity == 1
+
+    position = SimpleNamespace(
+        pending=SimpleNamespace(candidate={"direction": 1}),
+        current_metadata=SimpleNamespace(contract_size=10.0),
+        initial_risk_cash=10.0,
+        entry_price=100.0,
+        quantity=quantity,
+    )
+    decision = _pre_break_decision(
+        position,
+        mark=101.0,
+        trade_date=date(2026, 1, 5),
+        high_gap_by_date={date(2026, 1, 5): True},
+        config=config,
+    )
+
+    assert decision.reason == "PRE_BREAK_GAP_RISK_REDUCTION"
+    assert decision.close_quantity == 1
 
 
 def test_replay_pre_break_protection_can_be_disabled() -> None:
