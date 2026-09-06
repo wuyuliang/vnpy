@@ -45,6 +45,41 @@ def _bars(rows: int = 30) -> pd.DataFrame:
     return frame
 
 
+def _daily_bars(*, bearish: bool = True, include_future: bool = False) -> pd.DataFrame:
+    end = pd.date_range(
+        end="2026-01-04 15:00",
+        periods=30,
+        freq="D",
+        tz="Asia/Shanghai",
+    )
+    closes = (
+        [130.0 - index for index in range(len(end))]
+        if bearish
+        else [100.0 + index for index in range(len(end))]
+    )
+    frame = pd.DataFrame({"bar_end": end, "close": closes})
+    if include_future:
+        frame.loc[len(frame)] = [
+            pd.Timestamp("2026-01-05 15:00", tz="Asia/Shanghai"),
+            1_000.0,
+        ]
+    return frame
+
+
+def _features(
+    bars: pd.DataFrame,
+    config: SecondLegDownConfig,
+    *,
+    daily_bars: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    return build_second_leg_features(
+        bars,
+        _sessions(),
+        config,
+        daily_bars=_daily_bars() if daily_bars is None else daily_bars,
+    )
+
+
 def test_features_use_prior_atr_and_prior_volume_only() -> None:
     config = SecondLegDownConfig(
         atr_period=3,
@@ -79,7 +114,7 @@ def test_two_bar_pattern_matches_all_default_rules() -> None:
     bars.loc[28, ["open", "high", "low", "close", "volume"]] = [
         107.0, 107.02, 105.95, 106.0, 30.0
     ]
-    features = build_second_leg_features(bars, _sessions(), config)
+    features = _features(bars, config)
 
     match = match_second_leg_pattern(features, 28, config)
 
@@ -107,11 +142,11 @@ def test_three_bar_pattern_requires_middle_bar_not_to_break_up() -> None:
     bars.loc[28, ["open", "high", "low", "close", "volume"]] = [
         107.0, 107.02, 105.95, 106.0, 30.0
     ]
-    features = build_second_leg_features(bars, _sessions(), config)
+    features = _features(bars, config)
     assert match_second_leg_pattern(features, 28, config) is not None
 
     bars.loc[27, "high"] = 108.051
-    features = build_second_leg_features(bars, _sessions(), config)
+    features = _features(bars, config)
     assert match_second_leg_pattern(features, 28, config) is None
 
 
@@ -123,7 +158,7 @@ def test_entry_window_is_relative_to_segment() -> None:
         volume_surge_mult=1.0,
         volume_baseline_min_samples=1,
     )
-    features = build_second_leg_features(_bars(10), _sessions(), config)
+    features = _features(_bars(10), config)
 
     assert match_second_leg_pattern(features, 9, config) is None
 
@@ -159,7 +194,7 @@ def test_leg_mode_accepts_a_strong_leg_of_two_ordinary_bars() -> None:
     """两根各自过不了 per_bar 的门槛，但合起来这条腿够 —— 正是要接住的形状。"""
     config = _leg_config()
     bars = _two_bar_leg((108.0, 107.4), (107.4, 106.8))
-    features = build_second_leg_features(bars, _sessions(), config)
+    features = _features(bars, config)
     assert match_second_leg_pattern(features, 28, config) is not None
 
     # 同一批 K 线，出厂的 per_bar N=3 口径直接扔掉
@@ -173,7 +208,7 @@ def test_leg_mode_accepts_a_strong_leg_of_two_ordinary_bars() -> None:
         wick_body_ratio=0.5,
     )
     assert match_second_leg_pattern(
-        build_second_leg_features(bars, _sessions(), strict), 28, strict
+        _features(bars, strict), 28, strict
     ) is None
 
 
@@ -181,7 +216,7 @@ def test_leg_mode_rejects_a_spike_next_to_a_flat_bar() -> None:
     """腿的长度够，但第二根几乎不动 —— 单根下限把它挡在外面。"""
     config = _leg_config()
     bars = _two_bar_leg((108.0, 105.5), (105.5, 105.45))
-    features = build_second_leg_features(bars, _sessions(), config)
+    features = _features(bars, config)
     leg = float(features.loc[27, "open"]) - float(features.loc[28, "close"])
     atr_value = float(features.loc[28, "atr"])
     assert leg >= config.leg_body_atr_mult * atr_value       # 腿本身达标
@@ -191,7 +226,7 @@ def test_leg_mode_rejects_a_spike_next_to_a_flat_bar() -> None:
 def test_leg_mode_rejects_a_leg_that_is_too_short() -> None:
     config = _leg_config(leg_body_atr_mult=40.0)
     bars = _two_bar_leg((108.0, 107.4), (107.4, 106.8))
-    features = build_second_leg_features(bars, _sessions(), config)
+    features = _features(bars, config)
     assert match_second_leg_pattern(features, 28, config) is None
 
 
@@ -208,7 +243,7 @@ def test_leg_spans_all_three_bars_of_the_three_bar_pattern() -> None:
     bars.loc[28, ["open", "high", "low", "close", "volume"]] = [
         106.75, 106.80, 105.45, 105.5, 30.0
     ]
-    features = build_second_leg_features(bars, _sessions(), config)
+    features = _features(bars, config)
     match = match_second_leg_pattern(features, 28, config)
     assert match is not None
     assert match.pattern_type == "three_bar"
@@ -280,7 +315,7 @@ def test_open_block_measures_the_order_minute_not_the_signal_bar() -> None:
     """
     config = _leg_config(entry_block_minutes_after_open=10)
     bars = _place_leg(_morning_bars(), 39)
-    features = build_second_leg_features(bars, _sessions(), config)
+    features = _features(bars, config)
     assert int(features.loc[39, "minutes_since_open"]) == 10
     assert match_second_leg_pattern(features, 39, config) is not None
 
@@ -289,7 +324,7 @@ def test_open_block_still_rejects_inside_the_window() -> None:
     """09:09 收尾 → 单子挂在 09:10，正好第 10 分钟，仍在窗内。"""
     config = _leg_config(entry_block_minutes_after_open=10)
     bars = _place_leg(_morning_bars(), 38)
-    features = build_second_leg_features(bars, _sessions(), config)
+    features = _features(bars, config)
     assert int(features.loc[38, "minutes_since_open"]) == 9
     assert match_second_leg_pattern(features, 38, config) is None
 
@@ -302,7 +337,7 @@ def test_close_block_is_not_relaxed() -> None:
     bars["bar_end"] = pd.date_range(
         "2026-01-05 14:39", periods=rows, freq="min", tz="Asia/Shanghai",
     ) - pd.Timedelta(minutes=rows - 1)
-    features = build_second_leg_features(bars, _sessions(), config)
+    features = _features(bars, config)
     last = rows - 1
     assert int(features.loc[last, "minutes_until_close"]) == 21
     assert match_second_leg_pattern(features, last, config) is not None
@@ -311,3 +346,45 @@ def test_close_block_is_not_relaxed() -> None:
     later = features.copy()
     later["minutes_until_close"] = later["minutes_until_close"] - 1
     assert match_second_leg_pattern(later, last, config) is None
+
+
+def test_daily_trend_uses_only_the_last_completed_daily_bar() -> None:
+    config = _leg_config()
+    bars = _place_leg(_bars(), 28)
+
+    features = _features(
+        bars,
+        config,
+        daily_bars=_daily_bars(include_future=True),
+    )
+
+    last = features.loc[28]
+    assert last["daily_feature_asof"] == pd.Timestamp(
+        "2026-01-04 15:00", tz="Asia/Shanghai"
+    )
+    assert int(last["daily_direction"]) == -1
+    assert last["daily_ema5"] < last["daily_ema10"] < last["daily_ema20"]
+    assert match_second_leg_pattern(features, 28, config) is not None
+
+
+def test_pattern_requires_daily_bearish_ema_alignment() -> None:
+    config = _leg_config()
+    bars = _place_leg(_bars(), 28)
+
+    features = _features(bars, config, daily_bars=_daily_bars(bearish=False))
+
+    assert int(features.loc[28, "daily_direction"]) == 1
+    assert match_second_leg_pattern(features, 28, config) is None
+
+
+def test_volume_filter_can_be_disabled_without_skipping_volume_audit() -> None:
+    bars = _two_bar_leg((108.0, 107.4), (107.4, 106.8), volume=10.0)
+    enabled = _leg_config(volume_filter_enabled=True)
+    disabled = _leg_config(volume_filter_enabled=False)
+
+    enabled_features = _features(bars, enabled)
+    disabled_features = _features(bars, disabled)
+
+    assert match_second_leg_pattern(enabled_features, 28, enabled) is None
+    assert disabled_features.loc[28, "volume_baseline"] == 10.0
+    assert match_second_leg_pattern(disabled_features, 28, disabled) is not None

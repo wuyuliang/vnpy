@@ -133,16 +133,22 @@ def test_floor_never_moves_down() -> None:
     assert p.profit_floor_price == pytest.approx(first)
 
 
-def test_partial_reduction_scales_giveback_by_remaining_quantity() -> None:
+@pytest.mark.parametrize(
+    "peak_r,expected_floor_r",
+    [(2.0, 1.0), (8.0, 6.0)],
+)
+def test_partial_reduction_keeps_floor_based_on_initial_quantity(
+    peak_r: float,
+    expected_floor_r: float,
+) -> None:
     cfg = MultiTimeframeTrendConfig()
     p = _position(quantity=10)
     p.quantity = 5
-    p.maximum_favorable_price = 102.0
+    p.maximum_favorable_price = 100.0 + peak_r
 
-    assert _peak_unrealized_r(p) == pytest.approx(2.0)
+    assert _peak_unrealized_r(p) == pytest.approx(peak_r)
     _refresh_profit_floor(p, cfg)
-    # 半仓把默认 1R 回吐缩为 0.5R，2R 峰值对应 1.5R 地板。
-    assert p.profit_floor_price == pytest.approx(101.5)
+    assert p.profit_floor_price == pytest.approx(100.0 + expected_floor_r)
 
 
 def test_disabled_config_never_arms_the_floor() -> None:

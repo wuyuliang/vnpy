@@ -52,7 +52,8 @@ _EXCHANGE_ALIASES = {
     "SHF": "SHFE",
     "ZCE": "CZCE",
 }
-_CZCE_NIGHT_2300_ROOTS_2026 = frozenset(
+_CZCE_GENERIC_SESSION_SUPPORTED_YEARS = frozenset({2025, 2026})
+_CZCE_NIGHT_2300_ROOTS_2025_2026 = frozenset(
     {
         "CF",
         "CY",
@@ -70,7 +71,9 @@ _CZCE_NIGHT_2300_ROOTS_2026 = frozenset(
         "TA",
     }
 )
-_CZCE_DAY_ROOTS_2026 = frozenset({"AP", "CJ", "PK", "RS", "SF", "SM", "UR"})
+_CZCE_DAY_ROOTS_2025_2026 = frozenset(
+    {"AP", "CJ", "PK", "RS", "SF", "SM", "UR"}
+)
 _CZCE_GENERIC_OTHER_HOURS = "及交易所规定的其他交易时间"
 _GTJA_EXCHANGE_NAMES = {
     "CFFEX": "中金所",
@@ -1134,15 +1137,18 @@ def session_template_from_description(
         normalized_exchange == "CZCE"
         and _CZCE_GENERIC_OTHER_HOURS in normalized
     ):
-        if effective_on is None or effective_on.year != 2026:
+        if (
+            effective_on is None
+            or effective_on.year not in _CZCE_GENERIC_SESSION_SUPPORTED_YEARS
+        ):
             raise MetadataBuildError(
                 "UNSUPPORTED_SESSION_TEMPLATE",
                 f"{exchange}.{normalized_root or 'UNKNOWN'} "
                 f"effective_on={effective_on}: {description!r}",
             )
-        if normalized_root in _CZCE_NIGHT_2300_ROOTS_2026:
+        if normalized_root in _CZCE_NIGHT_2300_ROOTS_2025_2026:
             return "CN_COMMODITY_NIGHT_2300"
-        if normalized_root in _CZCE_DAY_ROOTS_2026:
+        if normalized_root in _CZCE_DAY_ROOTS_2025_2026:
             return "CN_COMMODITY_DAY"
         raise MetadataBuildError(
             "UNSUPPORTED_SESSION_TEMPLATE",

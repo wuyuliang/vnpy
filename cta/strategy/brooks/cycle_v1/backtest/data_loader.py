@@ -88,13 +88,15 @@ def _read_identity(files: tuple[Path, ...]) -> tuple[str, str] | None:
             continue
         contract_column = "contract_code" if "contract_code" in frame else "ts_code"
         if contract_column not in frame:
-            return None
+            continue
         values = frame[contract_column].dropna().astype(str).str.upper().str.strip()
         identities = {_identity(value) for value in values}
         identities.discard(None)
+        if not identities:
+            continue
         if len(identities) != 1:
             raise ValueError(f"source directory has mixed futures roots: {path.parent}")
-        return next(iter(identities)) if identities else None
+        return next(iter(identities))
     return None
 
 

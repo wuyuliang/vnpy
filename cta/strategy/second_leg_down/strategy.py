@@ -7,7 +7,7 @@ from typing import Any
 
 import pandas as pd
 
-from cta.strategy.common.bar_shapes import breaks_structure_low
+from cta.strategy.common.bar_shapes import breaks_structure_low, is_volume_surge
 from cta.strategy.common.sizing import size_for_risk_band
 from cta.strategy.multi_timeframe_trend_strategy import CANDIDATE_COLUMNS
 
@@ -145,6 +145,7 @@ def _order_window(
 def generate_second_leg_down_candidates(
     minute_bars: pd.DataFrame,
     *,
+    daily_bars: pd.DataFrame,
     sessions: tuple[Any, ...],
     instrument: SecondLegInstrument,
     config: SecondLegDownConfig | None = None,
@@ -166,7 +167,12 @@ def generate_second_leg_down_candidates(
     if minute_bars.empty:
         return _empty_candidates()
 
-    frame = build_second_leg_features(minute_bars, sessions, cfg)
+    frame = build_second_leg_features(
+        minute_bars,
+        sessions,
+        cfg,
+        daily_bars=daily_bars,
+    )
     execution_index = _execution_timeline(execution_bars, frame)
     rows: list[dict[str, Any]] = []
     for signal_index in range(len(frame)):
@@ -251,6 +257,7 @@ def generate_second_leg_down_candidates(
             reason=reason,
             sequence=len(rows) + 1,
             volume_surge_mult=cfg.volume_surge_mult,
+            volume_baseline_min_samples=cfg.volume_baseline_min_samples,
         )
         rows.append(row)
     if not rows:
@@ -298,6 +305,7 @@ def _candidate_row(
     reason: str,
     sequence: int,
     volume_surge_mult: float,
+    volume_baseline_min_samples: int,
 ) -> dict[str, Any]:
     filtered = bool(reason)
     signal_structure_low = float(first["structure_low"])
@@ -350,12 +358,12 @@ def _candidate_row(
         "order_expire_at": expires_at,
         "order_expire_bar_i": expires_index,
         "fill_time": pd.NaT,
-        "daily_feature_asof": pd.NaT,
-        "daily_direction": math.nan,
+        "daily_feature_asof": last["daily_feature_asof"],
+        "daily_direction": int(last["daily_direction"]),
         "daily_bull_trend_id": math.nan,
-        "daily_ema5": math.nan,
-        "daily_ema10": math.nan,
-        "daily_ema20": math.nan,
+        "daily_ema5": float(last["daily_ema5"]),
+        "daily_ema10": float(last["daily_ema10"]),
+        "daily_ema20": float(last["daily_ema20"]),
         "daily_atr14": math.nan,
         "prior_5d_high": math.nan,
         "prior_5d_low": math.nan,
@@ -365,7 +373,15 @@ def _candidate_row(
         "feature_volume": float(last["volume"]),
         "feature_volume_threshold": volume_surge_mult
         * float(last["volume_baseline"]),
-        "feature_volume_expanded": 1,
+        "feature_volume_expanded": int(
+            is_volume_surge(
+                float(last["volume"]),
+                float(last["volume_baseline"]),
+                int(last["volume_baseline_samples"]),
+                volume_surge_mult,
+                volume_baseline_min_samples,
+            )
+        ),
         "signal_i": signal_index,
         "pullback_start_i": first_index,
         "chase_high_candidate": 0,

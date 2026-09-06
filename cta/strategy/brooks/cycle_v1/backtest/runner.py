@@ -346,10 +346,27 @@ def _missing_symbol_diagnosis(
             key = f"{item.get('stage', '?')}: {item.get('reason', '')}"
             reasons[key] = reasons.get(key, 0) + 1
         if not reasons:
-            lines.append(
-                "    没有记录到下载错误——供应商在该区间内对这个品种就没有数据，"
-                "或者主力合约映射为空。"
+            requested = int(
+                ((download_summary.get("requested_dates") or {}).get(root, 0)) or 0
             )
+            available = sum(
+                int(((download_summary.get(name) or {}).get(root, 0)) or 0)
+                for name in ("downloaded", "skipped", "converted_schema")
+            )
+            empty = int(
+                ((download_summary.get("empty") or {}).get(root, 0)) or 0
+            )
+            if requested > 0 and available == requested and empty == 0:
+                lines.append(
+                    f"    没有记录到下载错误——{available} 个本地分钟文件已下载或复用，"
+                    "但下载后的品种发现仍未识别该目录；请检查目录内的辅助 parquet "
+                    "或合约标识。"
+                )
+            else:
+                lines.append(
+                    "    没有记录到下载错误——供应商在该区间内对这个品种就没有数据，"
+                    "或者主力合约映射为空。"
+                )
         for key, count in sorted(reasons.items(), key=lambda kv: -kv[1])[:4]:
             lines.append(f"    ×{count} {key[:160]}")
     return "\n".join(lines)

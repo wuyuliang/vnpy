@@ -12,6 +12,153 @@
 
 ---
 
+## 2026-09-07 (一) · multi_timeframe_trend 服务器元数据缺口修复
+
+### 任务
+- 修复 2026H1 回测预热到 2025-09-03 时 `CZCE.UR` 被误报
+  `UNSUPPORTED_SESSION_TEMPLATE`。
+- 修复 OI/MA 已有 117 个本地分钟分区、下载全部 `skipped` 后仍被二次发现遗漏的问题。
+
+### 改动
+- CZCE 已知品种级交易时段映射由仅 2026 明确扩展为 2025–2026；UR 保持日盘，
+  MA/OI 保持 23:00 夜盘，未知品种、无日期和范围外年份继续阻断。
+- 分钟目录发现遇到无合约标识或标识不可解析的辅助 parquet 时继续扫描有效分区，
+  不再提前隐藏整个品种目录；混合品种分区仍然报错。
+- `requested_dates` 已全部下载或复用时，缺失诊断改为指向二次品种发现，不再误报
+  “供应商没有数据或主力映射为空”。
+- 更新分钟数据自愈说明，并新增三条故障回归和一条年份边界测试。
+
+### 运行
+```bash
+python3 -m cta.strategy.multi_timeframe_trend_backtest.runner \
+  --start 2026-01-01 --end 2026-07-01 --initial-equity 1e+06 \
+  --download-minute-data --top-n 40 --allow-missing-symbols
+```
+
+### 验证
+- 新增故障与边界回归：`4 passed`；元数据构建、目录发现与诊断模块：
+  `151 passed`。
+- 共享 cycle_v1 CLI：`22 passed`。
+- 本地真实分钟根可同时发现 `MA.CZCE`、`OI.CZCE`、`UR.CZCE`；
+  `UR@2025-09-03 -> CN_COMMODITY_DAY`。
+- 完整 `cta/strategy/tests`：`626 passed, 1 failed`，唯一失败为既有的
+  `test_formatting_strips_the_offset_from_string_timestamps`，相关文件未修改。
+- 完整 cycle_v1：`387 passed, 2 failed`；两项既有失败均为
+  `test_mapping_contract_identity_must_match_selected_symbol` 对响应级/合约级错误文案的
+  期望不一致，`market_data_update.py` 与对应测试文件均未修改。
+
+---
+
+## 2026-09-06 (日) · 多周期顺大逆中顺小趋势策略设计
+
+### 任务
+- 重新设计一套大、中、小周期均可配置的双向趋势策略。
+- 默认采用周线与日线顺势共振、15 分钟逆势回调、5 分钟三推楔形恢复、
+  1 分钟实际合约执行。
+
+### 产出
+- 新增 `cta/strategy/docs/idea/多周期顺大逆中顺小趋势策略.md`，不覆盖已有 idea 草稿。
+- 明确周线和日线完整 K 线许可、中周期逆势回调状态机、由两次反弹分隔的三推楔形、
+  双向镜像恢复信号及一形态一候选规则。
+- 补齐周期配置与校验、因果时间字段、结构止损、风险定仓、退出优先级、实际合约成交、
+  元数据边界、拒绝码、审计字段、单测、消融、walk-forward 和实施顺序。
+- 参数仅作为首轮研究种子；正式绩效必须使用完整历史机制和实际合约回放。
+
+### 验证
+- 检查 Markdown 标题结构、配置字段一致性、占位符、因果时间顺序和 Git whitespace。
+
+---
+
+## 2026-09-06 (日) · second_leg_down/leg_5min 日线趋势与成交量开关
+
+### 任务
+- 第二段下跌只允许出现在日线 `EMA5 < EMA10 < EMA20` 的空头趋势中。
+- 为原有放量条件增加开关，默认保持启用，并允许回测时关闭。
+
+### 改动
+- 基于复权后的信号价格聚合已完成日线，计算独立的日线 EMA5/10/20，并以
+  `daily_feature_asof <= signal_time` 向后对齐到 5 分钟候选。
+- 日线空头排列与原有 5 分钟空头排列同时生效；缺少可见日线时不生成候选。
+- 新增 `volume_filter_enabled: bool = True`。设为 `false` 时只跳过放量门槛，
+  成交量基线、比率和审计状态仍然生成。
+- 候选审计字段补充实际日线时间、方向和 EMA 值；运行元数据改为
+  `1d / 5min / 1min`。
+
+### 运行
+```bash
+python3 -m cta.strategy.second_leg_down.backtest.runner \
+  --start 2026-01-01 --end 2026-07-01 \
+  --config-override volume_filter_enabled=false
+```
+
+### 验证
+```bash
+python3 -m pytest -q cta/strategy/second_leg_down/tests
+python3 -m pytest -q cta/strategy/tests cta/strategy/second_leg_down/tests
+python3 -m cta.strategy.second_leg_down.backtest.runner \
+  --symbols AG0.SHFE --start 2026-01-01 --end 2026-07-01 \
+  --initial-equity 1e6 --chart-outcomes none --no-auto-metadata \
+  --meta-root cta/strategy/brooks/cycle_v1/meta_cache/ec32296f4eee186f0d1e97f4f1191afb1a9da6b413e2222e3f8475c077ecd121 \
+  --aggregation-cache-root '' \
+  --config-override volume_filter_enabled=false \
+  --output-root /tmp/second_leg_down_daily_smoke \
+  --run-id ag_2026h1_daily_volume_off
+```
+
+结果：
+- 策略定向测试 `79 passed`。
+- 合并回归 `704 passed, 1 failed`；唯一失败为既有的
+  `test_formatting_strips_the_offset_from_string_timestamps`，不在本次修改范围内。
+- AG 2026H1 离线冒烟状态 `COMPLETE`，输出目录为
+  `/tmp/second_leg_down_daily_smoke/ag_2026h1_daily_volume_off`；2 个候选全部满足
+  `daily_feature_asof <= signal_time` 和日线空头排列。
+- 冒烟仅用于链路验证：2 笔交易，净盈亏 `-4,266.95`，总收益 `-0.4267%`，
+  年化收益 `-0.9168%`，最大回撤 `0.4267%`，Sharpe `-2.0160`，
+  Calmar `-2.1485`，胜率 `0%`，盈亏比无可用值。
+
+---
+
+## 2026-09-05 (六) · 多周期趋势回调策略构想
+
+### 任务
+- 设计一套与现有 `multi_timeframe_trend` 独立的双向趋势回调策略。
+- 采用 `1d/30m/5m/1m` 四层研究架构，形成可直接转为代码与测试的完整规格。
+
+### 产出
+- 新增 `cta/strategy/docs/idea/多周期趋势回调策略.md`。
+- 明确日线方向许可、30 分钟趋势健康状态、5 分钟推动与回调状态机、趋势恢复信号和
+  1 分钟实际合约成交模型。
+- 补齐仓位与组合风险、结构止损、止盈地板、跨休市、换月、拒绝码、审计字段、因果测试、
+  walk-forward、消融和压力测试要求。
+- 所有参数均标记为首轮研究种子，不引用现有策略绩效，也不承诺收益结果。
+
+### 验证
+- 检查 Markdown 标题结构、占位符、未来函数关键词、连续合约成交边界和 Git whitespace。
+
+---
+
+## 2026-09-05 (六) · N-04 止盈地板减仓口径回退
+
+### 任务
+- 部分减仓后，止盈地板继续完全按建仓初始仓位计算，不再按剩余手数比例收紧允许回吐量。
+
+### 改动
+- 保留 `initial_quantity` 作为峰值 R 与价格换算标尺。
+- 删除 `quantity / initial_quantity` 对止盈回吐量的缩放。
+- 更新部分减仓回归测试及策略设计、评审记录。
+
+### 验证
+```bash
+python3 -m pytest -q cta/strategy/tests/test_multi_timeframe_trend_profit_floor.py
+python3 -m pytest -q cta/strategy/tests
+```
+
+结果：止盈地板定向测试 `20 passed`；完整策略测试 `625 passed, 1 failed`。唯一失败为
+既有的 `test_formatting_strips_the_offset_from_string_timestamps`，属于报告时间戳格式化
+契约不一致，与止盈地板计算无关，本次未修改。
+
+---
+
 ## 2026-09-05 (六) · 服务器历史手续费快照部署修复
 
 ### 任务

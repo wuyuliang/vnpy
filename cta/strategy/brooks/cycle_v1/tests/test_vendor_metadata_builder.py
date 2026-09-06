@@ -1863,6 +1863,20 @@ def test_session_template_from_description_resolves_czce_generic_hours_by_produc
     )
 
 
+def test_session_template_from_description_resolves_ur_during_2025_warmup() -> None:
+    description = "上午9:00-11:30 下午1:30-3:00及交易所规定的其他交易时间"
+
+    assert (
+        session_template_from_description(
+            "CZCE",
+            description,
+            root_symbol="UR",
+            effective_on=date(2025, 9, 3),
+        )
+        == "CN_COMMODITY_DAY"
+    )
+
+
 def test_session_template_from_description_blocks_unknown_czce_product() -> None:
     description = "上午9:00-11:30 下午1:30-3:00及交易所规定的其他交易时间"
 
@@ -1883,6 +1897,18 @@ def test_session_template_from_description_blocks_undated_czce_mapping() -> None
             "CZCE",
             description,
             root_symbol="MA",
+        )
+
+
+def test_session_template_from_description_blocks_czce_year_outside_mapping() -> None:
+    description = "上午9:00-11:30 下午1:30-3:00及交易所规定的其他交易时间"
+
+    with pytest.raises(MetadataBuildError, match="UNSUPPORTED_SESSION_TEMPLATE"):
+        session_template_from_description(
+            "CZCE",
+            description,
+            root_symbol="UR",
+            effective_on=date(2024, 12, 31),
         )
 
 

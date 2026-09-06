@@ -1,4 +1,4 @@
-"""Run the one-minute Second Leg Down strategy on actual contracts."""
+"""Run the daily-trend/5-minute Second Leg Down strategy on actual contracts."""
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -34,7 +34,7 @@ def build_parser():
         if action.dest == "config_override":
             action.help = (
                 "Override one SecondLegDownConfig field, repeatable. "
-                "Example: --config-override volume_surge_mult=2.5"
+                "Example: --config-override volume_filter_enabled=false"
             )
     return parser
 
@@ -68,7 +68,8 @@ def run_from_args(args):
         end = shared_runner._parse_date(args.end, "end")
         args.run_id = (
             f"{datetime.now():%Y%m%d_%H%M%S_%f}_"
-            f"{start:%Y%m%d}_{end:%Y%m%d}_1m"
+            f"{start:%Y%m%d}_{end:%Y%m%d}_1d_"
+            f"{config.signal_timeframe_minutes}m_1m"
         )
     return shared_runner.run_from_args(
         args,
@@ -115,8 +116,14 @@ def _prepare_strategy_data(
         config=config,
         aggregation_cache=aggregation_cache,
     )
+    daily_signal = shared_runner._aggregate_trading_day_daily_bars(
+        signal,
+        sessions=loaded.sessions,
+        aggregation_cache=aggregation_cache,
+    )
     candidates = generate_second_leg_down_candidates(
         signal_frame,
+        daily_bars=daily_signal,
         sessions=loaded.sessions,
         instrument=instrument,
         config=config,
@@ -303,7 +310,7 @@ def _build_run_context(**values):
     gate_diagnostics = values["gate_diagnostics"]
     return {
         "strategy": "second_leg_down",
-        "strategy_version": "second-leg-down-1m-v1",
+        "strategy_version": "second-leg-down-daily-trend-v2",
         "requested_start": values["start"].isoformat(),
         "requested_end": values["end"].isoformat(),
         "warmup_start": values["warmup_start"].isoformat(),
@@ -313,7 +320,11 @@ def _build_run_context(**values):
         "requested_symbols": [item.vt_symbol for item in values["selected"]],
         "loaded_symbols": [item.vt_symbol for item in values["loaded_items"]],
         "discovered_symbol_count": len(values["discovered"]),
-        "timeframes": {"direction": "1min", "entry": "1min", "execution": "1min"},
+        "timeframes": {
+            "direction": "1d",
+            "entry": f"{config.signal_timeframe_minutes}min",
+            "execution": "1min",
+        },
         "risk_per_trade": config.max_risk_pct,
         "risk_band": {
             "minimum": config.min_risk_pct,

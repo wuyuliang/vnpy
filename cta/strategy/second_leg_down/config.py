@@ -26,6 +26,9 @@ class SecondLegDownConfig(BaseReplayConfig):
     ema_fast: int = 5
     ema_mid: int = 10
     ema_slow: int = 20
+    daily_ema_fast: int = 5
+    daily_ema_mid: int = 10
+    daily_ema_slow: int = 20
     # 1 分钟上做归一化用 60 根的简单平均：Wilder 衰减把权重压在最近几分钟，
     # 一根暴力 K 线会自己把要衡量它的阈值抬起来。
     atr_period: int = 60
@@ -41,6 +44,7 @@ class SecondLegDownConfig(BaseReplayConfig):
     small_body_atr_mult: float = 0.5
     wick_body_ratio: float = 0.15
     allow_three_bar_pattern: bool = True
+    volume_filter_enabled: bool = True
     volume_surge_mult: float = 2.0
     volume_baseline_bars: int = 60
     volume_baseline_min_samples: int = 15
@@ -63,6 +67,10 @@ class SecondLegDownConfig(BaseReplayConfig):
     def __post_init__(self) -> None:
         if not 0 < self.ema_fast < self.ema_mid < self.ema_slow:
             raise ValueError("EMA periods must satisfy fast < mid < slow")
+        if not 0 < self.daily_ema_fast < self.daily_ema_mid < self.daily_ema_slow:
+            raise ValueError(
+                "daily EMA periods must satisfy fast < mid < slow"
+            )
         positive_ints = (
             self.atr_period,
             self.volume_baseline_bars,
@@ -126,6 +134,8 @@ class SecondLegDownConfig(BaseReplayConfig):
             raise ValueError("stop_mode must be pattern_open, pattern_high, or atr")
         if type(self.allow_three_bar_pattern) is not bool:
             raise ValueError("allow_three_bar_pattern must be bool")
+        if type(self.volume_filter_enabled) is not bool:
+            raise ValueError("volume_filter_enabled must be bool")
         if type(self.require_structure_break) is not bool:
             raise ValueError("require_structure_break must be bool")
         if type(self.profit_floor_enabled) is not bool:

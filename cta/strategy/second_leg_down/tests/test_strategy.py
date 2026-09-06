@@ -55,6 +55,27 @@ def _bars() -> pd.DataFrame:
     return frame
 
 
+def _daily_bars(*, include_future: bool = False) -> pd.DataFrame:
+    end = pd.date_range(
+        end="2026-01-04 15:00",
+        periods=30,
+        freq="D",
+        tz="Asia/Shanghai",
+    )
+    frame = pd.DataFrame(
+        {
+            "bar_end": end,
+            "close": [130.0 - index for index in range(len(end))],
+        }
+    )
+    if include_future:
+        frame.loc[len(frame)] = [
+            pd.Timestamp("2026-01-05 15:00", tz="Asia/Shanghai"),
+            1_000.0,
+        ]
+    return frame
+
+
 def _instrument() -> SecondLegInstrument:
     return SecondLegInstrument(
         symbol="RB",
@@ -87,6 +108,7 @@ def _config(**overrides: object) -> SecondLegDownConfig:
 def test_candidate_contract_and_next_bar_activation() -> None:
     candidates = generate_second_leg_down_candidates(
         _bars(),
+        daily_bars=_daily_bars(),
         sessions=_sessions(),
         instrument=_instrument(),
         config=_config(),
@@ -105,6 +127,11 @@ def test_candidate_contract_and_next_bar_activation() -> None:
     assert candidate["expires_at"] == _bars().loc[29 + ttl - 1, "bar_end"]
     assert candidate["quantity"] > 0
     assert candidate["capital_basis"] == "margin"
+    assert candidate["daily_feature_asof"] == pd.Timestamp(
+        "2026-01-04 15:00", tz="Asia/Shanghai"
+    )
+    assert candidate["daily_direction"] == -1
+    assert candidate["daily_ema5"] < candidate["daily_ema10"] < candidate["daily_ema20"]
 
 
 @pytest.mark.parametrize(
@@ -118,6 +145,7 @@ def test_candidate_contract_and_next_bar_activation() -> None:
 def test_candidate_stop_modes(stop_mode: str, expected: float) -> None:
     candidates = generate_second_leg_down_candidates(
         _bars(),
+        daily_bars=_daily_bars(),
         sessions=_sessions(),
         instrument=_instrument(),
         config=_config(stop_mode=stop_mode, stop_atr_mult=1.5),
@@ -144,6 +172,7 @@ def test_future_mutation_cannot_change_existing_candidate_bytes() -> None:
 
     before = generate_second_leg_down_candidates(
         original,
+        daily_bars=_daily_bars(),
         sessions=_sessions(),
         instrument=_instrument(),
         config=_config(),
@@ -151,6 +180,7 @@ def test_future_mutation_cannot_change_existing_candidate_bytes() -> None:
     )
     after = generate_second_leg_down_candidates(
         changed,
+        daily_bars=_daily_bars(),
         sessions=_sessions(),
         instrument=_instrument(),
         config=_config(),
@@ -176,6 +206,7 @@ def test_adjusted_signal_prices_are_mapped_back_to_actual_contract_prices() -> N
 
     candidates = generate_second_leg_down_candidates(
         bars,
+        daily_bars=_daily_bars(),
         sessions=_sessions(),
         instrument=_instrument(),
         config=_config(),
@@ -187,6 +218,47 @@ def test_adjusted_signal_prices_are_mapped_back_to_actual_contract_prices() -> N
     assert candidate["stop_price"] == pytest.approx(49.0)
     assert candidate["adjustment_scale"] == pytest.approx(2.0)
     assert candidate["adjustment_offset"] == pytest.approx(10.0)
+
+
+def test_future_daily_mutation_cannot_change_existing_candidate_bytes() -> None:
+    bars = _bars()
+
+    before = generate_second_leg_down_candidates(
+        bars,
+        daily_bars=_daily_bars(),
+        sessions=_sessions(),
+        instrument=_instrument(),
+        config=_config(),
+        equity=1_000_000.0,
+    )
+    after = generate_second_leg_down_candidates(
+        bars,
+        daily_bars=_daily_bars(include_future=True),
+        sessions=_sessions(),
+        instrument=_instrument(),
+        config=_config(),
+        equity=1_000_000.0,
+    )
+
+    pdt.assert_frame_equal(before, after, check_exact=True)
+
+
+def test_disabled_volume_filter_records_failed_volume_audit() -> None:
+    bars = _bars()
+    bars.loc[[27, 28], "volume"] = 10.0
+
+    candidates = generate_second_leg_down_candidates(
+        bars,
+        daily_bars=_daily_bars(),
+        sessions=_sessions(),
+        instrument=_instrument(),
+        config=_config(volume_filter_enabled=False),
+        equity=1_000_000.0,
+    )
+
+    candidate = candidates.loc[candidates["signal_time"].eq(bars.loc[28, "bar_end"])].iloc[0]
+    assert candidate["last_volume_ratio"] == pytest.approx(1.0)
+    assert candidate["feature_volume_expanded"] == 0
 
 
 # ---------------------------------------------------------------------------

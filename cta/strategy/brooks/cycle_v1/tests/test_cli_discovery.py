@@ -54,3 +54,28 @@ def test_discovery_normalizes_tushare_zce_suffix_to_czce(tmp_path: Path) -> None
     assert discovered[0].root_symbol == "MA"
     assert discovered[0].exchange == "CZCE"
     assert discovered[0].vt_symbol == "MA0.CZCE"
+
+
+def test_discovery_skips_auxiliary_parquet_without_contract_identity(
+    tmp_path: Path,
+) -> None:
+    auxiliary = tmp_path / "OI" / "0000-metadata.parquet"
+    auxiliary.parent.mkdir(parents=True)
+    pd.DataFrame({"note": ["legacy auxiliary file"]}).to_parquet(
+        auxiliary,
+        index=False,
+    )
+    _write_source(
+        tmp_path / "OI" / "2026-01-05.parquet",
+        "OI605.ZCE",
+        "CZCE",
+    )
+    _write_source(
+        tmp_path / "RB" / "2026-01-05.parquet",
+        "RB2605.SHF",
+        "SHFE",
+    )
+
+    discovered = discover_symbols(tmp_path)
+
+    assert [item.root_symbol for item in discovered] == ["OI", "RB"]

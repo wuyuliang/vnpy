@@ -40,8 +40,10 @@ def build_second_leg_features(
     minute_bars: pd.DataFrame,
     sessions: tuple[Any, ...],
     config: SecondLegDownConfig,
+    *,
+    daily_bars: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Build features available at each completed one-minute bar."""
+    """Build features available at each completed signal bar."""
     required = {"bar_end", "open", "high", "low", "close", "volume"}
     missing = sorted(required.difference(minute_bars.columns))
     if missing:
@@ -84,7 +86,58 @@ def build_second_leg_features(
         .rolling(config.structure_lookback_bars, min_periods=config.structure_lookback_bars)
         .min()
     )
+    if daily_bars is None or daily_bars.empty:
+        frame["daily_feature_asof"] = pd.NaT
+        frame["daily_direction"] = 0
+        frame["daily_ema5"] = math.nan
+        frame["daily_ema10"] = math.nan
+        frame["daily_ema20"] = math.nan
+        return frame
+    frame = _attach_daily_trend(frame, daily_bars, config)
     return frame
+
+
+def _attach_daily_trend(
+    signal: pd.DataFrame,
+    daily_bars: pd.DataFrame,
+    config: SecondLegDownConfig,
+) -> pd.DataFrame:
+    """Attach the most recent completed daily EMA stack to each signal bar."""
+    required = {"bar_end", "close"}
+    missing = sorted(required.difference(daily_bars.columns))
+    if missing:
+        raise ValueError("daily bars are missing: " + ",".join(missing))
+    daily = daily_bars.loc[:, ["bar_end", "close"]].copy()
+    daily = daily.sort_values("bar_end", kind="stable").reset_index(drop=True)
+    daily["bar_end"] = pd.to_datetime(daily["bar_end"], errors="raise")
+    if daily["bar_end"].dt.tz is None:
+        raise ValueError("daily bar_end must be timezone-aware")
+    close = pd.to_numeric(daily["close"], errors="coerce")
+    daily["daily_ema5"] = ema(close, config.daily_ema_fast)
+    daily["daily_ema10"] = ema(close, config.daily_ema_mid)
+    daily["daily_ema20"] = ema(close, config.daily_ema_slow)
+    bearish = (
+        (daily["daily_ema5"] < daily["daily_ema10"])
+        & (daily["daily_ema10"] < daily["daily_ema20"])
+    )
+    bullish = (
+        (daily["daily_ema5"] > daily["daily_ema10"])
+        & (daily["daily_ema10"] > daily["daily_ema20"])
+    )
+    daily["daily_direction"] = 0
+    daily.loc[bearish, "daily_direction"] = -1
+    daily.loc[bullish, "daily_direction"] = 1
+    daily = daily.rename(columns={"bar_end": "daily_feature_asof"}).drop(
+        columns="close"
+    )
+    return pd.merge_asof(
+        signal.sort_values("bar_end", kind="stable"),
+        daily.sort_values("daily_feature_asof", kind="stable"),
+        left_on="bar_end",
+        right_on="daily_feature_asof",
+        direction="backward",
+        allow_exact_matches=True,
+    )
 
 
 def _body_strength_ok(
@@ -143,20 +196,27 @@ def _common_pattern_rules(
     first = frame.iloc[first_index]
     last = frame.iloc[last_index]
     if not bearish_ema_alignment(
+        float(last.get("daily_ema5", math.nan)),
+        float(last.get("daily_ema10", math.nan)),
+        float(last.get("daily_ema20", math.nan)),
+    ):
+        return False
+    if not bearish_ema_alignment(
         float(last["ema_fast"]), float(last["ema_mid"]), float(last["ema_slow"])
     ):
         return False
     if not _body_strength_ok(first, last, config):
         return False
-    for row in (first, last):
-        if not is_volume_surge(
-            float(row["volume"]),
-            float(row["volume_baseline"]),
-            int(row["volume_baseline_samples"]),
-            config.volume_surge_mult,
-            config.volume_baseline_min_samples,
-        ):
-            return False
+    if config.volume_filter_enabled:
+        for row in (first, last):
+            if not is_volume_surge(
+                float(row["volume"]),
+                float(row["volume_baseline"]),
+                int(row["volume_baseline_samples"]),
+                config.volume_surge_mult,
+                config.volume_baseline_min_samples,
+            ):
+                return False
     if not has_small_upper_wick(
         float(first["open"]),
         float(first["high"]),

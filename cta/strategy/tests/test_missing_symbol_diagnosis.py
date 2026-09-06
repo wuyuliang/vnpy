@@ -32,6 +32,22 @@ def test_diagnosis_reports_per_symbol_counters() -> None:
     assert "主力合约映射" in text
 
 
+def test_diagnosis_reports_reused_files_when_discovery_still_misses_symbol() -> None:
+    text = _missing_symbol_diagnosis(
+        ["OI.CZCE"],
+        _summary(
+            requested_dates={"OI": 117},
+            downloaded={"OI": 0},
+            skipped={"OI": 117},
+            empty={"OI": 0},
+        ),
+    )
+
+    assert "117 个本地分钟文件" in text
+    assert "品种发现" in text
+    assert "供应商在该区间内对这个品种就没有数据" not in text
+
+
 def test_diagnosis_surfaces_the_download_error_reason() -> None:
     text = _missing_symbol_diagnosis(
         ["MA.CZCE"],

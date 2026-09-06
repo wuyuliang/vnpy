@@ -17,7 +17,14 @@ def test_second_leg_config_inherits_replay_defaults_and_overrides_exits() -> Non
     assert config.profit_floor_giveback_r == 0.5
     assert config.profit_floor_giveback_pct == 0.0
     assert config.no_progress_bars == 5
+    assert config.volume_filter_enabled is True
+    assert (config.daily_ema_fast, config.daily_ema_mid, config.daily_ema_slow) == (
+        5,
+        10,
+        20,
+    )
     assert {field.name for field in fields(config)} >= {
+        "daily_ema_fast",
         "ema_fast",
         "min_risk_pct",
         "max_capital_share",
@@ -32,6 +39,8 @@ def test_second_leg_config_inherits_replay_defaults_and_overrides_exits() -> Non
         ({"min_risk_pct": 0.006}, "risk percentages"),
         ({"stop_mode": "close"}, "stop_mode"),
         ({"volume_baseline_min_samples": 61}, "minimum samples"),
+        ({"daily_ema_fast": 10, "daily_ema_mid": 5}, "daily EMA periods"),
+        ({"volume_filter_enabled": 1}, "volume_filter_enabled"),
         ({"profit_floor_giveback_pct": 1.0}, "profit_floor_giveback_pct"),
     ],
 )

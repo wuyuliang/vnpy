@@ -14,7 +14,7 @@ skipped / empty` 计数和**每一条**下载错误都写进了 summary，但抛
 
 OI/MA 本地是有数据的（`cta/data/origin/minute/OI` 直到 2026-07-27，合约
 `OI2609.ZCE`，交易所字段 `CZCE`），别名解析、目录命名都没问题——所以这是
-**服务器侧那次下载**的问题，只能靠把 summary 打出来定位。
+**服务器侧下载或下载后二次目录发现**的问题，只能靠把 summary 打出来定位。
 
 ## 2. 已修：报错自带诊断
 
@@ -31,8 +31,10 @@ missing selected minute data after download: OI.CZCE,MA.CZCE
 ```
 
 `requested_dates=0` 一律指向映射层（供应商没给主力合约），非 0 而
-`empty=N` 则指向分钟接口本身。一条错误都没有时会明说"供应商在该区间对这个
-品种就没有数据，或者主力合约映射为空"，而不是留白。
+`empty=N` 则指向分钟接口本身。一条错误都没有且本地可用文件数不足时会明说
+"供应商在该区间对这个品种没有数据，或者主力合约映射为空"；若
+`downloaded + skipped + converted_schema == requested_dates`，则明确指向下载后的
+目录发现，不再把已存在的本地文件误报为供应商空数据。
 
 ## 3. 已修：主力映射逐行降级，不再一行毁一个品种
 
@@ -230,11 +232,49 @@ git add -f cta/data/origin/day/
 --turnover-meta-cache-root cta/strategy/brooks/scalp/meta
 ```
 
-## 12. 测试
+## 12. 第四轮：`UR` 预热期时段与 OI/MA 二次发现
+
+服务器进一步给出的计数是：
+
+```text
+OI.CZCE: requested_dates=117 downloaded=0 skipped=117 empty=0
+MA.CZCE: requested_dates=117 downloaded=0 skipped=117 empty=0
+```
+
+`skipped=117` 的含义不是供应商跳过下载，而是 117 个目标 parquet 已存在，且每个
+文件都通过了主力映射合约一致性检查和 SHA-256 读取。因此缺失发生在
+`prepare_minute_data()` 完成后的 `discover_symbols()` 二次发现阶段。
+
+### 已修 (a)：辅助 parquet 不再遮蔽整个品种目录
+
+`discover_symbols()` 原来按文件名读取目录中的第一个非空 parquet；只要这个文件是
+历史辅助文件、没有 `contract_code/ts_code`，函数就立即返回 `None`，后面的有效交易日
+分区不会再检查。现在无标识或无可解析标识的文件只会被跳过，继续扫描到第一个有效
+分钟分区；真正包含多个可解析品种的分区仍然硬失败。
+
+### 已修 (b)：CZCE 通用描述覆盖 2025 预热期
+
+郑商所返回的文字 `上午9:00-11:30 下午1:30-3:00及交易所规定的其他交易时间`
+必须结合品种才能区分日盘和夜盘。已有品种表只允许 `effective_on.year == 2026`，
+所以 2026-01-01 回测向前预热到 `2025-09-03` 时，日盘 `UR` 也会被误拒。
+
+现在同一份明确的品种级映射覆盖 2025–2026：`UR` 解析为
+`CN_COMMODITY_DAY`，`MA/OI` 等解析为 `CN_COMMODITY_NIGHT_2300`。这不是把所有
+缺口套入通用夜盘默认值；未知品种、无日期以及 2024 等映射范围外日期仍然返回
+`UNSUPPORTED_SESSION_TEMPLATE`。
+
+### 已修 (c)：全量复用状态的诊断不再误导
+
+当 `requested_dates` 全部由 `downloaded/skipped/converted_schema` 覆盖、且
+`empty=0` 时，诊断现在说明“本地分钟文件已下载或复用，但品种发现仍未识别目录”，
+并提示检查辅助 parquet 或合约标识，不再声称供应商没有数据。
+
+## 13. 测试
 
 `cta/strategy/tests/test_missing_symbol_diagnosis.py`（23 例）：诊断文本的
 逐品种计数/原因归并/跨品种隔离、成交额表新鲜与过期两条路径、重建失败回退、
 映射逐行降级的四种情形、响应级交易所不符仍然硬失败、重建体检的四条判据、被拒的重建不覆盖磁盘、预检的缺文件/可执行修复/两条降级警告/扁平元数据布局。
 `test_universe_and_metadata_window.py` 里两条"表坏了要抛错"改成"退回 --top-n 并留痕"。
 
-全量：545 passed。
+第四轮新增覆盖：2025-09-03 的 UR 日盘映射、声明范围外年份继续阻断、辅助 parquet
+之后仍能发现 OI，以及 117 个本地文件全量复用时的诊断分支。

@@ -50,7 +50,7 @@ def _refresh_profit_floor(
     """按当前峰值浮盈重算止盈地板，供**下一根** K 线使用。
 
     地板只上抬不下移：峰值本身单调不减，所以地板天然单调，但显式取 max 以防
-    合约乘数或手数在减仓后变化时地板意外回落。
+    合约乘数变化时地板意外回落。
     """
     if not config.profit_floor_enabled:
         return
@@ -61,8 +61,6 @@ def _refresh_profit_floor(
         float(config.profit_floor_giveback_r),
         float(config.profit_floor_giveback_pct) * peak_r,
     )
-    remaining_fraction = float(position.quantity) / float(position.initial_quantity)
-    giveback *= remaining_fraction
     floor_r = max(0.0, peak_r - giveback)
     price = _price_for_unrealized_r(position, floor_r)
     if not np.isfinite(price):

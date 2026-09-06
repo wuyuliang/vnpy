@@ -592,12 +592,9 @@ profit_floor_giveback_pct: float = 0.25      # 回吐上限的比例部分
 profit_floor_extra_slippage_ticks: int = 1   # 在既有滑点模型之上再加一档
 ```
 
-`remaining_fraction = remaining_quantity / initial_quantity`
+`floor_R = max(0, peak_R − max(giveback_r, giveback_pct × peak_R))`
 
-`floor_R = max(0, peak_R − max(giveback_r, giveback_pct × peak_R) × remaining_fraction)`
-
-峰值和价格仍以建仓初始手数定义 R；部分减仓只按剩余手数比例收紧允许回吐量。
-例如减至半仓后，默认 1R 回吐缩为 0.5R。
+峰值、价格与允许回吐量均以建仓初始手数定义；部分减仓不改变后续止盈地板。
 
 ### 13.2 三处按要求落实的细节
 
