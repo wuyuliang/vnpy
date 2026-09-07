@@ -152,7 +152,7 @@ _JIN10_VENDOR_COLUMNS = (
     "平今",
 )
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
-BUILDER_SCHEMA_VERSION = 72
+BUILDER_SCHEMA_VERSION = 73
 _COVERAGE_COLUMNS = {
     "exchange_calendar.csv": "exchange_trade_date",
     "contract_specs.csv": "last_trade_date",
@@ -857,6 +857,102 @@ def _dce_historical_fee_vendor_row(
         "_historical_fee_mirror": True,
         "_historical_fee_source_reference": source_reference,
         "_historical_fee_snapshot_path": str(snapshot.source_path),
+    }
+
+
+def _dce_missing_visible_runtime_vendor_row(
+    *,
+    pair: ContractDate,
+    prior_open: date,
+    session_open: datetime,
+    prior_settlement_row: Mapping[str, object],
+    current_trade_rule_row: Mapping[str, object] | None,
+    price_tick: float,
+    late_vendor_row: Mapping[str, object] | None,
+    source_client: MetadataSourceClient,
+    vendor_sources: dict[date, pd.DataFrame],
+    failure: MetadataBuildError,
+) -> dict[str, object] | None:
+    if (
+        _EXCHANGE_ALIASES.get(pair.exchange.upper(), pair.exchange.upper())
+        != "DCE"
+        or current_trade_rule_row is None
+    ):
+        return None
+    runtime_source_date = prior_open
+    runtime_row = late_vendor_row
+    if runtime_row is None:
+        runtime_source_date = pair.trade_date
+        runtime_frame = vendor_sources.get(runtime_source_date)
+        if runtime_frame is None:
+            runtime_frame = source_client.fetch_vendor_parameters(
+                runtime_source_date
+            )
+            vendor_sources[runtime_source_date] = runtime_frame
+        try:
+            runtime_row = _exact_contract_row(
+                pair.contract_code,
+                runtime_frame,
+                code_column="合约代码",
+            )
+        except MetadataBuildError as exc:
+            if exc.code == "MISSING_CONTRACT":
+                return None
+            raise
+    _require_source_identity(
+        pair.contract_code,
+        runtime_source_date,
+        runtime_row,
+        code_key="合约代码",
+        date_key="日期",
+        source="JIN10_RUNTIME_DEFAULT_PARAMETERS",
+    )
+    prior_settlement = _positive_float(
+        prior_settlement_row.get("settle"),
+        "PRIOR_SETTLEMENT",
+    )
+    limit_rate = _trade_rule_limit_rate(
+        current_trade_rule_row,
+        local_contract=pair.contract_code,
+        root_symbol=pair.root_symbol,
+        exchange=pair.exchange,
+        effective_on=pair.trade_date,
+        price_tick=price_tick,
+    )
+    amplitude = _floor_tick(prior_settlement * limit_rate, price_tick)
+    margin_long = _rate_float(
+        prior_settlement_row.get("long_margin_rate"),
+        "LONG_MARGIN",
+    )
+    margin_short = _rate_float(
+        prior_settlement_row.get("short_margin_rate"),
+        "SHORT_MARGIN",
+    )
+    assumed_known_at = datetime.combine(
+        prior_open,
+        time(15, 30),
+        tzinfo=session_open.tzinfo,
+    ).isoformat()
+    return {
+        "日期": f"{prior_open:%Y%m%d}",
+        "合约品种": pair.root_symbol,
+        "合约代码": pair.contract_code.split(".", maxsplit=1)[0],
+        "手续费公布时间": assumed_known_at,
+        "价格公布时间": assumed_known_at,
+        "现价": prior_settlement,
+        "涨停板": prior_settlement + amplitude,
+        "跌停板": prior_settlement - amplitude,
+        "保证金/买开": f"{margin_long * 100:g}%",
+        "保证金/卖开": f"{margin_short * 100:g}%",
+        "开仓": runtime_row.get("开仓"),
+        "平昨": runtime_row.get("平昨"),
+        "平今": runtime_row.get("平今"),
+        "_assumed_runtime_default_reason": str(failure),
+        "_assumed_runtime_default_field": "vendor_parameters",
+        "_runtime_default_source_reference": (
+            f"jin10:futures_comm:{runtime_source_date:%Y%m%d}:"
+            f"assumed_runtime_default:{pair.contract_code}"
+        ),
     }
 
 
@@ -2043,12 +2139,55 @@ def build_extension_frames(
                     )
                     shfe_official_vendor_validation = True
                     break
-                vendor_source_date = _prior_vendor_source_date(
-                    calendar,
-                    vendor_source_date,
-                    pair.contract_code,
-                    session_open,
-                )
+                try:
+                    vendor_source_date = _prior_vendor_source_date(
+                        calendar,
+                        vendor_source_date,
+                        pair.contract_code,
+                        session_open,
+                    )
+                except MetadataBuildError as history_exc:
+                    runtime_default = None
+                    if (
+                        allow_runtime_defaults
+                        and history_exc.code
+                        == "MISSING_VISIBLE_VENDOR_PARAMETERS"
+                        and (pair.contract_code, pair.trade_date)
+                        not in roll_entry_pairs
+                    ):
+                        runtime_default = (
+                            _dce_missing_visible_runtime_vendor_row(
+                                pair=pair,
+                                prior_open=prior_open,
+                                session_open=session_open,
+                                prior_settlement_row=prior_row,
+                                current_trade_rule_row=(
+                                    preloaded_trade_rule_row
+                                ),
+                                price_tick=price_tick,
+                                late_vendor_row=(
+                                    late_vendor_validation_row
+                                ),
+                                source_client=source_client,
+                                vendor_sources=vendor_sources,
+                                failure=history_exc,
+                            )
+                        )
+                    if runtime_default is None:
+                        raise
+                    vendor_row = runtime_default
+                    vendor_source_date = prior_open
+                    price_known_at = _published_at(
+                        vendor_row.get("价格公布时间"),
+                        vendor_source_date,
+                        "PRICE_PUBLISHED_AT",
+                    )
+                    fee_known_at = _published_at(
+                        vendor_row.get("手续费公布时间"),
+                        vendor_source_date,
+                        "FEE_PUBLISHED_AT",
+                    )
+                    break
                 continue
             price_known_at = _published_at(
                 vendor_row.get("价格公布时间"),
@@ -2333,12 +2472,49 @@ def build_extension_frames(
                 break
             if vendor_source_date == prior_open:
                 late_vendor_validation_row = vendor_row
-            vendor_source_date = _prior_vendor_source_date(
-                calendar,
-                vendor_source_date,
-                pair.contract_code,
-                session_open,
-            )
+            try:
+                vendor_source_date = _prior_vendor_source_date(
+                    calendar,
+                    vendor_source_date,
+                    pair.contract_code,
+                    session_open,
+                )
+            except MetadataBuildError as history_exc:
+                runtime_default = None
+                if (
+                    allow_runtime_defaults
+                    and history_exc.code
+                    == "MISSING_VISIBLE_VENDOR_PARAMETERS"
+                    and (pair.contract_code, pair.trade_date)
+                    not in roll_entry_pairs
+                ):
+                    runtime_default = _dce_missing_visible_runtime_vendor_row(
+                        pair=pair,
+                        prior_open=prior_open,
+                        session_open=session_open,
+                        prior_settlement_row=prior_row,
+                        current_trade_rule_row=preloaded_trade_rule_row,
+                        price_tick=price_tick,
+                        late_vendor_row=late_vendor_validation_row,
+                        source_client=source_client,
+                        vendor_sources=vendor_sources,
+                        failure=history_exc,
+                    )
+                if runtime_default is None:
+                    raise
+                vendor_row = runtime_default
+                vendor_source_date = prior_open
+                price_known_at = _published_at(
+                    vendor_row.get("价格公布时间"),
+                    vendor_source_date,
+                    "PRICE_PUBLISHED_AT",
+                )
+                fee_known_at = _published_at(
+                    vendor_row.get("手续费公布时间"),
+                    vendor_source_date,
+                    "FEE_PUBLISHED_AT",
+                )
+                break
         prior_trade_rule_row: dict[str, object] | None = None
         current_trade_rule_row = (
             official_vendor_rule_row or preloaded_trade_rule_row
@@ -2612,7 +2788,12 @@ def build_extension_frames(
                     "root_symbol": pair.root_symbol,
                     "contract_code": pair.contract_code,
                     "exchange_trade_date": pair.trade_date.isoformat(),
-                    "field": "roll_fee_reference",
+                    "field": str(
+                        vendor_row.get(
+                            "_assumed_runtime_default_field",
+                            "roll_fee_reference",
+                        )
+                    ),
                     "reason_code": str(assumption_reason).split(":", 1)[0],
                     "fallback": "CURRENT_CONTRACT_RUNTIME_PARAMETERS",
                 }
@@ -4378,6 +4559,10 @@ def _finish_daily_reconciliation(
     assumed_runtime_default = vendor_row.get(
         "_assumed_runtime_default_reason"
     )
+    uses_vendor_runtime_default = (
+        vendor_row.get("_assumed_runtime_default_field")
+        == "vendor_parameters"
+    )
     uses_czce_official_vendor = vendor_row.get("_czce_official_vendor") is True
     _require_source_identity(
         local_contract,
@@ -4457,6 +4642,8 @@ def _finish_daily_reconciliation(
         source_family = "TUSHARE_GTJA"
     elif uses_target_close_roll_fee:
         source_family = "TUSHARE_JIN10_GTJA"
+    elif uses_vendor_runtime_default:
+        source_family = "TUSHARE_JIN10_GTJA"
     elif uses_daily_quote:
         source_family = "TUSHARE_FUT_DAILY_JIN10"
     else:
@@ -4488,7 +4675,15 @@ def _finish_daily_reconciliation(
                         )
                     )
                     if uses_target_close_roll_fee
-                    else f"jin10:futures_comm:{vendor_source_date:%Y%m%d}"
+                    else (
+                        str(
+                            vendor_row.get(
+                                "_runtime_default_source_reference"
+                            )
+                        )
+                        if uses_vendor_runtime_default
+                        else f"jin10:futures_comm:{vendor_source_date:%Y%m%d}"
+                    )
                 )
             )
         )
@@ -4497,6 +4692,12 @@ def _finish_daily_reconciliation(
         f"{current_source_reference}|{prior_source_reference}|"
         f"{vendor_source_reference}"
     )
+    if uses_vendor_runtime_default:
+        source += "_ASSUMED_RUNTIME_DEFAULT"
+        source_reference += (
+            f"|assumption:current_contract_runtime_parameters:"
+            f"{local_contract}"
+        )
     settlements_match = abs(prior_settlement - vendor_settlement) <= (
         price_tick / 2.0 + 1e-12
     )

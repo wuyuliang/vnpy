@@ -523,13 +523,19 @@ def run_from_args(
             }
         )
     for token in minute_update.get("missing_symbols", ()) or ():
+        scoped_diagnoses = (
+            minute_update.get("missing_symbol_diagnoses", {}) or {}
+        )
         gap_rows.append(
             {
                 "root_symbol": str(token).split(".")[0],
                 "field": "minute_data",
                 "reason_code": "MISSING_MINUTE_DATA_AFTER_DOWNLOAD",
                 "reason": str(
-                    minute_update.get("missing_symbol_diagnosis", "")
+                    scoped_diagnoses.get(
+                        str(token),
+                        minute_update.get("missing_symbol_diagnosis", ""),
+                    )
                 ).strip()[:900],
             }
         )

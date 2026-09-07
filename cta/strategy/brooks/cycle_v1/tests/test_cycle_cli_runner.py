@@ -334,6 +334,73 @@ def test_integrated_download_precedes_discovery_and_sets_backtest_union(
     assert audit["downloaded"] == {"LC": 1, "RB": 1}
 
 
+def test_integrated_download_recovers_symbol_from_audited_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    oi_directory = tmp_path / "OI"
+    oi_directory.mkdir()
+    oi_file = oi_directory / "20260105.parquet"
+    oi_file.touch()
+    monkeypatch.setattr(
+        runner_module,
+        "prepare_minute_data",
+        lambda **_kwargs: {
+            "selection": {
+                "explicit": ["LC", "OI"],
+                "selected": [
+                    {"root_symbol": "LC", "exchange": "GFEX"},
+                    {"root_symbol": "OI", "exchange": "CZCE"},
+                ],
+            },
+            "selection_rejections": [],
+            "download_errors": [],
+            "files": [
+                {
+                    "status": "skipped",
+                    "root_symbol": "OI",
+                    "contract_code": "OI601.ZCE",
+                    "mapping_exchange": "ZCE",
+                    "path": str(oi_file),
+                    "sha256": "audited",
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        runner_module,
+        "discover_symbols",
+        lambda _data_root: (
+            DiscoveredSymbol("LC", "GFEX", "LC0.GFEX", tmp_path / "LC"),
+        ),
+    )
+    args = build_parser().parse_args(
+        [
+            "--start",
+            "2026-01-05",
+            "--end",
+            "2026-01-06",
+            "--symbols",
+            "LC",
+            "OI",
+            "--download-minute-data",
+            "--data-root",
+            str(tmp_path),
+        ]
+    )
+
+    discovered, selected, audit = prepare_backtest_symbols(
+        args,
+        start=date(2026, 1, 5),
+        end=date(2026, 1, 6),
+    )
+
+    assert [item.root_symbol for item in discovered] == ["LC", "OI"]
+    assert [item.root_symbol for item in selected] == ["LC", "OI"]
+    assert selected[1].source_directory == oi_directory.resolve()
+    assert audit["symbols_recovered_from_file_audit"] == ["OI.CZCE"]
+
+
 def test_integrated_download_rejects_missing_selected_root(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -379,6 +446,69 @@ def test_integrated_download_rejects_missing_selected_root(
             start=pd.Timestamp("2026-01-05").date(),
             end=pd.Timestamp("2026-01-06").date(),
         )
+
+
+def test_allow_missing_symbols_records_scoped_diagnoses(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        runner_module,
+        "prepare_minute_data",
+        lambda **_kwargs: {
+            "selection": {
+                "explicit": ["LC", "OI", "MA"],
+                "selected": [
+                    {"root_symbol": "LC", "exchange": "GFEX"},
+                    {"root_symbol": "OI", "exchange": "CZCE"},
+                    {"root_symbol": "MA", "exchange": "CZCE"},
+                ],
+            },
+            "selection_rejections": [],
+            "download_errors": [],
+            "requested_dates": {"OI": 117, "MA": 117},
+            "downloaded": {"OI": 0, "MA": 0},
+            "skipped": {"OI": 117, "MA": 117},
+            "empty": {"OI": 0, "MA": 0},
+            "files": [],
+        },
+    )
+    monkeypatch.setattr(
+        runner_module,
+        "discover_symbols",
+        lambda _data_root: (
+            DiscoveredSymbol("LC", "GFEX", "LC0.GFEX", tmp_path / "LC"),
+        ),
+    )
+    args = build_parser().parse_args(
+        [
+            "--start",
+            "2026-01-05",
+            "--end",
+            "2026-01-06",
+            "--symbols",
+            "LC",
+            "OI",
+            "MA",
+            "--download-minute-data",
+            "--data-root",
+            str(tmp_path),
+        ]
+    )
+    args.allow_missing_symbols = True
+
+    _, selected, audit = prepare_backtest_symbols(
+        args,
+        start=date(2026, 1, 5),
+        end=date(2026, 1, 6),
+    )
+
+    assert [item.root_symbol for item in selected] == ["LC"]
+    diagnoses = audit["missing_symbol_diagnoses"]
+    assert "OI.CZCE" in diagnoses["OI.CZCE"]
+    assert "MA.CZCE" not in diagnoses["OI.CZCE"]
+    assert "MA.CZCE" in diagnoses["MA.CZCE"]
+    assert "OI.CZCE" not in diagnoses["MA.CZCE"]
 
 
 def test_integrated_download_rejects_dropped_explicit_symbol(

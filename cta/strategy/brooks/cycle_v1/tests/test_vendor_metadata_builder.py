@@ -4103,6 +4103,76 @@ def test_dce_roll_runtime_default_is_opt_in_and_audited() -> None:
     )
 
 
+@pytest.mark.parametrize("prior_snapshot_has_contract", [True, False])
+def test_dce_non_roll_visible_parameter_gap_uses_audited_runtime_default(
+    prior_snapshot_has_contract: bool,
+) -> None:
+    class LateParameterClient(_ExactMarginRuleClient):
+        def fetch_vendor_parameters(self, source_date: date) -> pd.DataFrame:
+            if source_date == date(2026, 7, 23):
+                self.calls += 1
+                return pd.DataFrame(columns=pd.DataFrame([_vendor_row()]).columns)
+            if source_date == date(2026, 7, 27):
+                self.calls += 1
+                row = _vendor_row()
+                row["日期"] = "20260727"
+                row["手续费公布时间"] = "2026-07-27 16:00:00"
+                row["价格公布时间"] = "2026-07-27 16:00:00"
+                return pd.DataFrame([row])
+            frame = super().fetch_vendor_parameters(source_date)
+            if not prior_snapshot_has_contract:
+                return frame.iloc[0:0]
+            frame.loc[:, "手续费公布时间"] = "2026-07-24 22:00:00"
+            frame.loc[:, "价格公布时间"] = "2026-07-24 22:00:00"
+            return frame
+
+    kwargs = {
+        "pairs": (
+            ContractDate("I", "DCE", "I2609.DCE", date(2026, 7, 27)),
+        ),
+        "base_frames": {
+            filename: pd.DataFrame()
+            for filename in (
+                "exchange_calendar.csv",
+                "contract_specs.csv",
+                "contract_daily.csv",
+                "fee_margin_schedule.csv",
+            )
+        },
+        "start": date(2026, 7, 27),
+        "end": date(2026, 7, 27),
+    }
+
+    with pytest.raises(
+        MetadataBuildError,
+        match="MISSING_VISIBLE_VENDOR_PARAMETERS",
+    ):
+        build_extension_frames(
+            **kwargs,
+            source_client=LateParameterClient(),
+        )
+
+    result = build_extension_frames(
+        **kwargs,
+        source_client=LateParameterClient(),
+        allow_runtime_defaults=True,
+    )
+
+    fee = result.frames["fee_margin_schedule.csv"].iloc[0]
+    assert fee["open_fee_rate"] == pytest.approx(0.0001)
+    assert "ASSUMED_RUNTIME_DEFAULT" in fee["source"]
+    assert result.assumptions == (
+        {
+            "root_symbol": "I",
+            "contract_code": "I2609.DCE",
+            "exchange_trade_date": "2026-07-27",
+            "field": "vendor_parameters",
+            "reason_code": "MISSING_VISIBLE_VENDOR_PARAMETERS",
+            "fallback": "CURRENT_CONTRACT_RUNTIME_PARAMETERS",
+        },
+    )
+
+
 def test_dce_post_roll_night_uses_visible_old_contract_fee_reference() -> None:
     class LateNewContractFeeClient(_DceTargetCloseRollClient):
         def fetch_contracts(self, exchange: str) -> pd.DataFrame:

@@ -3467,6 +3467,86 @@ def test_trend_runner_downloads_exact_requested_interval(monkeypatch) -> None:
     }
 
 
+def test_trend_runner_reports_each_missing_minute_symbol_separately(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_gaps: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        trend_runner,
+        "prepare_backtest_symbols",
+        lambda *_args, **_kwargs: (
+            (),
+            (),
+            {
+                "enabled": True,
+                "missing_symbols": ["OI.CZCE", "MA.CZCE"],
+                "missing_symbol_diagnosis": "combined diagnosis",
+                "missing_symbol_diagnoses": {
+                    "OI.CZCE": "OI.CZCE: requested_dates=117 skipped=117",
+                    "MA.CZCE": "MA.CZCE: requested_dates=117 skipped=117",
+                },
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        trend_runner,
+        "prepare_backtest_metadata",
+        lambda *_args, **_kwargs: (
+            object(),
+            {"enabled": False},
+            {
+                "root_symbol": "ALL",
+                "field": "test",
+                "reason_code": "BLOCKED_METADATA",
+                "reason": "empty test universe",
+            },
+        ),
+    )
+
+    def capture_report(
+        path: Path,
+        *,
+        metadata_gaps: list[dict[str, object]],
+        context: dict[str, object],
+        **_kwargs: object,
+    ) -> tuple[dict[str, object], Path]:
+        path.mkdir(parents=True)
+        captured_gaps.extend(metadata_gaps)
+        return dict(context), path
+
+    monkeypatch.setattr(trend_runner, "publish_backtest_report", capture_report)
+    monkeypatch.setattr(
+        trend_runner,
+        "render_opportunity_charts",
+        lambda *_args, **_kwargs: pd.DataFrame(),
+    )
+    args = build_parser().parse_args(
+        [
+            "--start",
+            "2026-01-01",
+            "--end",
+            "2026-01-02",
+            "--output-root",
+            str(tmp_path),
+            "--run-id",
+            "scoped_minute_gaps",
+        ]
+    )
+
+    trend_runner.run_from_args(args)
+
+    minute_gaps = {
+        str(row["root_symbol"]): str(row["reason"])
+        for row in captured_gaps
+        if row["reason_code"] == "MISSING_MINUTE_DATA_AFTER_DOWNLOAD"
+    }
+    assert minute_gaps == {
+        "OI": "OI.CZCE: requested_dates=117 skipped=117",
+        "MA": "MA.CZCE: requested_dates=117 skipped=117",
+    }
+
+
 def test_trend_runner_reports_candidate_blacklist_context(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

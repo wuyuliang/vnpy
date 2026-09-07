@@ -12,6 +12,43 @@
 
 ---
 
+## 2026-09-07 (一) · feature · 服务器元数据与分钟品种二次缺口修复
+
+### 任务
+- 修复 `A2601.DCE` 在夜盘前没有可见供应商参数时，即使回测已启用运行时默认值仍被阻断。
+- 修复 OI/MA 的分钟文件已通过下载器逐文件校验，却在下载后二次目录发现中再次丢失的问题。
+- 修复 OI 与 MA 的 `metadata_gaps.csv` 原因互相重复。
+
+### 改动
+- 非换月 DCE 合约仅在 `allow_runtime_defaults=True` 时允许合成运行时参数：费率取可取得的
+  当前合约参数，结算价和保证金取上一交易日结算，涨跌停取当前交易规则；严格模式继续抛出
+  `MISSING_VISIBLE_VENDOR_PARAMETERS`。
+- 合成参数写入 `assumptions`，字段为 `vendor_parameters`，来源标记包含
+  `ASSUMED_RUNTIME_DEFAULT`；`BUILDER_SCHEMA_VERSION` 从 72 升至 73，避免复用旧缓存。
+- 下载后优先使用本轮下载审计中已校验的 parquet 路径恢复/纠正所选品种，不再依赖目录首个
+  可解析文件重新猜身份；路径必须位于 `data_root` 内，且状态、合约、交易所和哈希字段有效。
+- 为每个缺失品种分别生成诊断，报告中的 OI 行只写 OI，MA 行只写 MA。
+
+### 运行
+```bash
+python3 -m cta.strategy.multi_timeframe_trend_backtest.runner \
+  --start 2026-01-01 --end 2026-07-01 --initial-equity 1e+06 \
+  --download-minute-data --top-n 40 --allow-missing-symbols
+```
+
+输出仍位于 `cta/strategy/report/multi_timeframe_trend/<run_id>/`；运行时默认值会记录到
+报告的 assumed mechanics，未被静默当作官方历史参数。
+
+### 验证
+- 新增回归：`5 passed`，覆盖晚到/完全缺失的 DCE 参数快照、下载审计恢复和逐品种缺口。
+- 受影响三个测试模块：`260 passed`。
+- `cta/strategy/tests`：`627 passed, 1 failed`；唯一失败仍为既有
+  `test_formatting_strips_the_offset_from_string_timestamps`。
+- `cycle_v1/tests`：`391 passed, 2 failed`；两项仍为既有
+  `test_mapping_contract_identity_must_match_selected_symbol` 错误文案顺序断言。
+
+---
+
 ## 2026-09-07 (一) · multi_timeframe_trend 服务器元数据缺口修复
 
 ### 任务

@@ -290,6 +290,42 @@ def prepare_backtest_symbols(
     by_identity = {
         (item.root_symbol, item.exchange): item for item in discovered
     }
+    audited_replacements: dict[tuple[str, str], DiscoveredSymbol] = {}
+    for row in selected_rows:
+        identity = (str(row["root_symbol"]), str(row["exchange"]))
+        audited = _audited_download_symbol(
+            identity,
+            download_summary,
+            data_root=args.data_root,
+        )
+        current = by_identity.get(identity)
+        if audited is None or (
+            current is not None
+            and current.source_directory.resolve()
+            == audited.source_directory
+        ):
+            continue
+        audited_replacements[identity] = audited
+        by_identity[identity] = audited
+    if audited_replacements:
+        discovered_identities = {
+            (item.root_symbol, item.exchange) for item in discovered
+        }
+        discovered = tuple(
+            audited_replacements.get(
+                (item.root_symbol, item.exchange),
+                item,
+            )
+            for item in discovered
+        ) + tuple(
+            item
+            for identity, item in audited_replacements.items()
+            if identity not in discovered_identities
+        )
+        download_summary["symbols_recovered_from_file_audit"] = [
+            f"{root}.{exchange}"
+            for root, exchange in audited_replacements
+        ]
     selected: list[DiscoveredSymbol] = []
     missing: list[str] = []
     for row in selected_rows:
@@ -301,6 +337,10 @@ def prepare_backtest_symbols(
         selected.append(item)
     if missing:
         diagnosis = _missing_symbol_diagnosis(missing, download_summary)
+        diagnoses = {
+            token: _missing_symbol_diagnosis((token,), download_summary)
+            for token in missing
+        }
         if not bool(getattr(args, "allow_missing_symbols", False)):
             raise ValueError(
                 "missing selected minute data after download: "
@@ -316,7 +356,63 @@ def prepare_backtest_symbols(
             )
         download_summary["missing_symbols"] = list(missing)
         download_summary["missing_symbol_diagnosis"] = diagnosis
+        download_summary["missing_symbol_diagnoses"] = diagnoses
     return discovered, tuple(selected), {"enabled": True, **download_summary}
+
+
+def _audited_download_symbol(
+    identity: tuple[str, str],
+    download_summary: Mapping[str, Any],
+    *,
+    data_root: str | Path,
+) -> DiscoveredSymbol | None:
+    """Recover an identity from files already validated by the downloader."""
+    root_symbol, exchange = (value.upper() for value in identity)
+    exchange_aliases = {
+        "CFX": "CFFEX",
+        "CZC": "CZCE",
+        "GFE": "GFEX",
+        "SHF": "SHFE",
+        "ZCE": "CZCE",
+    }
+    root_path = Path(data_root).resolve()
+    directories: set[Path] = set()
+    for item in download_summary.get("files", ()) or ():
+        if not isinstance(item, Mapping):
+            continue
+        if str(item.get("status", "")) not in {
+            "downloaded",
+            "skipped",
+            "converted_schema",
+        }:
+            continue
+        if str(item.get("root_symbol", "")).upper() != root_symbol:
+            continue
+        mapping_exchange = str(item.get("mapping_exchange", "")).upper()
+        if exchange_aliases.get(mapping_exchange, mapping_exchange) != exchange:
+            continue
+        contract = str(item.get("contract_code", "")).upper()
+        match = re.fullmatch(r"(?P<root>[A-Z]+)\d+\.[A-Z]+", contract)
+        if match is None or match.group("root") != root_symbol:
+            continue
+        if not str(item.get("sha256", "")).strip():
+            continue
+        path = Path(str(item.get("path", ""))).resolve()
+        if (
+            path.suffix.lower() != ".parquet"
+            or not path.is_file()
+            or not path.is_relative_to(root_path)
+        ):
+            continue
+        directories.add(path.parent)
+    if len(directories) != 1:
+        return None
+    return DiscoveredSymbol(
+        root_symbol=root_symbol,
+        exchange=exchange,
+        vt_symbol=f"{root_symbol}0.{exchange}",
+        source_directory=next(iter(directories)),
+    )
 
 
 def _missing_symbol_diagnosis(
